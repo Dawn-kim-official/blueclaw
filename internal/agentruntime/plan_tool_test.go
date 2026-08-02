@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"testing"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 func invokePlanUpdateTool(t *testing.T, input string) json.RawMessage {
@@ -30,8 +28,8 @@ func TestPlanUpdateToolEchoesNormalizedPlan(t *testing.T) {
 	data := invokePlanUpdateTool(t, `{"goal":"  ship   the report ","steps":[{"title":"  gather   data ","status":"done"},{"title":"write summary","status":"in_progress"},{"title":"   ","status":"pending"}]}`)
 
 	var output struct {
-		Goal  string                `json:"goal"`
-		Steps []bluecollar.PlanStep `json:"steps"`
+		Goal  string                  `json:"goal"`
+		Steps []toolcontract.PlanStep `json:"steps"`
 	}
 	if errorValue := json.Unmarshal(data, &output); errorValue != nil {
 		t.Fatal(errorValue)

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -237,7 +236,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext con
 		return toolcontract.ToolResult{}, errorValue
 	}
 	resultDocument := scheduleCreateResultDocument(initializedTaskSchedule)
-	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+	if taskRunID := toolcontract.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", string(resultDocument))
 	}
 	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
@@ -271,7 +270,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext con
 		return toolcontract.ToolFailureResult(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "schedule_update", "active schedule was not found for the current requester"), nil
 	}
 	resultDocument := scheduleCreateResultDocument(result.TaskSchedule)
-	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+	if taskRunID := toolcontract.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.updated", string(resultDocument))
 	}
 	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil
@@ -304,7 +303,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 	if result.EffectiveCancellationCount == 0 {
 		return toolcontract.ToolFailureData(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", resultDocument), nil
 	}
-	if taskRunID := bluecollar.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+	if taskRunID := toolcontract.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", string(resultDocument))
 	}
 	return toolcontract.ToolSuccessData(string(resultDocument), resultDocument), nil

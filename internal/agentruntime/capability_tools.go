@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/access"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -21,8 +20,8 @@ func capabilityToolIdempotencyKey(toolContext context.Context, descriptor Capabi
 	if !descriptor.Idempotency.Supported {
 		return ""
 	}
-	taskRunID := strings.TrimSpace(bluecollar.TaskRunIDFromContext(toolContext))
-	observationID := strings.TrimSpace(bluecollar.ObservationIDFromContext(toolContext))
+	taskRunID := strings.TrimSpace(toolcontract.TaskRunIDFromContext(toolContext))
+	observationID := strings.TrimSpace(toolcontract.ObservationIDFromContext(toolContext))
 	if taskRunID == "" || observationID == "" {
 		return ""
 	}
@@ -542,7 +541,7 @@ func capabilityToolRequest(toolContext context.Context, descriptor CapabilityToo
 	if !request.ScheduledRun.IsEmpty() {
 		contextDocument["scheduledRun"] = request.ScheduledRun
 	}
-	if conflictResolution := bluecollar.ToolConflictResolutionFromContext(toolContext); conflictResolution != "" {
+	if conflictResolution := toolcontract.ToolConflictResolutionFromContext(toolContext); conflictResolution != "" {
 		contextDocument["conflictResolution"] = conflictResolution
 	}
 	requestDocument := map[string]any{

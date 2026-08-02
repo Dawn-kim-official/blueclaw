@@ -739,17 +739,6 @@ func stringSliceField(document map[string]any, fieldName string) []string {
 	return result
 }
 
-func compactWhitespace(value string) string {
-	return strings.Join(strings.Fields(value), " ")
-}
-
-func truncateText(value string, limit int) string {
-	if limit <= 0 || len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
-}
-
 func redactUnsafeText(value string) string {
 	lines := []string{}
 	for _, line := range strings.Split(value, "\n") {

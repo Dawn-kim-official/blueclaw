@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -600,7 +599,7 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 		ConversationID:    "dm-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(bluecollar.WithTaskRunID(context.Background(), taskRun.TaskRunID), toolcontract.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(toolcontract.WithTaskRunID(context.Background(), taskRun.TaskRunID), toolcontract.ToolInvocation{
 		ToolName: "schedule_cancel",
 		Input: toolcontract.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",

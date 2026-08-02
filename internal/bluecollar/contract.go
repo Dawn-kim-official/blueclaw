@@ -1,6 +1,9 @@
 package bluecollar
 
-import "github.com/Dawn-kim-official/blueclaw/agentcontract"
+import (
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+)
 
 var _ agentcontract.Harness = (*AgentKernel)(nil)
 
@@ -28,6 +31,8 @@ type (
 	ChoiceReplyOption                       = agentcontract.ChoiceReplyOption
 	ClarificationOption                     = agentcontract.ClarificationOption
 	CompanyContext                          = agentcontract.CompanyContext
+	PlanStep                                = toolcontract.PlanStep
+	ToolConflictResolution                  = toolcontract.ToolConflictResolution
 	ConfirmationReplyDecision               = agentcontract.ConfirmationReplyDecision
 	ContractToolWorkingSet                  = agentcontract.ContractToolWorkingSet
 	DeliverableKind                         = agentcontract.DeliverableKind
@@ -105,9 +110,11 @@ const (
 
 	DefaultReactionEmojiName = agentcontract.DefaultReactionEmojiName
 
-	ResponseLanguageEnglish            = agentcontract.ResponseLanguageEnglish
-	ResponseLanguageKorean             = agentcontract.ResponseLanguageKorean
-	ResponseLanguageSameAsConversation = agentcontract.ResponseLanguageSameAsConversation
+	ResponseLanguageEnglish            = toolcontract.ResponseLanguageEnglish
+	ResponseLanguageKorean             = toolcontract.ResponseLanguageKorean
+	ResponseLanguageSameAsConversation = toolcontract.ResponseLanguageSameAsConversation
+
+	ToolConflictResolutionAllowDuplicate = toolcontract.ToolConflictResolutionAllowDuplicate
 
 	TaskControlIntentNone    = agentcontract.TaskControlIntentNone
 	TaskControlIntentStop    = agentcontract.TaskControlIntentStop
@@ -150,15 +157,30 @@ const (
 )
 
 var (
-	DefaultResponseLanguage        = agentcontract.DefaultResponseLanguage
+	DefaultResponseLanguage        = toolcontract.DefaultResponseLanguage
 	IsApprovingSignal              = agentcontract.IsApprovingSignal
 	LargerTaskLevel                = agentcontract.LargerTaskLevel
-	NormalizeResponseLanguage      = agentcontract.NormalizeResponseLanguage
+	NormalizeResponseLanguage      = toolcontract.NormalizeResponseLanguage
 	NormalizeTaskLevel             = agentcontract.NormalizeTaskLevel
 	OutcomeContractHasRequirements = agentcontract.OutcomeContractHasRequirements
-	ResolveResponseLanguage        = agentcontract.ResolveResponseLanguage
+	ResolveResponseLanguage        = toolcontract.ResolveResponseLanguage
+	NormalizePlan                  = toolcontract.NormalizePlan
+	normalizePlanSteps             = toolcontract.NormalizePlanSteps
+
+	ObservationIDFromContext          = toolcontract.ObservationIDFromContext
+	ResponseLanguageFromContext       = toolcontract.ResponseLanguageFromContext
+	TaskRunIDFromContext              = toolcontract.TaskRunIDFromContext
+	ToolConflictResolutionFromContext = toolcontract.ToolConflictResolutionFromContext
+	UserFacingMessageFromContext      = toolcontract.UserFacingMessageFromContext
+	WithObservationID                 = toolcontract.WithObservationID
+	WithResponseLanguage              = toolcontract.WithResponseLanguage
+	WithTaskRunID                     = toolcontract.WithTaskRunID
+	WithToolConflictResolution        = toolcontract.WithToolConflictResolution
+	WithUserFacingMessage             = toolcontract.WithUserFacingMessage
 
 	appendUniqueStrings         = agentcontract.AppendUniqueStrings
+	compactWhitespace           = toolcontract.CompactWhitespace
+	truncateText                = toolcontract.TruncateText
 	taskLevelRank               = agentcontract.TaskLevelRank
 	normalizeClassification     = agentcontract.NormalizeIntakeClassification
 	normalizeExpectedResults    = agentcontract.NormalizeExpectedResults

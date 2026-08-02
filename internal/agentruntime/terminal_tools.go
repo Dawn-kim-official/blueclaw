@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -151,7 +150,7 @@ func terminalFailureSummary(result toolcontract.ToolResult) string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalRunHeartbeat(toolContext context.Context, command string) func() {
-	taskRunID := bluecollar.TaskRunIDFromContext(toolContext)
+	taskRunID := toolcontract.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return func() {}
 	}

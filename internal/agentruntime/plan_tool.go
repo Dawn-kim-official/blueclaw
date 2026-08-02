@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 var planUpdateInputSchema = json.RawMessage(`{
@@ -51,13 +49,13 @@ var planUpdateResultSchema = json.RawMessage(`{
 }`)
 
 type planUpdateToolInput struct {
-	Goal  string                `json:"goal"`
-	Steps []bluecollar.PlanStep `json:"steps"`
+	Goal  string                  `json:"goal"`
+	Steps []toolcontract.PlanStep `json:"steps"`
 }
 
 type planUpdateToolOutput struct {
-	Goal  string                `json:"goal,omitempty"`
-	Steps []bluecollar.PlanStep `json:"steps"`
+	Goal  string                  `json:"goal,omitempty"`
+	Steps []toolcontract.PlanStep `json:"steps"`
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistry *toolcontract.ToolSet) {
@@ -68,7 +66,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerPlanUpdateTool(toolRegistr
 			InputSchema: planUpdateInputSchema,
 		},
 		Handler: func(_ context.Context, input planUpdateToolInput) (toolcontract.ToolResult, error) {
-			goal, steps := bluecollar.NormalizePlan(input.Goal, input.Steps)
+			goal, steps := toolcontract.NormalizePlan(input.Goal, input.Steps)
 			document := json.RawMessage(marshalToolResult(planUpdateToolOutput{Goal: goal, Steps: steps}))
 			return toolcontract.ToolSuccessData(string(document), document), nil
 		},

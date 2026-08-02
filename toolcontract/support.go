@@ -11,6 +11,17 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+func CompactWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func TruncateText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "..."
+}
+
 func toolIsModelCallable(toolID string) bool {
 	return strings.TrimSpace(toolID) != ""
 }

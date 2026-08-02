@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -49,7 +48,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskInputTool(toolRegistry 
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.Context, input askInputToolInput) (toolcontract.ToolResult, error) {
-	taskRunID := bluecollar.TaskRunIDFromContext(toolContext)
+	taskRunID := toolcontract.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "ask_input", "ask_input requires an active task run"), nil
 	}
@@ -76,7 +75,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 		"message":          question,
 		"options":          options,
 		"selectionMode":    selectionModeForOptions(len(options)),
-		"responseLanguage": bluecollar.ResponseLanguageFromContext(toolContext),
+		"responseLanguage": toolcontract.ResponseLanguageFromContext(toolContext),
 	}))
 	resultDocument := json.RawMessage(marshalToolResult(askInputResult{
 		TaskRunID: taskRunID,

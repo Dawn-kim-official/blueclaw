@@ -1629,7 +1629,7 @@ func TestFileWriteRejectsLegacyMode(t *testing.T) {
 			Circles:  []string{"staff"},
 		},
 	})
-	toolContext := bluecollar.WithTaskRunID(context.Background(), "run-mode-regression")
+	toolContext := toolcontract.WithTaskRunID(context.Background(), "run-mode-regression")
 
 	writeResult, errorValue := toolRegistry.Invoke(toolContext, toolcontract.ToolInvocation{
 		ToolName: "file_write",
