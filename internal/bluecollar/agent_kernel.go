@@ -415,6 +415,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.languageModel,
 		turnOptions,
 	)
+	agentTurnRunner.UseTaskLevelLanguageModelResolver(agentKernel.taskLanguageModelForLevel)
 	result, errorValue := agentTurnRunner.RunTurn(taskBudget.callerContext(), turnRequest)
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
@@ -973,6 +974,11 @@ type budgetEscalatedEventBody struct {
 	UsedIterationCount int       `json:"usedIterationCount,omitempty"`
 	UsedToolCallCount  int       `json:"usedToolCallCount,omitempty"`
 	QualifyingEventIDs []string  `json:"qualifyingEventIDs,omitempty"`
+}
+
+type modelEscalatedEventBody struct {
+	PreviousTaskLevel TaskLevel `json:"previousTaskLevel,omitempty"`
+	NewTaskLevel      TaskLevel `json:"newTaskLevel"`
 }
 
 func highestEscalatedTaskLevel(taskEvents []taskstate.TaskEvent) TaskLevel {
