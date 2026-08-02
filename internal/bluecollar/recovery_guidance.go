@@ -14,9 +14,9 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 		return "", toolCallActionOutcome{}
 	}
 	effectiveToolName := effectiveObservationToolName(actionDocument.ToolName, actionDocument.ToolInput)
-	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
+	recoveryStep := classifyRecoveryStep(request.ToolSet, failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
-		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep, firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt))
+		observation := recoveryBudgetExhaustedObservation(request.ToolSet, len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep, firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusCompleted, "recovery_budget_exhausted "+effectiveToolName, observation.ContentText())
@@ -36,9 +36,9 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 	return recoveryStep, toolCallActionOutcome{}
 }
 
-func recoveryGuidanceObservation(index int, observation turnObservation, originalInstruction string) turnObservation {
+func recoveryGuidanceObservation(toolSet *toolcontract.ToolSet, index int, observation turnObservation, originalInstruction string) turnObservation {
 	packet := buildRecoveryPacket(observation)
-	content := recoveryGuidanceContent(observation, originalInstruction) + " " + recoveryPacketContent(packet)
+	content := recoveryGuidanceContent(toolSet, observation, originalInstruction) + " " + recoveryPacketContent(packet)
 	return turnObservation{
 		ObservationID:        nextObservationID(index),
 		Action:               "recovery_guidance",
@@ -53,7 +53,7 @@ func recoveryGuidanceObservation(index int, observation turnObservation, origina
 	}
 }
 
-func recoveryGuidanceContent(observation turnObservation, originalInstruction string) string {
+func recoveryGuidanceContent(toolSet *toolcontract.ToolSet, observation turnObservation, originalInstruction string) string {
 	parts := []string{"Analyze the latest failed tool result before responding."}
 	if instruction := strings.TrimSpace(originalInstruction); instruction != "" {
 		parts = append(parts, "The user's original request is still: \""+instruction+"\". Recover toward that request; do not drift into an unrelated question or topic because of this failure.")
@@ -73,51 +73,27 @@ func recoveryGuidanceContent(observation turnObservation, originalInstruction st
 	if terminalRecoveryGuidance := terminalWorkingDirectoryRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
 		parts = append(parts, terminalRecoveryGuidance)
 	}
-	if browserGuidance := browserPublicFetchRecoveryGuidance(observation); browserGuidance != "" {
+	if browserGuidance := browserPublicFetchRecoveryGuidance(toolSet, observation); browserGuidance != "" {
 		parts = append(parts, browserGuidance)
-	}
-	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
-		parts = append(parts, recoveryRoute.Guidance())
 	}
 	return strings.Join(parts, " ")
 }
 
-func browserPublicFetchRecoveryGuidance(observation turnObservation) string {
-	if !strings.HasPrefix(strings.TrimSpace(observation.Tool), "browser_") {
+// The descriptor says the call needed the browser on the requester's own machine.
+// A name prefix said it too, right up until a tool was renamed.
+func browserPublicFetchRecoveryGuidance(toolSet *toolcontract.ToolSet, observation turnObservation) string {
+	definition, isFound := toolDefinitionForRecovery(toolSet, observation.Tool)
+	if !isFound || !definition.RequiresCompanionBrowser {
 		return ""
 	}
 	return "Recovery route: browser capability operations run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web_fetch (or web_search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
 }
 
 func terminalWorkingDirectoryRecoveryGuidance(observation turnObservation) string {
-	if strings.TrimSpace(observation.Tool) != "terminal_run" {
-		return ""
-	}
 	if strings.TrimSpace(observation.FailureStage()) == "terminal_working_directory_access" {
 		return "Recovery route: retry terminal_run with workingDirectoryPath set to ~/documents or another ~ path, use relative paths inside the command, then deliver accepted output with file.deliver."
 	}
 	return ""
-}
-
-type RecoveryRoute struct {
-	ToolName     string
-	UseWhen      string
-	DoNotUseWhen string
-}
-
-func (recoveryRoute RecoveryRoute) Guidance() string {
-	return "Recovery route: use " + recoveryRoute.ToolName + " only when " + recoveryRoute.UseWhen + "; do not use it when " + recoveryRoute.DoNotUseWhen + "."
-}
-
-func recoveryRoutesForObservation(observation turnObservation) []RecoveryRoute {
-	if strings.TrimSpace(observation.Tool) != "memory_search" || observation.FailureCode() != toolcontract.FailureCodes.Unavailable.String() {
-		return nil
-	}
-	return []RecoveryRoute{{
-		ToolName:     "web_search",
-		UseWhen:      "the missing information is required and public, current, or external",
-		DoNotUseWhen: "private person or circle memory is required",
-	}}
 }
 
 func recoveryAttemptCount(observations []turnObservation) int {

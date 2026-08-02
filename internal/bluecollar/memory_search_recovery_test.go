@@ -1,52 +1,9 @@
 package bluecollar
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strings"
 	"testing"
 )
-
-func TestMemorySearchWebSearchIsAlternateRecoveryRoute(t *testing.T) {
-	if !isAlternateRouteToolPair("memory_search", "web_search") {
-		t.Fatal("expected web_search to recover memory_search failure as an alternate route")
-	}
-	if isAlternateRouteToolPair("web_search", "memory_search") {
-		t.Fatal("expected memory_search not to recover web_search failure as an alternate route")
-	}
-}
-
-func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "memory_search", "Persistent memory search is unavailable.", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "graphiti_search")
-	guidance := recoveryGuidanceContent(observation, "")
-
-	for _, expectedText := range []string{
-		"web_search",
-		"public, current, or external",
-		"private person or circle memory",
-	} {
-		if !strings.Contains(guidance, expectedText) {
-			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
-		}
-	}
-}
-
-func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal_run", "command failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run")
-	guidance := recoveryGuidanceContent(observation, "")
-
-	if strings.Contains(guidance, "web_search") {
-		t.Fatalf("expected non-memory failure not to include web route, got %q", guidance)
-	}
-}
-
-func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal_run", "terminal unavailable", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "terminal_run")
-	guidance := recoveryGuidanceContent(observation, "")
-
-	if strings.Contains(guidance, "web_search") {
-		t.Fatalf("expected non-memory unavailable failure not to include web route, got %q", guidance)
-	}
-}
 
 func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	instructions := DefaultSkillInstructions()

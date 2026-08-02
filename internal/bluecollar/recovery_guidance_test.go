@@ -48,8 +48,8 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 	failure := newFailureObservation("obs-001", "continue", "message_send", "failed", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "message_send")
-	passiveGuidance := recoveryGuidanceObservation(2, failure, "")
-	spentGuidance := recoveryGuidanceObservation(3, failure, "")
+	passiveGuidance := recoveryGuidanceObservation(nil, 2, failure, "")
+	spentGuidance := recoveryGuidanceObservation(nil, 3, failure, "")
 	spentGuidance.RecoveryAttemptSpent = true
 	retryObservation := failure
 	retryObservation.ObservationID = "obs-004"
@@ -97,7 +97,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		}, nil
 	})
 	fileReadCount := 0
-	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_read"}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+	registerTestTool(toolRegistry, toolcontract.ToolDefinition{Name: "file_read", SideEffectClass: toolcontract.ToolSideEffectRead}, func(context.Context, toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
 		fileReadCount++
 		return testToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","content":"broken"}`), nil
 	})

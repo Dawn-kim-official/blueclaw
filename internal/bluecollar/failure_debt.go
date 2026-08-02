@@ -154,7 +154,7 @@ func successfulObservationIsInspection(observation turnObservation) bool {
 	if strings.TrimSpace(observation.RecoveryStep) == recoveryStepInspection {
 		return true
 	}
-	return isInspectionRecoveryTool(observation.Tool)
+	return observation.ToolIsReadOnly
 }
 
 func attemptFingerprint(toolInputKey string, errorCode string) string {
@@ -186,53 +186,42 @@ func previousFailedToolInput(observations []turnObservation, toolName string, to
 	return turnObservation{}, false
 }
 
-func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
+func classifyRecoveryStep(toolSet *toolcontract.ToolSet, failureDebt FailureDebt, toolName string) string {
 	failedToolName := strings.TrimSpace(failureDebt.LatestFailure.Tool)
 	recoveryToolName := strings.TrimSpace(toolName)
 	if failedToolName == recoveryToolName {
 		return recoveryStepCorrectedRetry
 	}
-	if isAlternateRouteToolPair(failedToolName, recoveryToolName) {
+	if isAlternateRouteToolPair(toolSet, failedToolName, recoveryToolName) {
 		return recoveryStepAlternateRoute
 	}
-	if isInspectionRecoveryTool(recoveryToolName) {
+	if evidenceToolIsReadOnly(toolSet, recoveryToolName) {
 		return recoveryStepInspection
 	}
 	return recoveryStepAdjacentTool
 }
 
-func isInspectionRecoveryTool(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "file_read", "site_list", "conversation_history":
-		return true
-	default:
-		return false
+func toolDefinitionForRecovery(toolSet *toolcontract.ToolSet, toolName string) (toolcontract.ToolDefinition, bool) {
+	if toolSet == nil {
+		return toolcontract.ToolDefinition{}, false
 	}
+	return toolSet.ToolDefinition(strings.TrimSpace(toolName))
 }
 
-func isAlternateRouteToolPair(firstToolName string, secondToolName string) bool {
-	if isMemorySearchWebSearchRoute(firstToolName, secondToolName) {
-		return true
-	}
-	firstRoute := recoveryRouteGroup(firstToolName)
-	secondRoute := recoveryRouteGroup(secondToolName)
-	return firstRoute != "" && firstRoute == secondRoute
+// Two tools are alternate routes when they serve the same namespace. Grouping them
+// by a shared name prefix put the grouping in the name, where a rename loses it.
+func isAlternateRouteToolPair(toolSet *toolcontract.ToolSet, firstToolName string, secondToolName string) bool {
+	firstNamespace := recoveryToolNamespace(toolSet, firstToolName)
+	secondNamespace := recoveryToolNamespace(toolSet, secondToolName)
+	return firstNamespace != "" && firstNamespace == secondNamespace
 }
 
-func isMemorySearchWebSearchRoute(firstToolName string, secondToolName string) bool {
-	return strings.TrimSpace(firstToolName) == "memory_search" && strings.TrimSpace(secondToolName) == "web_search"
-}
-
-func recoveryRouteGroup(toolName string) string {
-	trimmedToolName := strings.TrimSpace(toolName)
-	switch {
-	case strings.HasPrefix(trimmedToolName, "browser_") || strings.HasPrefix(trimmedToolName, "browser_handoff_") || strings.HasPrefix(trimmedToolName, "web_"):
-		return "web"
-	case strings.HasPrefix(trimmedToolName, "terminal_"):
-		return "terminal"
-	default:
+func recoveryToolNamespace(toolSet *toolcontract.ToolSet, toolName string) string {
+	definition, isFound := toolDefinitionForRecovery(toolSet, toolName)
+	if !isFound {
 		return ""
 	}
+	return strings.TrimSpace(definition.Namespace)
 }
 
 func recoveryBudgetAllowsStep(observations []turnObservation, budget RecoveryBudget, recoveryStep string) bool {
@@ -268,9 +257,9 @@ func maxToolCallCountWithRecovery(options TurnOptions, observations []turnObserv
 	return options.MaxToolCallCount + recoveryToolBudgetTotal(options.RecoveryBudget)
 }
 
-func repeatedFailedAttemptObservation(index int, failedObservation turnObservation, originalInstruction string) turnObservation {
+func repeatedFailedAttemptObservation(toolSet *toolcontract.ToolSet, index int, failedObservation turnObservation, originalInstruction string) turnObservation {
 	content := "This exact tool/input/error fingerprint already failed. Do not repeat it. Change the input, use another route or adjacent tool, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail after recovery budget is exhausted."
-	observation := recoveryGuidanceObservation(index, failedObservation, originalInstruction)
+	observation := recoveryGuidanceObservation(toolSet, index, failedObservation, originalInstruction)
 	observation.Action = "policy"
 	observation = withObservationContent(observation, content+" "+observation.ContentText())
 	observation.Summary = observation.ContentText()
@@ -279,9 +268,9 @@ func repeatedFailedAttemptObservation(index int, failedObservation turnObservati
 	return observation
 }
 
-func recoveryBudgetExhaustedObservation(index int, failedObservation turnObservation, recoveryStep string, originalInstruction string) turnObservation {
+func recoveryBudgetExhaustedObservation(toolSet *toolcontract.ToolSet, index int, failedObservation turnObservation, recoveryStep string, originalInstruction string) turnObservation {
 	content := "The recovery budget for " + strings.TrimSpace(recoveryStep) + " is exhausted. Choose another recovery step, answer without tools using failureResolution=no_tool_fallback if enough context exists, or return fail if no recovery tool budget remains."
-	observation := recoveryGuidanceObservation(index, failedObservation, originalInstruction)
+	observation := recoveryGuidanceObservation(toolSet, index, failedObservation, originalInstruction)
 	observation.Action = "policy"
 	observation = withObservationContent(observation, content+" "+observation.ContentText())
 	observation.Summary = observation.ContentText()
@@ -478,7 +467,7 @@ func alternateRouteToolIsAvailable(toolSet *toolcontract.ToolSet, failedToolName
 	}
 	normalizedFailedToolName := strings.TrimSpace(failedToolName)
 	for _, toolName := range toolSet.ListToolNames() {
-		if strings.TrimSpace(toolName) != "" && strings.TrimSpace(toolName) != normalizedFailedToolName && isAlternateRouteToolPair(normalizedFailedToolName, toolName) {
+		if strings.TrimSpace(toolName) != "" && strings.TrimSpace(toolName) != normalizedFailedToolName && isAlternateRouteToolPair(toolSet, normalizedFailedToolName, toolName) {
 			return true
 		}
 	}
@@ -492,7 +481,7 @@ func adjacentRecoveryToolIsAvailable(toolSet *toolcontract.ToolSet, failedToolNa
 	normalizedFailedToolName := strings.TrimSpace(failedToolName)
 	for _, toolName := range toolSet.ListToolNames() {
 		normalizedToolName := strings.TrimSpace(toolName)
-		if normalizedToolName != "" && normalizedToolName != normalizedFailedToolName && !isAlternateRouteToolPair(normalizedFailedToolName, normalizedToolName) {
+		if normalizedToolName != "" && normalizedToolName != normalizedFailedToolName && !isAlternateRouteToolPair(toolSet, normalizedFailedToolName, normalizedToolName) {
 			return true
 		}
 	}

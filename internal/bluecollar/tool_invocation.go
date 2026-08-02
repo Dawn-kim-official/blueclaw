@@ -23,7 +23,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 		agentTurnRunner.appendEvent(taskRunID, "agent.failure_debt_created", marshalEventBody(activeFailureDebtEventBody(state.Observations, agentTurnRunner.options.RecoveryBudget)))
 		if recoveryAttemptCount(state.Observations) < agentTurnRunner.options.RecoveryAttemptLimit {
 			originalInstruction := firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt)
-			recoveryObservation := recoveryGuidanceObservation(nextObservationIndex(state.Observations), observation, originalInstruction)
+			recoveryObservation := recoveryGuidanceObservation(state.Request.ToolSet, nextObservationIndex(state.Observations), observation, originalInstruction)
 			state.Observations = append(state.Observations, recoveryObservation)
 			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_guidance", marshalEventBody(recoveryObservation))
 		}
@@ -56,7 +56,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if errorValue != nil {
 		toolResult = toolcontract.ToolFailureResult(toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
-	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolDefinition.ID, toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
+	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolDefinition.ID, toolInput, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, !toolcontract.ToolDefinitionRequiresSideEffectEvidence(toolDefinition), workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
 	return observation
 }
 
@@ -68,7 +68,7 @@ func toolFailureObservation(observationID string, toolName string, message strin
 	return newFailureObservation(observationID, "continue", toolName, message, toolcontract.FailureUnknown, toolcontract.FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolID string, toolInput json.RawMessage, observationToolName string, toolInputKey string, toolResult toolcontract.ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolID string, toolInput json.RawMessage, observationToolName string, toolInputKey string, toolResult toolcontract.ToolResult, toolIsReadOnly bool, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -105,6 +105,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,
 		RecoveryActions: append([]toolcontract.RecoveryAction{}, toolResult.RecoveryActions...),
+		ToolIsReadOnly:  toolIsReadOnly,
 	}
 	observation.Output.Content = content
 	observation.ImageRefs = toolResultImageRefs(observationID, attachments)

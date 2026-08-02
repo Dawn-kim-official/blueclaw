@@ -21,6 +21,7 @@ type ToolDescriptor struct {
 	Description          string              `json:"description"`
 	PrivacyClass         string              `json:"privacyClass,omitempty"`
 	RequiresUserPresence bool                `json:"requiresUserPresence,omitempty"`
+	RequiresCompanionBrowser bool            `json:"requiresCompanionBrowser,omitempty"`
 	WorksOffline         bool                `json:"worksOffline,omitempty"`
 	RecoveryCard         ToolRecoveryCard    `json:"recoveryCard,omitempty"`
 	InputSchema          json.RawMessage     `json:"inputSchema,omitempty"`

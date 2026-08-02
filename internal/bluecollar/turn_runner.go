@@ -173,6 +173,7 @@ type turnObservation struct {
 	AttemptFingerprint   string                        `json:"attemptFingerprint,omitempty"`
 	RecoveryAttemptKey   string                        `json:"recoveryAttemptKey,omitempty"`
 	RecoveryStep         string                        `json:"recoveryStep,omitempty"`
+	ToolIsReadOnly       bool                          `json:"toolIsReadOnly,omitempty"`
 	RecoveryAttemptSpent bool                          `json:"recoveryAttemptSpent,omitempty"`
 	PolicyCode           string                        `json:"policyCode,omitempty"`
 	RelatedResultIDs     []string                      `json:"relatedResultIDs,omitempty"`

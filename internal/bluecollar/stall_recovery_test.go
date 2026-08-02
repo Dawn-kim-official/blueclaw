@@ -228,12 +228,15 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 	failedBrowser := newFailureObservation("obs-001", "continue", "browser_open", "Companion is not connected, so the browser cannot be opened.", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "browser_open")
-	guidance := recoveryGuidanceContent(failedBrowser, "")
+	browserToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
+		{Name: "browser_open", Namespace: "browser", RequiresCompanionBrowser: true, Description: "Open a page on the requester's machine", PrivacyClass: "local_browser", Visibility: "visible", PolicyResource: "tool:browser_open", SideEffectClass: "state_change"},
+	})
+	guidance := recoveryGuidanceContent(browserToolSet, failedBrowser, "")
 	if !strings.Contains(guidance, "web_fetch") {
 		t.Fatalf("expected browser failure to steer toward web_fetch, got %q", guidance)
 	}
 	nonBrowser := newFailureObservation("obs-002", "continue", "terminal_run", "boom", toolcontract.FailureExternalService, toolcontract.FailureCodes.OperationFailed, "terminal_run")
-	if strings.Contains(recoveryGuidanceContent(nonBrowser, ""), "browser capability operations run on the user's Companion") {
+	if strings.Contains(recoveryGuidanceContent(browserToolSet, nonBrowser, ""), "browser capability operations run on the user's Companion") {
 		t.Fatal("expected non-browser failures not to get browser guidance")
 	}
 }
