@@ -6,12 +6,12 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 type taskControlSelection struct {
-	intent            bluecollar.TaskControlIntent
+	intent            agentcontract.TaskControlIntent
 	reason            string
 	cancelledTaskRuns []task.TaskRun
 	hasNoTarget       bool
@@ -27,7 +27,7 @@ func (connectorRuntime *ConnectorRuntime) handleTaskControlIfRequested(
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, bool) {
 	decision, hasDecision := taskControlIntent(event)
-	if !hasDecision || decision.Intent == bluecollar.TaskControlIntentNone {
+	if !hasDecision || decision.Intent == agentcontract.TaskControlIntentNone {
 		return ConnectorRuntimeResult{}, false
 	}
 
@@ -59,25 +59,25 @@ func (connectorRuntime *ConnectorRuntime) handleTaskControlIfRequested(
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, Reason: "task_control", ReplyDispatchID: dispatchID}, true
 }
 
-func taskControlIntent(event PlatformInboundEvent) (bluecollar.TaskControlIntentDecision, bool) {
-	if intent := exactTaskControlIntent(event.Prompt); intent != bluecollar.TaskControlIntentNone {
-		return bluecollar.TaskControlIntentDecision{Intent: intent, Reason: "explicit control command"}, true
+func taskControlIntent(event PlatformInboundEvent) (agentcontract.TaskControlIntentDecision, bool) {
+	if intent := exactTaskControlIntent(event.Prompt); intent != agentcontract.TaskControlIntentNone {
+		return agentcontract.TaskControlIntentDecision{Intent: intent, Reason: "explicit control command"}, true
 	}
-	return bluecollar.TaskControlIntentDecision{}, false
+	return agentcontract.TaskControlIntentDecision{}, false
 }
 
-func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision bluecollar.TaskControlIntentDecision, personID string, event PlatformInboundEvent) taskControlSelection {
+func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision agentcontract.TaskControlIntentDecision, personID string, event PlatformInboundEvent) taskControlSelection {
 	selection := taskControlSelection{
 		intent: decision.Intent,
 		reason: firstNonEmptyString(decision.Reason, "user requested task stop"),
 	}
 	switch decision.Intent {
-	case bluecollar.TaskControlIntentStopAll:
+	case agentcontract.TaskControlIntentStopAll:
 		selection.cancelledTaskRuns = connectorRuntime.taskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
 			RequesterPersonID: personID,
 			Reason:            selection.reason,
 		})
-	case bluecollar.TaskControlIntentStop:
+	case agentcontract.TaskControlIntentStop:
 		selection.cancelledTaskRuns = connectorRuntime.cancelLatestStopScopedTask(personID, event, selection.reason)
 	}
 	selection.hasNoTarget = len(selection.cancelledTaskRuns) == 0
@@ -156,7 +156,7 @@ func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) 
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldProcessBeforeConversationLock(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) bool {
-	if exactTaskControlIntent(event.Prompt) != bluecollar.TaskControlIntentNone {
+	if exactTaskControlIntent(event.Prompt) != agentcontract.TaskControlIntentNone {
 		return true
 	}
 	return connectorRuntime.looksLikeActiveTaskFollowUp(ctx, adapter, event)
@@ -171,7 +171,7 @@ func (connectorRuntime *ConnectorRuntime) looksLikeActiveTaskFollowUp(ctx contex
 	if !isFound {
 		return false
 	}
-	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, bluecollar.ActiveTaskFollowUpClassificationRequest{
+	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: activeTaskRun.Prompt,
 		ActiveTaskStatus: string(activeTaskRun.Status),
 		LatestMessage:    event.Prompt,
@@ -182,15 +182,15 @@ func (connectorRuntime *ConnectorRuntime) looksLikeActiveTaskFollowUp(ctx contex
 	return isRelated
 }
 
-func exactTaskControlIntent(prompt string) bluecollar.TaskControlIntent {
+func exactTaskControlIntent(prompt string) agentcontract.TaskControlIntent {
 	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
 	switch normalizedPrompt {
 	case "/stop":
-		return bluecollar.TaskControlIntentStop
+		return agentcontract.TaskControlIntentStop
 	case "/stop-all":
-		return bluecollar.TaskControlIntentStopAll
+		return agentcontract.TaskControlIntentStopAll
 	default:
-		return bluecollar.TaskControlIntentNone
+		return agentcontract.TaskControlIntentNone
 	}
 }
 

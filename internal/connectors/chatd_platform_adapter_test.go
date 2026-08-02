@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -88,7 +88,7 @@ func TestChatdPlatformAdapterImportsInputAttachments(t *testing.T) {
 	if receivedPath != "/v1/platform/mattermost/attachments.import" || receivedBody.MessageID != "post-1" {
 		t.Fatalf("unexpected import request path=%q body=%+v", receivedPath, receivedBody)
 	}
-	if len(result.InputParts) != 1 || result.InputParts[0].Type != bluecollar.AgentPartTypeFile {
+	if len(result.InputParts) != 1 || result.InputParts[0].Type != agentcontract.AgentPartTypeFile {
 		t.Fatalf("expected imported file part, got %+v", result.InputParts)
 	}
 }

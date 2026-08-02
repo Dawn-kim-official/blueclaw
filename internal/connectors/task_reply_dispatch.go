@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -24,8 +24,8 @@ type taskReplyDecision struct {
 	Reason string
 }
 
-func decideTaskReply(turnResult bluecollar.AgentTurnResult, isCancelledBeforeSend bool) taskReplyDecision {
-	if turnResult.TurnRoute == bluecollar.TurnRouteConsume {
+func decideTaskReply(turnResult agentcontract.AgentTurnResult, isCancelledBeforeSend bool) taskReplyDecision {
+	if turnResult.TurnRoute == agentcontract.TurnRouteConsume {
 		return taskReplyDecision{Kind: taskReplyDecisionConsume}
 	}
 	if strings.TrimSpace(turnResult.ReplySuppressionReason) != "" &&
@@ -51,7 +51,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	adapter PlatformAdapter,
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
-	turnResult bluecollar.AgentTurnResult,
+	turnResult agentcontract.AgentTurnResult,
 	engagedAckEmojiName string,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
@@ -105,7 +105,7 @@ func (connectorRuntime *ConnectorRuntime) sendCompletedTaskReply(
 	event PlatformInboundEvent,
 	taskRunID string,
 	replyTarget ReplyTarget,
-	turnResult bluecollar.AgentTurnResult,
+	turnResult agentcontract.AgentTurnResult,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
