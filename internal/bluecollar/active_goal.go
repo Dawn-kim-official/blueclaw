@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-const (
-	ArtifactRequirementNone      = "none"
-	ArtifactRequirementPreferred = "preferred"
-	ArtifactRequirementRequired  = "required"
-)
-
 func normalizePersistedActiveGoal(activeGoal ActiveGoal) ActiveGoal {
 	activeGoal.RequiredNextTools = normalizePersistedToolNames(activeGoal.RequiredNextTools)
 	activeGoal.SelectedToolNames = normalizePersistedToolNames(activeGoal.SelectedToolNames)

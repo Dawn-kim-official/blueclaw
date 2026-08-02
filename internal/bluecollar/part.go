@@ -8,12 +8,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
-const (
-	AgentPartTypeText  = "text"
-	AgentPartTypeImage = "image"
-	AgentPartTypeFile  = "file"
-)
-
 type AgentMessage struct {
 	Role  string      `json:"role"`
 	Parts []AgentPart `json:"parts,omitempty"`

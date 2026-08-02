@@ -1,5 +1,11 @@
 package agentcontract
 
+const (
+	AgentPartTypeText  = "text"
+	AgentPartTypeImage = "image"
+	AgentPartTypeFile  = "file"
+)
+
 type AgentPart struct {
 	Type       string          `json:"type"`
 	Text       string          `json:"text,omitempty"`

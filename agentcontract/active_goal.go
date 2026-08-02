@@ -16,6 +16,12 @@ const (
 )
 
 const (
+	ArtifactRequirementNone      = "none"
+	ArtifactRequirementPreferred = "preferred"
+	ArtifactRequirementRequired  = "required"
+)
+
+const (
 	ExpectedResultTypeMessage = "message"
 	ExpectedResultTypeFile    = "file"
 	ExpectedResultTypeLink    = "link"
