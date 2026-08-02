@@ -7,13 +7,13 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 )
 
 type kernelHistoryProvider struct{}
 
-func (kernelHistoryProvider) FetchHistory(context.Context, string, int) (bluecollar.VisibleContext, error) {
-	return bluecollar.VisibleContext{}, nil
+func (kernelHistoryProvider) FetchHistory(context.Context, string, int) (agentcontract.VisibleContext, error) {
+	return agentcontract.VisibleContext{}, nil
 }
 
 func TestKernelToolProviderUsesCanonicalDescriptors(t *testing.T) {

@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 )
 
 type recordingConversationHistoryProvider struct {
 	historyCursor  string
 	limit          int
-	visibleContext bluecollar.VisibleContext
+	visibleContext agentcontract.VisibleContext
 }
 
-func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Context, historyCursor string, limit int) (bluecollar.VisibleContext, error) {
+func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Context, historyCursor string, limit int) (agentcontract.VisibleContext, error) {
 	provider.historyCursor = historyCursor
 	provider.limit = limit
 	return provider.visibleContext, nil
@@ -24,14 +24,14 @@ func (provider *recordingConversationHistoryProvider) FetchHistory(_ context.Con
 
 func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: bluecollar.VisibleContext{
-			Messages: []bluecollar.VisibleContextMessage{{
+		visibleContext: agentcontract.VisibleContext{
+			Messages: []agentcontract.VisibleContextMessage{{
 				Speaker:            "Requester",
 				SpeakerCallingName: "Lee",
 				SpeakerHandle:      "lee",
 				Text:               "check the previous file again",
 				SentAt:             time.Date(2026, 7, 19, 9, 30, 0, 0, time.UTC),
-				Materials: []bluecollar.VisibleContextMaterial{{
+				Materials: []agentcontract.VisibleContextMaterial{{
 					FileHint:          "quarterly-report",
 					MaterialID:        "internal-material-id",
 					Platform:          "mattermost",
@@ -85,7 +85,7 @@ func TestConversationHistoryUsesTrustedCursorAndCanonicalProjection(t *testing.T
 
 func TestConversationHistoryNormalizesNilArrays(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: bluecollar.VisibleContext{HistoryCursor: "next-cursor"},
+		visibleContext: agentcontract.VisibleContext{HistoryCursor: "next-cursor"},
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 
@@ -144,7 +144,7 @@ func TestConversationHistoryRejectsNonCanonicalInput(t *testing.T) {
 
 func TestConversationHistoryAcceptsExplicitCursorAndLimit(t *testing.T) {
 	historyProvider := &recordingConversationHistoryProvider{
-		visibleContext: bluecollar.VisibleContext{HistoryCursor: "next-cursor"},
+		visibleContext: agentcontract.VisibleContext{HistoryCursor: "next-cursor"},
 	}
 	toolSet := conversationHistoryToolSet(historyProvider, "trusted-cursor")
 

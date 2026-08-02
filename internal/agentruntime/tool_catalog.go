@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -22,11 +21,11 @@ import (
 )
 
 type HistoryProvider interface {
-	FetchHistory(context.Context, string, int) (bluecollar.VisibleContext, error)
+	FetchHistory(context.Context, string, int) (agentcontract.VisibleContext, error)
 }
 
 type AttachmentMaterialResolver interface {
-	ResolveAttachmentMaterial(context.Context, string) (bluecollar.VisibleContextMaterial, error)
+	ResolveAttachmentMaterial(context.Context, string) (agentcontract.VisibleContextMaterial, error)
 }
 
 type ToolCatalogBuilder struct {
@@ -47,7 +46,7 @@ type ToolCatalogBuilder struct {
 	workspaceRootPath            string
 	skillChangeHandler           func(context.Context)
 	skillRetriever               agentcontract.SkillRetriever
-	instructionBundleLoader      func() bluecollar.InstructionBundle
+	instructionBundleLoader      func() agentcontract.InstructionBundle
 	mcpQuarantineReporter        func(toolcontract.QuarantinedToolProvider)
 	capabilityQuarantineReporter func(toolcontract.QuarantinedToolProvider)
 	liveSnapshotMutex            sync.Mutex
@@ -66,7 +65,7 @@ type toolHandlerContext struct {
 type ToolCatalogRequest struct {
 	ProfileName                string
 	Prompt                     string
-	VisibleContext             bluecollar.VisibleContext
+	VisibleContext             agentcontract.VisibleContext
 	RequesterPersonID          string
 	RequesterName              string
 	RequesterEmail             string
@@ -88,8 +87,8 @@ type ToolCatalogRequest struct {
 	PersonAccess               policy.PersonAccess
 	MemoryNamespaces           []memory.MemoryNamespace
 	AccessibleConversationIDs  []string
-	InputParts                 []bluecollar.AgentPart
-	ScheduledRun               bluecollar.ScheduledRunContext
+	InputParts                 []agentcontract.AgentPart
+	ScheduledRun               agentcontract.ScheduledRunContext
 }
 
 type CapabilityToolDescriptor struct {
@@ -235,7 +234,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillChangeHandler(skillChangeH
 	toolCatalogBuilder.skillChangeHandler = skillChangeHandler
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillSearch(skillRetriever agentcontract.SkillRetriever, instructionBundleLoader func() bluecollar.InstructionBundle) {
+func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillSearch(skillRetriever agentcontract.SkillRetriever, instructionBundleLoader func() agentcontract.InstructionBundle) {
 	toolCatalogBuilder.skillRetriever = skillRetriever
 	toolCatalogBuilder.instructionBundleLoader = instructionBundleLoader
 }

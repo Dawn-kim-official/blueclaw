@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -63,17 +64,17 @@ type TaskLaunchRequest struct {
 	ActiveCircleConflict       bool
 	ReplyTargetID              string
 	Prompt                     string
-	InputParts                 []bluecollar.AgentPart
+	InputParts                 []agentcontract.AgentPart
 	ResponseLanguage           string
-	VisibleContext             bluecollar.VisibleContext
-	ActiveGoal                 bluecollar.ActiveGoal
-	PriorTask                  bluecollar.PriorTaskContext
-	ScheduledRun               bluecollar.ScheduledRunContext
-	PrecomputedTurnDecision    *bluecollar.TurnDecision
+	VisibleContext             agentcontract.VisibleContext
+	ActiveGoal                 agentcontract.ActiveGoal
+	PriorTask                  agentcontract.PriorTaskContext
+	ScheduledRun               agentcontract.ScheduledRunContext
+	PrecomputedTurnDecision    *agentcontract.TurnDecision
 	IsPrecomputedDecisionExact bool
 	SkipSkillSelection         bool
 	UseEmptyToolCatalog        bool
-	AmbientDuty                bluecollar.AmbientDutyContext
+	AmbientDuty                agentcontract.AmbientDutyContext
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
 	HistoryProvider            HistoryProvider
@@ -81,11 +82,11 @@ type TaskLaunchRequest struct {
 	PersonAccess               policy.PersonAccess
 	MemoryNamespaces           []memory.MemoryNamespace
 	AccessibleConversationIDs  []string
-	CheckpointSender           bluecollar.AgentCheckpointSender
+	CheckpointSender           agentcontract.AgentCheckpointSender
 }
 
 type TaskLaunchResult struct {
-	TurnResult            bluecollar.AgentTurnResult
+	TurnResult            agentcontract.AgentTurnResult
 	MemoryFacts           []memory.MemoryFact
 	ToolNames             []string
 	NormalizedProfileName string
@@ -348,7 +349,7 @@ func (runTurnLaunchStep) Name() string {
 	return "run_turn"
 }
 
-func (step runTurnLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (bluecollar.AgentTurnResult, error) {
+func (step runTurnLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (agentcontract.AgentTurnResult, error) {
 	return execution.Launcher.agentKernel.RunTurn(ctx, execution.Launcher.agentTurnRequestForLaunch(
 		execution.Request,
 		execution.NormalizedProfileName,
@@ -383,8 +384,8 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 	}
 }
 
-func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *toolcontract.ToolSet, conversationScope ConversationResourceScope) bluecollar.AgentTurnRequest {
-	return bluecollar.AgentTurnRequest{
+func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *toolcontract.ToolSet, conversationScope ConversationResourceScope) agentcontract.AgentTurnRequest {
+	return agentcontract.AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
 		RequesterEmail:             request.RequesterEmail,
 		RequesterName:              request.RequesterName,
@@ -403,7 +404,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		ConversationID:             request.ConversationID,
 		ConversationType:           request.ConversationType,
 		Prompt:                     request.Prompt,
-		InputParts:                 append([]bluecollar.AgentPart{}, request.InputParts...),
+		InputParts:                 append([]agentcontract.AgentPart{}, request.InputParts...),
 		ResponseLanguage:           request.ResponseLanguage,
 		VisibleContext:             request.VisibleContext,
 		ActiveGoal:                 request.ActiveGoal,
@@ -432,19 +433,19 @@ func conversationArtifactStore(taskArtifactService *task.TaskArtifactService) ta
 	return taskArtifactService
 }
 
-func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request TaskLaunchRequest, profileName string) bluecollar.VisibleContext {
+func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request TaskLaunchRequest, profileName string) agentcontract.VisibleContext {
 	if taskLauncher.toolCatalogBuilder.taskRunService == nil {
 		return request.VisibleContext
 	}
 	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), taskLauncher.toolCatalogRequestForLaunch(request, profileName))
-	manifest := bluecollar.BuildConversationArtifactManifest(bluecollar.AgentTurnRequest{
+	manifest := bluecollar.BuildConversationArtifactManifest(agentcontract.AgentTurnRequest{
 		ConversationID:       request.ConversationID,
 		ExistingTaskRunID:    request.ExistingTaskRunID,
 		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath: conversationScope.DefaultDirectoryPath,
 	}, taskLauncher.toolCatalogBuilder.taskRunService, conversationArtifactStore(taskLauncher.toolCatalogBuilder.taskArtifactService))
 	for _, artifact := range manifest {
-		request.VisibleContext.Materials = append(request.VisibleContext.Materials, bluecollar.VisibleContextMaterial{
+		request.VisibleContext.Materials = append(request.VisibleContext.Materials, agentcontract.VisibleContextMaterial{
 			FileHint:    artifact.FileHint,
 			Filename:    filepath.Base(artifact.RelativePath),
 			Path:        filepath.ToSlash(filepath.Join(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), artifact.RelativePath)),
@@ -498,7 +499,7 @@ func (taskLauncher *TaskLauncher) toolCatalogRequestForLaunch(request TaskLaunch
 		PersonAccess:               request.PersonAccess,
 		MemoryNamespaces:           request.MemoryNamespaces,
 		AccessibleConversationIDs:  request.AccessibleConversationIDs,
-		InputParts:                 append([]bluecollar.AgentPart{}, request.InputParts...),
+		InputParts:                 append([]agentcontract.AgentPart{}, request.InputParts...),
 		ScheduledRun:               request.ScheduledRun,
 	}
 }
@@ -517,10 +518,10 @@ func requesterPersonAccess(requesterPersonID string, personAccess policy.PersonA
 // bluecollarMemoryFacts converts recalled facts into the loop's own shape. The
 // loop carries its own type so it never depends on the service that stores them;
 // this single call is where the two meet.
-func bluecollarMemoryFacts(facts []memory.MemoryFact) []bluecollar.MemoryFact {
-	converted := make([]bluecollar.MemoryFact, 0, len(facts))
+func bluecollarMemoryFacts(facts []memory.MemoryFact) []agentcontract.MemoryFact {
+	converted := make([]agentcontract.MemoryFact, 0, len(facts))
 	for _, fact := range facts {
-		converted = append(converted, bluecollar.MemoryFact{
+		converted = append(converted, agentcontract.MemoryFact{
 			FactID:            fact.FactID,
 			ScopeType:         fact.ScopeType,
 			NamespaceID:       fact.NamespaceID,

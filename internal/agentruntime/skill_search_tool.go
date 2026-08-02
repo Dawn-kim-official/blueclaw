@@ -160,10 +160,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 	return successfulSkillSearchResult(searchSkillSearchResult(availableInstructions, retrievalResult, searchSkillResultLimit(input.Limit))), nil
 }
 
-func availableSkillSearchInstructions(skillInstructions []bluecollar.SkillInstruction, availableToolSet *toolcontract.ToolSet) []bluecollar.SkillInstruction {
-	request := bluecollar.AgentRequest{ToolSet: availableToolSet}
+func availableSkillSearchInstructions(skillInstructions []agentcontract.SkillInstruction, availableToolSet *toolcontract.ToolSet) []agentcontract.SkillInstruction {
+	request := agentcontract.AgentRequest{ToolSet: availableToolSet}
 	selector := bluecollar.SkillSelector{}
-	availableInstructions := make([]bluecollar.SkillInstruction, 0, len(skillInstructions))
+	availableInstructions := make([]agentcontract.SkillInstruction, 0, len(skillInstructions))
 	for _, skillInstruction := range skillInstructions {
 		if !selector.IsAvailable(skillInstruction, request) {
 			continue
@@ -173,8 +173,8 @@ func availableSkillSearchInstructions(skillInstructions []bluecollar.SkillInstru
 	return availableInstructions
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet, skillInstructions []bluecollar.SkillInstruction) agentcontract.SkillRetrievalResult {
-	request := bluecollar.AgentRequest{
+func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet, skillInstructions []agentcontract.SkillInstruction) agentcontract.SkillRetrievalResult {
+	request := agentcontract.AgentRequest{
 		ProfileName:       handlerContext.request.ProfileName,
 		Prompt:            handlerContext.request.Prompt,
 		VisibleContext:    handlerContext.request.VisibleContext,
@@ -186,7 +186,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContex
 	return toolCatalogBuilder.skillRetriever.Search(toolContext, request, skillInstructions, querySet, maximumSkillSearchResultCount)
 }
 
-func listSkillSearchResult(skillInstructions []bluecollar.SkillInstruction, requestedLimit int) skillSearchToolOutput {
+func listSkillSearchResult(skillInstructions []agentcontract.SkillInstruction, requestedLimit int) skillSearchToolOutput {
 	limit := requestedLimit
 	if limit == 0 || limit > maximumSkillSearchListCount {
 		limit = maximumSkillSearchListCount
@@ -203,7 +203,7 @@ func listSkillSearchResult(skillInstructions []bluecollar.SkillInstruction, requ
 	}
 }
 
-func skillSearchNameResult(skillInstructions []bluecollar.SkillInstruction, name string) toolcontract.ToolResult {
+func skillSearchNameResult(skillInstructions []agentcontract.SkillInstruction, name string) toolcontract.ToolResult {
 	skillInstruction, isFound := findSkillInstructionByName(skillInstructions, name)
 	if !isFound {
 		return toolcontract.ToolFailureResult(toolcontract.FailureNotFound, toolcontract.FailureCodes.NotFound, "skill_search", "visible skill was not found")
@@ -220,7 +220,7 @@ func skillSearchNameResult(skillInstructions []bluecollar.SkillInstruction, name
 	})
 }
 
-func searchSkillSearchResult(skillInstructions []bluecollar.SkillInstruction, retrievalResult agentcontract.SkillRetrievalResult, limit int) skillSearchToolOutput {
+func searchSkillSearchResult(skillInstructions []agentcontract.SkillInstruction, retrievalResult agentcontract.SkillRetrievalResult, limit int) skillSearchToolOutput {
 	boundedCandidates := retrievalResult.SelectedCandidates[:min(maximumSkillSearchResultCount, len(retrievalResult.SelectedCandidates))]
 	items := make([]skillSearchResultItem, 0, min(limit, len(boundedCandidates)))
 	seenNames := map[string]bool{}
@@ -248,7 +248,7 @@ func searchSkillSearchResult(skillInstructions []bluecollar.SkillInstruction, re
 	}
 }
 
-func publicSkillSearchItem(skillInstruction bluecollar.SkillInstruction) skillSearchResultItem {
+func publicSkillSearchItem(skillInstruction agentcontract.SkillInstruction) skillSearchResultItem {
 	return skillSearchResultItem{
 		Name:           strings.TrimSpace(skillInstruction.Name),
 		Description:    strings.TrimSpace(skillInstruction.Description),
@@ -270,7 +270,7 @@ func normalizedSkillToolReferences(toolReferences []string) []string {
 	return normalizedReferences
 }
 
-func includeExactSkillNameMatches(skillInstructions []bluecollar.SkillInstruction, queries []agentcontract.SkillSearchQuery, retrievalResult agentcontract.SkillRetrievalResult) agentcontract.SkillRetrievalResult {
+func includeExactSkillNameMatches(skillInstructions []agentcontract.SkillInstruction, queries []agentcontract.SkillSearchQuery, retrievalResult agentcontract.SkillRetrievalResult) agentcontract.SkillRetrievalResult {
 	for _, query := range queries {
 		skillInstruction, isFound := findSkillInstructionByName(skillInstructions, query.Description)
 		if !isFound {
@@ -297,16 +297,16 @@ func prependSkillCandidate(candidates []agentcontract.SkillCandidate, candidate 
 	return result
 }
 
-func findSkillInstructionByName(skillInstructions []bluecollar.SkillInstruction, name string) (bluecollar.SkillInstruction, bool) {
+func findSkillInstructionByName(skillInstructions []agentcontract.SkillInstruction, name string) (agentcontract.SkillInstruction, bool) {
 	trimmedName := strings.TrimSpace(name)
-	var matchedInstruction bluecollar.SkillInstruction
+	var matchedInstruction agentcontract.SkillInstruction
 	isFound := false
 	for _, skillInstruction := range skillInstructions {
 		if !strings.EqualFold(strings.TrimSpace(skillInstruction.Name), trimmedName) {
 			continue
 		}
 		if isFound {
-			return bluecollar.SkillInstruction{}, false
+			return agentcontract.SkillInstruction{}, false
 		}
 		matchedInstruction = skillInstruction
 		isFound = true
@@ -322,7 +322,7 @@ func truncateSkillSearchPrompt(prompt string) (string, bool) {
 	return string(characters[:maximumSkillSearchPromptLength]), true
 }
 
-func stableSkillSourcePath(skillInstruction bluecollar.SkillInstruction) string {
+func stableSkillSourcePath(skillInstruction agentcontract.SkillInstruction) string {
 	skillName := strings.TrimSpace(skillInstruction.Name)
 	sourcePath := "/" + strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(skillInstruction.Source.Path), "\\", "/"), "/")
 	if strings.Contains(sourcePath, "/.agents/skills/") {

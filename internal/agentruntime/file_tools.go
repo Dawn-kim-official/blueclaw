@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
@@ -416,7 +416,7 @@ func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[strin
 	return base
 }
 
-func cachedFileReadResultByMaterialID(parts []bluecollar.AgentPart, materialID string, input fileReadToolInput) (toolcontract.ToolResult, bool) {
+func cachedFileReadResultByMaterialID(parts []agentcontract.AgentPart, materialID string, input fileReadToolInput) (toolcontract.ToolResult, bool) {
 	preview, isCached := cachedFilePreviewResultByMaterialID(parts, materialID)
 	if !isCached {
 		return toolcontract.ToolResult{}, false
@@ -424,7 +424,7 @@ func cachedFileReadResultByMaterialID(parts []bluecollar.AgentPart, materialID s
 	return cachedFileReadResultFromPreview(preview, input), true
 }
 
-func cachedFileReadResult(parts []bluecollar.AgentPart, path string, input fileReadToolInput) (toolcontract.ToolResult, bool) {
+func cachedFileReadResult(parts []agentcontract.AgentPart, path string, input fileReadToolInput) (toolcontract.ToolResult, bool) {
 	preview, isCached := cachedFilePreviewResult(parts, path)
 	if !isCached {
 		return toolcontract.ToolResult{}, false
@@ -690,7 +690,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolCo
 	return toolcontract.ToolResult{}, false
 }
 
-func filePreviewResultFromVisibleMaterial(material bluecollar.VisibleContextMaterial) (map[string]any, bool) {
+func filePreviewResultFromVisibleMaterial(material agentcontract.VisibleContextMaterial) (map[string]any, bool) {
 	preview := strings.TrimSpace(material.MarkdownPreview)
 	status := strings.TrimSpace(material.ConversionStatus)
 	message := strings.TrimSpace(material.ConversionMessage)
@@ -726,7 +726,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 	return toolCatalogBuilder.resolveAgentWorkspacePath(resolvedMaterial.Path), nil, true
 }
 
-func visibleAttachmentMaterialForPath(visibleContext bluecollar.VisibleContext, path string) (bluecollar.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialForPath(visibleContext agentcontract.VisibleContext, path string) (agentcontract.VisibleContextMaterial, bool) {
 	candidates := visibleAttachmentMaterials(visibleContext)
 	if material, isFound := visibleAttachmentMaterialWithExactPath(candidates, path); isFound {
 		return material, true
@@ -734,8 +734,8 @@ func visibleAttachmentMaterialForPath(visibleContext bluecollar.VisibleContext, 
 	return visibleAttachmentMaterialWithFilename(candidates, filepath.Base(strings.TrimSpace(path)))
 }
 
-func visibleAttachmentMaterials(visibleContext bluecollar.VisibleContext) []bluecollar.VisibleContextMaterial {
-	materials := append([]bluecollar.VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
+func visibleAttachmentMaterials(visibleContext agentcontract.VisibleContext) []agentcontract.VisibleContextMaterial {
+	materials := append([]agentcontract.VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
 	materials = append(materials, visibleContext.Materials...)
 	for _, message := range visibleContext.Messages {
 		materials = append(materials, message.Materials...)
@@ -743,9 +743,9 @@ func visibleAttachmentMaterials(visibleContext bluecollar.VisibleContext) []blue
 	return uniqueVisibleAttachmentMaterials(materials)
 }
 
-func uniqueVisibleAttachmentMaterials(materials []bluecollar.VisibleContextMaterial) []bluecollar.VisibleContextMaterial {
+func uniqueVisibleAttachmentMaterials(materials []agentcontract.VisibleContextMaterial) []agentcontract.VisibleContextMaterial {
 	seen := map[string]bool{}
-	result := make([]bluecollar.VisibleContextMaterial, 0, len(materials))
+	result := make([]agentcontract.VisibleContextMaterial, 0, len(materials))
 	for _, material := range materials {
 		key := visibleAttachmentMaterialKey(material)
 		if key == "" || seen[key] {
@@ -757,7 +757,7 @@ func uniqueVisibleAttachmentMaterials(materials []bluecollar.VisibleContextMater
 	return result
 }
 
-func visibleAttachmentMaterialKey(material bluecollar.VisibleContextMaterial) string {
+func visibleAttachmentMaterialKey(material agentcontract.VisibleContextMaterial) string {
 	if materialID := strings.TrimSpace(material.MaterialID); materialID != "" {
 		return "material:" + materialID
 	}
@@ -770,29 +770,29 @@ func visibleAttachmentMaterialKey(material bluecollar.VisibleContextMaterial) st
 	return ""
 }
 
-func visibleAttachmentMaterialWithExactPath(materials []bluecollar.VisibleContextMaterial, path string) (bluecollar.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialWithExactPath(materials []agentcontract.VisibleContextMaterial, path string) (agentcontract.VisibleContextMaterial, bool) {
 	trimmedPath := strings.TrimSpace(path)
 	for _, material := range materials {
 		if strings.TrimSpace(material.Path) == trimmedPath {
 			return material, true
 		}
 	}
-	return bluecollar.VisibleContextMaterial{}, false
+	return agentcontract.VisibleContextMaterial{}, false
 }
 
-func visibleAttachmentMaterialWithFilename(materials []bluecollar.VisibleContextMaterial, filename string) (bluecollar.VisibleContextMaterial, bool) {
+func visibleAttachmentMaterialWithFilename(materials []agentcontract.VisibleContextMaterial, filename string) (agentcontract.VisibleContextMaterial, bool) {
 	trimmedFilename := strings.TrimSpace(filename)
 	if trimmedFilename == "" || trimmedFilename == "." {
-		return bluecollar.VisibleContextMaterial{}, false
+		return agentcontract.VisibleContextMaterial{}, false
 	}
-	matches := []bluecollar.VisibleContextMaterial{}
+	matches := []agentcontract.VisibleContextMaterial{}
 	for _, material := range materials {
 		if strings.TrimSpace(material.Filename) == trimmedFilename || filepath.Base(strings.TrimSpace(material.Path)) == trimmedFilename {
 			matches = append(matches, material)
 		}
 	}
 	if len(matches) != 1 {
-		return bluecollar.VisibleContextMaterial{}, false
+		return agentcontract.VisibleContextMaterial{}, false
 	}
 	return matches[0], true
 }
@@ -819,7 +819,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext contex
 	return toolCatalogBuilder.resolveAgentWorkspacePath(material.Path), nil
 }
 
-func attachmentMaterialLooksLikeImage(material bluecollar.VisibleContextMaterial) bool {
+func attachmentMaterialLooksLikeImage(material agentcontract.VisibleContextMaterial) bool {
 	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
 	if strings.HasPrefix(contentType, "image/") {
 		return true
@@ -832,14 +832,14 @@ func attachmentMaterialLooksLikeImage(material bluecollar.VisibleContextMaterial
 		strings.HasSuffix(filename, ".webp")
 }
 
-func cachedFilePreviewResultForInput(parts []bluecollar.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
+func cachedFilePreviewResultForInput(parts []agentcontract.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
 	if materialID := strings.TrimSpace(input.MaterialID); materialID != "" {
 		return cachedFilePreviewResultByMaterialID(parts, materialID)
 	}
 	return cachedFilePreviewResult(parts, strings.TrimSpace(input.Path))
 }
 
-func cachedFilePreviewResultByMaterialID(parts []bluecollar.AgentPart, materialID string) (map[string]any, bool) {
+func cachedFilePreviewResultByMaterialID(parts []agentcontract.AgentPart, materialID string) (map[string]any, bool) {
 	trimmedMaterialID := strings.TrimSpace(materialID)
 	for _, part := range parts {
 		if agentPartMaterialID(part) != trimmedMaterialID {
@@ -850,7 +850,7 @@ func cachedFilePreviewResultByMaterialID(parts []bluecollar.AgentPart, materialI
 	return nil, false
 }
 
-func cachedFilePreviewResult(parts []bluecollar.AgentPart, path string) (map[string]any, bool) {
+func cachedFilePreviewResult(parts []agentcontract.AgentPart, path string) (map[string]any, bool) {
 	for _, part := range parts {
 		if part.File == nil || strings.TrimSpace(part.File.Path) != strings.TrimSpace(path) {
 			continue
@@ -860,7 +860,7 @@ func cachedFilePreviewResult(parts []bluecollar.AgentPart, path string) (map[str
 	return nil, false
 }
 
-func cachedFilePreviewResultFromPart(part bluecollar.AgentPart) (map[string]any, bool) {
+func cachedFilePreviewResultFromPart(part agentcontract.AgentPart) (map[string]any, bool) {
 	if part.File == nil {
 		return nil, false
 	}
@@ -877,7 +877,7 @@ func cachedFilePreviewResultFromPart(part bluecollar.AgentPart) (map[string]any,
 	), true
 }
 
-func agentPartMaterialID(part bluecollar.AgentPart) string {
+func agentPartMaterialID(part agentcontract.AgentPart) string {
 	fileID := strings.TrimSpace(part.Source.FileID)
 	if fileID == "" {
 		return ""
@@ -1580,21 +1580,21 @@ func attachmentResolutionFailure(stage string, errorValue error) toolcontract.To
 	return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, stage, summary)
 }
 
-func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (bluecollar.VisibleContextMaterial, error) {
+func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (agentcontract.VisibleContextMaterial, error) {
 	if request.AttachmentMaterialResolver == nil {
-		return bluecollar.VisibleContextMaterial{}, errors.New("attachment material resolver is unavailable")
+		return agentcontract.VisibleContextMaterial{}, errors.New("attachment material resolver is unavailable")
 	}
 	material, errorValue := request.AttachmentMaterialResolver.ResolveAttachmentMaterial(toolContext, materialID)
 	if errorValue != nil {
-		return bluecollar.VisibleContextMaterial{}, errorValue
+		return agentcontract.VisibleContextMaterial{}, errorValue
 	}
 	if strings.TrimSpace(material.Path) == "" {
-		return bluecollar.VisibleContextMaterial{}, errors.New("attachment material has no readable workspace path")
+		return agentcontract.VisibleContextMaterial{}, errors.New("attachment material has no readable workspace path")
 	}
 	return material, nil
 }
 
-func validateAttachmentMaterialTool(toolName string, material bluecollar.VisibleContextMaterial) error {
+func validateAttachmentMaterialTool(toolName string, material agentcontract.VisibleContextMaterial) error {
 	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
 	switch strings.TrimSpace(toolName) {
 	case "image_read":

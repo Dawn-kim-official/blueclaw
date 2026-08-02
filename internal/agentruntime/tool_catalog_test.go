@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
@@ -378,20 +377,20 @@ func containsTestString(values []string, target string) bool {
 }
 
 type staticAttachmentMaterialResolver struct {
-	material bluecollar.VisibleContextMaterial
+	material agentcontract.VisibleContextMaterial
 }
 
-func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(context.Context, string) (bluecollar.VisibleContextMaterial, error) {
+func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(context.Context, string) (agentcontract.VisibleContextMaterial, error) {
 	return resolver.material, nil
 }
 
 type skillSearchTestRetriever struct{}
 
-func (skillSearchTestRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) agentcontract.SkillRetrievalResult {
+func (skillSearchTestRetriever) Retrieve(context.Context, agentcontract.AgentRequest, []agentcontract.SkillInstruction, int) agentcontract.SkillRetrievalResult {
 	return agentcontract.SkillRetrievalResult{}
 }
 
-func (skillSearchTestRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, _ []bluecollar.SkillInstruction, querySet agentcontract.SkillSearchQuerySet, _ int) agentcontract.SkillRetrievalResult {
+func (skillSearchTestRetriever) Search(_ context.Context, _ agentcontract.AgentRequest, _ []agentcontract.SkillInstruction, querySet agentcontract.SkillSearchQuerySet, _ int) agentcontract.SkillRetrievalResult {
 	if len(querySet.Queries) == 0 {
 		return agentcontract.SkillRetrievalResult{}
 	}
@@ -406,4 +405,4 @@ func (skillSearchTestRetriever) Search(_ context.Context, _ bluecollar.AgentRequ
 	}
 }
 
-func (skillSearchTestRetriever) Refresh(context.Context, []bluecollar.SkillInstruction) {}
+func (skillSearchTestRetriever) Refresh(context.Context, []agentcontract.SkillInstruction) {}
