@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
@@ -132,7 +133,7 @@ func runTask(options runOptions) (TaskResult, error) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true, DefaultTaskLevel: bluecollar.TaskLevelLow})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
 
 	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
 		Mode:                  "native",
@@ -158,7 +159,7 @@ func runTask(options runOptions) (TaskResult, error) {
 
 	responseContext, cancel := context.WithTimeout(context.Background(), options.TurnTimeout)
 	defer cancel()
-	turnResult, errorValue := agentKernel.RunTurn(responseContext, bluecollar.AgentTurnRequest{
+	turnResult, errorValue := agentKernel.RunTurn(responseContext, agentcontract.AgentTurnRequest{
 		ConversationID:    "bluecollar",
 		Prompt:            options.Task,
 		RequesterPersonID: defaultRequesterPersonID,
@@ -178,7 +179,7 @@ func runTask(options runOptions) (TaskResult, error) {
 	return taskResultFromTurn(turnResult, options.WorkspacePath), nil
 }
 
-func taskResultFromTurn(turnResult bluecollar.AgentTurnResult, workspacePath string) TaskResult {
+func taskResultFromTurn(turnResult agentcontract.AgentTurnResult, workspacePath string) TaskResult {
 	attachments := make([]string, 0, len(turnResult.Attachments))
 	for _, attachment := range turnResult.Attachments {
 		attachments = append(attachments, attachment.DevicePath)

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -82,7 +83,7 @@ func scheduleTurnRouterResponse() string {
 func useScheduleTestLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel staticScheduleLanguageModel) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 }
 
 func scheduleFinishMessage(reply string) string {
