@@ -127,10 +127,10 @@
       "routingCandidates": null,
       "capabilities": [
         {
-          "name": "llm.structured",
-          "canonicalName": "llm.structured",
+          "name": "llm_structured",
+          "canonicalName": "llm_structured",
           "namespace": "llm",
-          "modelName": "llm.structured",
+          "modelName": "llm_structured",
           "modelVisibility": "hidden",
           "modelVisible": false,
           "description": "Generate structured output",
@@ -151,7 +151,7 @@
           },
           "inputSchemaStrict": true,
           "outputSchemaStrict": true,
-          "policyResource": "tool:llm.structured",
+          "policyResource": "tool:llm_structured",
           "sideEffectClass": "computation",
           "sideEffect": "computation",
           "availability": {
