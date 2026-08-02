@@ -957,7 +957,10 @@ func virtualToolCatalogBuilder(
 	toolCatalogBuilder.UseMemoryUpdateQueue(virtualMemoryUpdateQueue{memoryService: memoryService})
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseSkillChangeHandler(func(contextValue context.Context) {
-		agentHarness.RefreshSkillIndex(contextValue, instructionBundleLoader())
+		if skillRetriever == nil {
+			return
+		}
+		skillRetriever.Refresh(contextValue, instructionBundleLoader().Skills)
 	})
 	if len(scenario.CapabilityToolNames) > 0 || len(scenario.CapabilityToolDescriptors) > 0 {
 		toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))

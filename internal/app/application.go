@@ -206,7 +206,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		IntakeLanguageModelProvider: intakeLanguageModelProvider,
 	})
 	refreshSkillIndex := func(ctx context.Context) {
-		harness.RefreshSkillIndex(ctx, instructionBundleLoader())
+		if skillRetriever == nil {
+			return
+		}
+		skillRetriever.Refresh(ctx, instructionBundleLoader().Skills)
 	}
 	logger.Info("application.initializing", "stage", "memory")
 	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)

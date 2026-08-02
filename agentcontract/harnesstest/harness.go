@@ -85,8 +85,6 @@ func (harness *Harness) ClassifyActiveTaskFollowUp(context.Context, agentcontrac
 	return harness.IsActiveTaskFollowUp, nil
 }
 
-func (harness *Harness) RefreshSkillIndex(context.Context, agentcontract.InstructionBundle) {}
-
 func (harness *Harness) LastTurnRequest() agentcontract.AgentTurnRequest {
 	return harness.lastTurnRequest
 }
