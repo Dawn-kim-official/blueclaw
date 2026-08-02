@@ -1556,6 +1556,10 @@ type staticSkillRetriever struct {
 	result SkillRetrievalResult
 }
 
+func (retriever staticSkillRetriever) Available(_ AgentRequest, skillInstructions []SkillInstruction) []SkillInstruction {
+	return skillInstructions
+}
+
 func (retriever staticSkillRetriever) Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult {
 	return retriever.result
 }
@@ -1569,6 +1573,10 @@ func (retriever staticSkillRetriever) Refresh(context.Context, []SkillInstructio
 type recordingSkillRetriever struct {
 	result    SkillRetrievalResult
 	querySets []SkillSearchQuerySet
+}
+
+func (retriever *recordingSkillRetriever) Available(_ AgentRequest, skillInstructions []SkillInstruction) []SkillInstruction {
+	return skillInstructions
 }
 
 func (retriever *recordingSkillRetriever) Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult {

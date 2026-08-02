@@ -386,6 +386,10 @@ func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(conte
 
 type skillSearchTestRetriever struct{}
 
+func (skillSearchTestRetriever) Available(_ agentcontract.AgentRequest, skillInstructions []agentcontract.SkillInstruction) []agentcontract.SkillInstruction {
+	return skillInstructions
+}
+
 func (skillSearchTestRetriever) Retrieve(context.Context, agentcontract.AgentRequest, []agentcontract.SkillInstruction, int) agentcontract.SkillRetrievalResult {
 	return agentcontract.SkillRetrievalResult{}
 }

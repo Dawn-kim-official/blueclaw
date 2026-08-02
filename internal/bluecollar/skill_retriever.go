@@ -47,6 +47,17 @@ func NewEmbeddingSkillRetriever(embeddingProvider model.EmbeddingProvider, index
 	}
 }
 
+func (skillRetriever *EmbeddingSkillRetriever) Available(request AgentRequest, skillInstructions []SkillInstruction) []SkillInstruction {
+	availableInstructions := make([]SkillInstruction, 0, len(skillInstructions))
+	for _, skillInstruction := range skillInstructions {
+		if !isSkillAllowedForDirectRetrieval(skillInstruction, request) {
+			continue
+		}
+		availableInstructions = append(availableInstructions, skillInstruction)
+	}
+	return availableInstructions
+}
+
 func (skillRetriever *EmbeddingSkillRetriever) Retrieve(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, limit int) SkillRetrievalResult {
 	return skillRetriever.Search(ctx, request, skillInstructions, SkillSearchQuerySet{
 		Queries: []SkillSearchQuery{{Description: skillSelectionPrompt(request)}},
