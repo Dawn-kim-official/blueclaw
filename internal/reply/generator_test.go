@@ -1,4 +1,4 @@
-package bluecollar
+package reply
 
 import (
 	"context"
@@ -8,19 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
-	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
-func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorRejectsProviderWithoutChatCompletion(t *testing.T) {
 	replyProvider := &structuredOnlyReplyProvider{}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	_, errorValue := generator.GenerateReply(context.Background(), "hello")
 	if errorValue == nil || errorValue.Error() != "language model provider does not support chat completion" {
 		t.Fatalf("expected unavailable chat completion error, got %v", errorValue)
 	}
@@ -29,17 +25,13 @@ func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
 	}
 }
 
-func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorGeneratesChatReplyWithoutTools(t *testing.T) {
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Role: "assistant", Content: "  hello from chat  "}},
 	}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	reply, errorValue := generator.GenerateReply(context.Background(), "hello")
 	if errorValue != nil {
 		t.Fatalf("expected chat reply generation: %v", errorValue)
 	}
@@ -52,7 +44,7 @@ func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 	if replyProvider.request.SchemaName != "blueclaw_reply" {
 		t.Fatalf("expected blueclaw_reply schema name, got %q", replyProvider.request.SchemaName)
 	}
-	expectedMessages := chatMessages(buildReplyMessagesWithInstructions("hello", VisibleContext{}, nil, ""))
+	expectedMessages := generator.chatMessages("hello", agentcontract.VisibleContext{}, nil)
 	if !reflect.DeepEqual(replyProvider.request.Messages, expectedMessages) {
 		t.Fatalf("expected existing reply messages to be preserved, got %+v", replyProvider.request.Messages)
 	}
@@ -61,20 +53,16 @@ func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 	}
 }
 
-func TestAgentKernelResolvesChatReplyThroughCompleterAccessor(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorResolvesChatReplyThroughCompleterAccessor(t *testing.T) {
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "fallback chat"}},
 	}
-	agentKernel.UseLanguageModelProvider(chatCompleterAccessorProvider{
+	generator := NewGenerator(chatCompleterAccessorProvider{
 		structuredProvider: staticReplyProvider{content: `{"reply":"structured"}`},
 		chatCompleter:      replyProvider,
-	})
+	}, nil)
 
-	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	reply, errorValue := generator.GenerateReply(context.Background(), "hello")
 	if errorValue != nil {
 		t.Fatalf("expected accessor chat reply generation: %v", errorValue)
 	}
@@ -83,17 +71,13 @@ func TestAgentKernelResolvesChatReplyThroughCompleterAccessor(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorRejectsEmptyChatReply(t *testing.T) {
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "  "}},
 	}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	_, errorValue := generator.GenerateReply(context.Background(), "hello")
 	if errorValue == nil || errorValue.Error() != "language model reply is empty" {
 		t.Fatalf("expected empty chat reply error, got %v", errorValue)
 	}
@@ -102,16 +86,12 @@ func TestAgentKernelRejectsEmptyChatReply(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
 	chatError := errors.New("chat contract rejected")
 	replyProvider := &chatReplyProvider{chatError: chatError}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	_, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
+	_, errorValue := generator.GenerateReply(context.Background(), "hello")
 	if !errors.Is(errorValue, chatError) {
 		t.Fatalf("expected chat error to propagate, got %v", errorValue)
 	}
@@ -120,17 +100,13 @@ func TestAgentKernelPropagatesChatErrorWithoutStructuredRetry(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorPreservesChatCancellationContext(t *testing.T) {
 	replyProvider := &chatReplyProvider{chatError: context.Canceled}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 	responseContext, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, errorValue := agentKernel.GenerateReply(responseContext, "hello")
+	_, errorValue := generator.GenerateReply(responseContext, "hello")
 	if !errors.Is(errorValue, context.Canceled) {
 		t.Fatalf("expected cancellation to propagate, got %v", errorValue)
 	}
@@ -139,18 +115,14 @@ func TestAgentKernelPreservesChatCancellationContext(t *testing.T) {
 	}
 }
 
-func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 	replyProvider := &capturingReplyProvider{content: "remembered"}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	_, errorValue := agentKernel.GenerateReplyWithMemory(
+	_, errorValue := generator.generateReplyWithMemory(
 		context.Background(),
 		"what did I ask for last time?",
-		[]MemoryFact{
+		[]agentcontract.MemoryFact{
 			{
 				Content: "the user asked for help debugging Mattermost DM replies.",
 			},
@@ -172,21 +144,17 @@ func TestAgentKernelInjectsMemoryIntoChatReplyRequest(t *testing.T) {
 	}
 }
 
-func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorInjectsCompactAttributedMemorySummary(t *testing.T) {
 	replyProvider := &capturingReplyProvider{content: "remembered"}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 	longContent := strings.Repeat("a detailed memory that needs summarizing ", 30) + "RAW_TAIL_SHOULD_NOT_APPEAR"
 
-	_, errorValue := agentKernel.GenerateReplyWithMemory(
+	_, errorValue := generator.generateReplyWithMemory(
 		context.Background(),
 		"use what you remember",
-		[]MemoryFact{
+		[]agentcontract.MemoryFact{
 			{
-				ScopeType:       MemoryScopeWorkspace,
+				ScopeType:       agentcontract.MemoryScopeWorkspace,
 				Content:         longContent,
 				Score:           0.87,
 				SourceEpisodeID: "episode-1",
@@ -210,25 +178,21 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
-	taskEventService := taskstate.NewTaskEventService()
-	taskRunService := taskstate.NewTaskRunService(taskEventService)
-	taskStepService := taskstate.NewTaskStepService()
-	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+func TestReplyGeneratorPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 	replyProvider := &capturingReplyProvider{content: "contextual"}
-	agentKernel.UseLanguageModelProvider(replyProvider)
+	generator := NewGenerator(replyProvider, nil)
 
-	_, errorValue := agentKernel.GenerateReplyWithContext(
+	_, errorValue := generator.GenerateReplyWithContext(
 		context.Background(),
 		"so what should we do?",
-		VisibleContext{
-			Messages: []VisibleContextMessage{
+		agentcontract.VisibleContext{
+			Messages: []agentcontract.VisibleContextMessage{
 				{Speaker: "admin", Text: "let's go with A"},
 			},
 			HasMoreBefore: true,
 			HistoryCursor: "cursor-1",
 		},
-		[]MemoryFact{
+		[]agentcontract.MemoryFact{
 			{Content: "the user prefers a design without redundancy."},
 		},
 	)
