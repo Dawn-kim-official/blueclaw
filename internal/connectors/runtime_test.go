@@ -426,15 +426,20 @@ func TestConnectorRuntimePreservesNaturalLanguageOptionReply(t *testing.T) {
 }
 
 func TestConnectorRuntimePendingInputStartTaskSupersedesWaitingTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is an independent question","userFacingReply":""}`,
-			},
-		},
-		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
-	})
-	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{
+		Route:            agentcontract.TurnRouteStartTask,
+		Classification:   agentcontract.IntakeClassificationQuickReply,
+		TaskShape:        agentcontract.TaskShapeImmediateReply,
+		TaskLevel:        agentcontract.TaskLevelXLow,
+		EstimatedMinutes: 1,
+		ResponseLanguage: "ko",
+		Reason:           "latest message is an independent question",
+	}
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "휴게소 들러도 괜찮습니다."}
+	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
+	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
+	taskRunService := connectorRuntime.taskRunService
 	waitingTaskRun := createWaitingInputTaskRun(t, taskRunService, "어느 채널에 보낼까요?", "single-interaction")
 	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(waitingTaskRun, "single-dispatch", "single-interaction")); errorValue != nil {
 		t.Fatal(errorValue)
@@ -3331,7 +3336,9 @@ func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T)
 }
 
 func TestConnectorRuntimeRecordsQueuedOutboxSendFailure(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "queued reply"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "queued reply"}
 	repository := &testConnectorQueueRepository{}
 	connectorRuntime.UseEventRepository(repository)
 	adapter.sendReplyError = errors.New("mattermost send failed")
@@ -4455,7 +4462,8 @@ func testChannelInboundEvent(messageID string) PlatformInboundEvent {
 }
 
 func TestResolveInboundEngagementIgnoresUninvitedAttachmentsOnly(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, nil)
+	connectorRuntime, _, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetBot, ShouldRespond: true}
 
 	channelEvent := PlatformInboundEvent{
 		Prompt:  "User attached file(s).",
@@ -4487,8 +4495,8 @@ func TestResolveInboundEngagementIgnoresUninvitedAttachmentsOnly(t *testing.T) {
 }
 
 func TestResolveInboundEngagementReactOnly(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetAnyone), reactionEmoji: "eyes"}
-	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, _, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetAnyone, ShouldRespond: false, ReactionEmoji: "eyes"}
 	event := testChannelInboundEvent("message-1")
 
 	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
@@ -4501,8 +4509,8 @@ func TestResolveInboundEngagementReactOnly(t *testing.T) {
 }
 
 func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reactionEmoji: "+1"}
-	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, _, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetBot, ShouldRespond: true, ReactionEmoji: "+1"}
 	event := testChannelInboundEvent("message-1")
 
 	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
@@ -4532,8 +4540,10 @@ func TestLatestActiveGoalFailsClosedOnMalformedNewestEvent(t *testing.T) {
 }
 
 func TestConnectorRuntimeAcknowledgesBotMentionAndClearsAckAfterReply(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetBot, ShouldRespond: true}
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
 
@@ -4553,8 +4563,10 @@ func TestConnectorRuntimeAcknowledgesBotMentionAndClearsAckAfterReply(t *testing
 }
 
 func TestConnectorRuntimeSkipsEngagedAckForDirectMessages(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetBot, ShouldRespond: true}
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	event := testInboundEvent("message-direct-ack")
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
