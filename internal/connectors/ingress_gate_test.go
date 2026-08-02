@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -17,7 +17,7 @@ func newIngressGateTestRuntime(gate IngressGate) (*ConnectorRuntime, *task.TaskR
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	connectorRuntime := NewConnectorRuntime(identityService, harnessstub.New(taskRunService), taskRunService, slog.Default())
+	connectorRuntime := NewConnectorRuntime(identityService, harnesstest.New(taskRunService), taskRunService, slog.Default())
 	connectorRuntime.UseIngressGate(gate)
 	return connectorRuntime, taskRunService
 }

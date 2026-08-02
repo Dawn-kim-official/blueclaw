@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -20,7 +20,7 @@ import (
 
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "admin done"}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -52,7 +52,7 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 
 func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	harness := contextObservingHarness{Stub: harnessstub.New(taskRunService)}
+	harness := contextObservingHarness{Harness: harnesstest.New(taskRunService)}
 	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "admin done"}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -264,7 +264,7 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 
 func newStubbedPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRunService) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	return presetTaskRunHandler(harnessstub.New(taskRunService), taskRunService, isPresetAllowed), taskRunService
+	return presetTaskRunHandler(harnesstest.New(taskRunService), taskRunService, isPresetAllowed), taskRunService
 }
 
 func presetTaskRunHandler(harness agentcontract.Harness, taskRunService *task.TaskRunService, isPresetAllowed bool) TaskRunHandler {
@@ -289,14 +289,14 @@ func presetTaskRunHandler(harness agentcontract.Harness, taskRunService *task.Ta
 // The launch must survive a client that walked away, so this double fails the
 // turn exactly when the request context it was handed is already cancelled.
 type contextObservingHarness struct {
-	*harnessstub.Stub
+	*harnesstest.Harness
 }
 
 func (harness contextObservingHarness) RunTurn(ctx context.Context, request agentcontract.AgentTurnRequest) (agentcontract.AgentTurnResult, error) {
 	if errorValue := ctx.Err(); errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
 	}
-	return harness.Stub.RunTurn(ctx, request)
+	return harness.Harness.RunTurn(ctx, request)
 }
 
 func taskEventsContainBody(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {

@@ -14,10 +14,10 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -112,7 +112,7 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
@@ -161,7 +161,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
@@ -212,7 +212,7 @@ func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
@@ -274,7 +274,7 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	workspacePath := t.TempDir()
 	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
 	provisioner := &recordingRequesterWorkspaceProvisioner{
@@ -341,7 +341,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
 		t.Fatalf("expected pinned memory failure setup to succeed: %v", errorValue)

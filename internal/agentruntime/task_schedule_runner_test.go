@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -17,7 +17,7 @@ import (
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
