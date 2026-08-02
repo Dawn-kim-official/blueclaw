@@ -310,10 +310,11 @@ func containsBrowserDescriptor(descriptors []CapabilityToolDescriptor) bool {
 	return false
 }
 
-// The descriptor says whether a tool needs the browser on the requester's own
-// machine. Neither its name nor its namespace can answer that question.
+// The descriptor says whether a tool reaches the requester's own machine, which
+// is what the companion connection provides. Neither its name nor its namespace
+// can answer that question.
 func descriptorIsBrowserCapability(descriptor CapabilityToolDescriptor) bool {
-	return descriptor.RequiresCompanionBrowser
+	return descriptor.RequiresRequesterDevice
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) companionBrowserAvailable() bool {
