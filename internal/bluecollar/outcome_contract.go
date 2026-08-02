@@ -509,16 +509,6 @@ func removeExpectedResultsByType(results []ExpectedResult, removedType string) [
 	return filteredResults
 }
 
-func OutcomeContractHasRequirements(contract OutcomeContract) bool {
-	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
-	return len(contract.ExpectedResults) > 0 ||
-		len(contract.RequiredEvidenceTools) > 0 ||
-		len(contract.RequiredEvidenceAnyOf) > 0 ||
-		len(contract.RequiredAttachmentSuffixes) > 0 ||
-		len(contract.RequiredEffects) > 0 ||
-		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
-}
-
 func expectedResultsForRequest(intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) []ExpectedResult {
 	results := append([]ExpectedResult{}, intakeDecision.ExpectedResults...)
 	if hasExecutionPlan && executionPlan.PublicDeploy {

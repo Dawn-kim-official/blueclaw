@@ -20,16 +20,6 @@ var taskLevelProfiles = []TaskLevelProfile{
 	{TaskLevel: TaskLevelMax, Duration: time.Hour, MaxIterationCount: 700, MaxToolCallCount: 340},
 }
 
-func taskLevelRank(taskLevel TaskLevel) int {
-	normalizedTaskLevel := NormalizeTaskLevel(string(taskLevel))
-	for index, taskLevelProfile := range taskLevelProfiles {
-		if taskLevelProfile.TaskLevel == normalizedTaskLevel {
-			return index
-		}
-	}
-	return -1
-}
-
 func TaskLevelProfileForLevel(taskLevel TaskLevel) TaskLevelProfile {
 	normalizedTaskLevel := NormalizeTaskLevel(string(taskLevel))
 	if normalizedTaskLevel == "" {
@@ -41,13 +31,6 @@ func TaskLevelProfileForLevel(taskLevel TaskLevel) TaskLevelProfile {
 		}
 	}
 	return taskLevelProfiles[1]
-}
-
-func LargerTaskLevel(first TaskLevel, second TaskLevel) TaskLevel {
-	if taskLevelRank(second) > taskLevelRank(first) {
-		return second
-	}
-	return first
 }
 
 func nextTaskLevel(taskLevel TaskLevel) (TaskLevel, bool) {

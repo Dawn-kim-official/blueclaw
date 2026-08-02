@@ -28,14 +28,17 @@ type (
 	ChoiceReplyOption                       = agentcontract.ChoiceReplyOption
 	ClarificationOption                     = agentcontract.ClarificationOption
 	CompanyContext                          = agentcontract.CompanyContext
+	ConfirmationReplyDecision               = agentcontract.ConfirmationReplyDecision
 	ContractToolWorkingSet                  = agentcontract.ContractToolWorkingSet
 	DeliverableKind                         = agentcontract.DeliverableKind
+	ExecutionPlan                           = agentcontract.ExecutionPlan
 	ExpectedResult                          = agentcontract.ExpectedResult
 	FailureNotice                           = agentcontract.FailureNotice
 	InstructionBundle                       = agentcontract.InstructionBundle
 	InstructionSource                       = agentcontract.InstructionSource
 	IntakeClassification                    = agentcontract.IntakeClassification
 	IntakeDecision                          = agentcontract.IntakeDecision
+	IntakeOptions                           = agentcontract.IntakeOptions
 	MemoryFact                              = agentcontract.MemoryFact
 	OutcomeContract                         = agentcontract.OutcomeContract
 	OutcomeEffect                           = agentcontract.OutcomeEffect
@@ -44,13 +47,17 @@ type (
 	PendingInputContext                     = agentcontract.PendingInputContext
 	PriorTaskContext                        = agentcontract.PriorTaskContext
 	PriorTaskReference                      = agentcontract.PriorTaskReference
+	RecoveryBudget                          = agentcontract.RecoveryBudget
 	ScheduledRunContext                     = agentcontract.ScheduledRunContext
 	SkillInstruction                        = agentcontract.SkillInstruction
 	SkillSelectionDecision                  = agentcontract.SkillSelectionDecision
+	TaskControlIntent                       = agentcontract.TaskControlIntent
+	TaskControlIntentDecision               = agentcontract.TaskControlIntentDecision
 	TaskLevel                               = agentcontract.TaskLevel
 	TaskShape                               = agentcontract.TaskShape
 	ToolExposureEvent                       = agentcontract.ToolExposureEvent
 	TurnDecision                            = agentcontract.TurnDecision
+	TurnOptions                             = agentcontract.TurnOptions
 	TurnRoute                               = agentcontract.TurnRoute
 	VisibleContext                          = agentcontract.VisibleContext
 	VisibleContextMaterial                  = agentcontract.VisibleContextMaterial
@@ -96,6 +103,16 @@ const (
 	DeliverableKindPresentation = agentcontract.DeliverableKindPresentation
 	DeliverableKindWebsite      = agentcontract.DeliverableKindWebsite
 
+	DefaultReactionEmojiName = agentcontract.DefaultReactionEmojiName
+
+	ResponseLanguageEnglish            = agentcontract.ResponseLanguageEnglish
+	ResponseLanguageKorean             = agentcontract.ResponseLanguageKorean
+	ResponseLanguageSameAsConversation = agentcontract.ResponseLanguageSameAsConversation
+
+	TaskControlIntentNone    = agentcontract.TaskControlIntentNone
+	TaskControlIntentStop    = agentcontract.TaskControlIntentStop
+	TaskControlIntentStopAll = agentcontract.TaskControlIntentStopAll
+
 	ExpectedResultTypeFile    = agentcontract.ExpectedResultTypeFile
 	ExpectedResultTypeLink    = agentcontract.ExpectedResultTypeLink
 	ExpectedResultTypeMessage = agentcontract.ExpectedResultTypeMessage
@@ -133,8 +150,16 @@ const (
 )
 
 var (
-	NormalizeTaskLevel          = agentcontract.NormalizeTaskLevel
+	DefaultResponseLanguage        = agentcontract.DefaultResponseLanguage
+	IsApprovingSignal              = agentcontract.IsApprovingSignal
+	LargerTaskLevel                = agentcontract.LargerTaskLevel
+	NormalizeResponseLanguage      = agentcontract.NormalizeResponseLanguage
+	NormalizeTaskLevel             = agentcontract.NormalizeTaskLevel
+	OutcomeContractHasRequirements = agentcontract.OutcomeContractHasRequirements
+	ResolveResponseLanguage        = agentcontract.ResolveResponseLanguage
+
 	appendUniqueStrings         = agentcontract.AppendUniqueStrings
+	taskLevelRank               = agentcontract.TaskLevelRank
 	normalizeClassification     = agentcontract.NormalizeIntakeClassification
 	normalizeExpectedResults    = agentcontract.NormalizeExpectedResults
 	normalizePriorTaskReference = agentcontract.NormalizePriorTaskReference

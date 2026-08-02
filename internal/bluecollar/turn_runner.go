@@ -13,26 +13,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
-type TurnOptions struct {
-	MaxIterationCount    int
-	MaxToolCallCount     int
-	MaxElapsedSecond     int
-	ContextWindowTokens  int
-	RecoveryAttemptLimit int
-	RecoveryBudget       RecoveryBudget
-	TaskLevel            TaskLevel
-	ToolResultMaxBytes   int
-	GenerationOptions    model.GenerationOptions
-}
-
 const maximumElapsedClosingDuration = time.Minute
-
-type RecoveryBudget struct {
-	CorrectedRetry int
-	AlternateRoute int
-	AdjacentTool   int
-	NoToolFallback int
-}
 
 type AgentTurnRunner struct {
 	taskRunService        taskstate.TaskRunStore

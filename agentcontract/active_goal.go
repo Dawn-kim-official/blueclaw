@@ -78,6 +78,16 @@ type PriorTaskContext struct {
 	RequestedOutputFormats []string        `json:"requestedOutputFormats,omitempty"`
 }
 
+func OutcomeContractHasRequirements(contract OutcomeContract) bool {
+	artifactRequirement := strings.TrimSpace(contract.ArtifactRequirement)
+	return len(contract.ExpectedResults) > 0 ||
+		len(contract.RequiredEvidenceTools) > 0 ||
+		len(contract.RequiredEvidenceAnyOf) > 0 ||
+		len(contract.RequiredAttachmentSuffixes) > 0 ||
+		len(contract.RequiredEffects) > 0 ||
+		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
+}
+
 func NormalizeExpectedResults(results []ExpectedResult) []ExpectedResult {
 	normalizedResults := []ExpectedResult{}
 	seenResults := map[string]bool{}

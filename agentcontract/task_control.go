@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 type TaskControlIntent string
 

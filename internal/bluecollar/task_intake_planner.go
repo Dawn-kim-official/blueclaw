@@ -12,16 +12,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
-const DefaultReactionEmojiName = "white_check_mark"
-
 var allowedReactionEmojiNames = reactionEmojiNames
-
-type IntakeOptions struct {
-	IsEnabled             bool
-	DefaultTaskLevel      TaskLevel
-	SkillTaskLevelFloor   TaskLevel
-	DebugAddressingReason bool
-}
 
 type TaskIntakePlanner struct {
 	languageModel model.LanguageModelProvider
@@ -901,8 +892,4 @@ func registeredToolNamesOnly(toolRegistry *toolcontract.ToolSet, toolNames []str
 		}
 	}
 	return registeredToolNames
-}
-
-func IsApprovingSignal(signal ApprovalSignal) bool {
-	return signal == ApprovalSignalApprove || signal == ApprovalSignalApproveTask
 }
