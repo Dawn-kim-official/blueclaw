@@ -29,6 +29,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -42,6 +43,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/internal/userapi"
+	"github.com/Dawn-kim-official/blueclaw/model"
 	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
 )
 
@@ -178,6 +180,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ModelName:        llm.DefaultEmbeddingModelName,
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
+	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
 	harness, skillRetriever := agentHarnessFactory(harnessdriver.Dependencies{
 		RuntimeConfiguration:    runtimeConfiguration,
 		TaskRunStore:            taskRunService,
@@ -199,7 +202,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		EmbeddingModelName:          embeddingClient.ModelName,
 		SkillIndexPath:              skillIndexPath(runtimeConfiguration),
 		TaskTierLanguageModels:      taskTierLanguageModels,
-		IntakeLanguageModelProvider: resolveIntakeLanguageModelProvider(runtimeConfiguration, logger),
+		IntakeLanguageModelProvider: intakeLanguageModelProvider,
 	})
 	refreshSkillIndex := func(ctx context.Context) {
 		harness.RefreshSkillIndex(ctx, instructionBundleLoader())
@@ -288,6 +291,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskRunService,
 		logger,
 	)
+	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
@@ -1521,4 +1525,14 @@ func deriveListenAddress(baseURL string) string {
 	}
 
 	return parsedURL.Host
+}
+
+func classificationLanguageModelProvider(taskTierLanguageModels harnessdriver.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
+	if taskTierLanguageModels.XLow != nil {
+		return taskTierLanguageModels.XLow
+	}
+	if intakeLanguageModelProvider != nil {
+		return intakeLanguageModelProvider
+	}
+	return taskTierLanguageModels.High
 }

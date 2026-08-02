@@ -190,3 +190,5 @@ var (
 	normalizeExpectedResults    = agentcontract.NormalizeExpectedResults
 	normalizePriorTaskReference = agentcontract.NormalizePriorTaskReference
 )
+
+var reactionEmojiNames = agentcontract.ReactionEmojiNames

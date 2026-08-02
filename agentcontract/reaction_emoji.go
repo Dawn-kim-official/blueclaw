@@ -1,6 +1,6 @@
-package bluecollar
+package agentcontract
 
-var reactionEmojiNames = []string{
+var ReactionEmojiNames = []string{
 	"white_check_mark",
 	"eyes",
 	"+1",

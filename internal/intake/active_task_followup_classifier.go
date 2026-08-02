@@ -1,4 +1,4 @@
-package bluecollar
+package intake
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
@@ -18,8 +19,8 @@ type activeTaskFollowUpClassificationDocument struct {
 // progress, or is it a self-contained new and unrelated request. Callers use this to decide
 // whether a message deserves an immediate shot at steering/cancelling that task instead of
 // waiting behind it in the per-conversation queue.
-func (agentKernel *AgentKernel) ClassifyActiveTaskFollowUp(ctx context.Context, request ActiveTaskFollowUpClassificationRequest) (bool, error) {
-	languageModel := agentKernel.classificationLanguageModel()
+func (classifier *Classifier) ClassifyActiveTaskFollowUp(ctx context.Context, request agentcontract.ActiveTaskFollowUpClassificationRequest) (bool, error) {
+	languageModel := classifier.languageModel
 	if languageModel == nil {
 		return false, errors.New("language model is not configured")
 	}
@@ -37,7 +38,7 @@ func (agentKernel *AgentKernel) ClassifyActiveTaskFollowUp(ctx context.Context, 
 	return document.RelatesToActiveTask, nil
 }
 
-func activeTaskFollowUpClassificationMessages(request ActiveTaskFollowUpClassificationRequest) []model.Message {
+func activeTaskFollowUpClassificationMessages(request agentcontract.ActiveTaskFollowUpClassificationRequest) []model.Message {
 	return []model.Message{
 		{
 			Role:    "system",

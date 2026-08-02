@@ -1,4 +1,4 @@
-package bluecollar
+package intake
 
 import (
 	"context"
@@ -7,20 +7,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
 type addressingClassificationDocument struct {
-	Target         AddressingTarget `json:"target"`
-	ShouldRespond  bool             `json:"shouldRespond"`
-	ReactionEmoji  string           `json:"reactionEmoji"`
-	DutyMatch      bool             `json:"dutyMatch"`
-	DutyName       string           `json:"dutyName"`
-	DutyConfidence float64          `json:"dutyConfidence"`
-	Reason         string           `json:"reason,omitempty"`
+	Target         agentcontract.AddressingTarget `json:"target"`
+	ShouldRespond  bool                           `json:"shouldRespond"`
+	ReactionEmoji  string                         `json:"reactionEmoji"`
+	DutyMatch      bool                           `json:"dutyMatch"`
+	DutyName       string                         `json:"dutyName"`
+	DutyConfidence float64                        `json:"dutyConfidence"`
 }
 
-var addressingReactionEmojiOptions = append([]string{""}, reactionEmojiNames...)
+var addressingReactionEmojiOptions = append([]string{""}, agentcontract.ReactionEmojiNames...)
 
 func addressingReactionEmojiEnumJSON() string {
 	quoted := make([]string, 0, len(addressingReactionEmojiOptions))
@@ -50,27 +50,26 @@ var AddressingStandingDutySeeds = []StandingDutySeed{
 	{Name: "team_flow_update", Description: "a specific work task assigned to a person that should be added, or whose status or details should be updated or completed right now"},
 }
 
-func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request AddressingClassificationRequest) (AddressingDecision, error) {
-	languageModel := agentKernel.addressingLanguageModel()
+func (classifier *Classifier) ClassifyAddressing(ctx context.Context, request agentcontract.AddressingClassificationRequest) (agentcontract.AddressingDecision, error) {
+	languageModel := classifier.languageModel
 	if languageModel == nil {
-		return AddressingDecision{}, errors.New("language model is not configured")
+		return agentcontract.AddressingDecision{}, errors.New("language model is not configured")
 	}
-	includeReason := agentKernel.intakeOptions.DebugAddressingReason
 	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, model.StructuredResponseRequest{
 		Messages:               addressingClassificationMessages(request),
-		StructuredOutputSchema: addressingClassificationSchema(includeReason),
+		StructuredOutputSchema: addressingClassificationSchema(),
 	})
 	if errorValue != nil {
-		return AddressingDecision{}, errorValue
+		return agentcontract.AddressingDecision{}, errorValue
 	}
 	var document addressingClassificationDocument
 	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &document); errorValue != nil {
-		return AddressingDecision{}, errorValue
+		return agentcontract.AddressingDecision{}, errorValue
 	}
 	if !isValidAddressingTarget(document.Target) {
-		return AddressingDecision{}, errors.New("invalid addressing target")
+		return agentcontract.AddressingDecision{}, errors.New("invalid addressing target")
 	}
-	decision := AddressingDecision{
+	decision := agentcontract.AddressingDecision{
 		Target:         document.Target,
 		ShouldRespond:  document.ShouldRespond,
 		ReactionEmoji:  normalizeAddressingReactionEmoji(document.ReactionEmoji),
@@ -82,27 +81,20 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 		decision.DutyName = ""
 		decision.DutyConfidence = 0
 	}
-	if decision.Target == AddressingTargetHuman {
+	if decision.Target == agentcontract.AddressingTargetHuman {
 		decision.ShouldRespond = false
-	}
-	if includeReason {
-		decision.Reason = strings.TrimSpace(document.Reason)
 	}
 	return decision, nil
 }
 
-func (agentKernel *AgentKernel) addressingLanguageModel() model.LanguageModelProvider {
-	return agentKernel.classificationLanguageModel()
-}
-
-func addressingClassificationMessages(request AddressingClassificationRequest) []model.Message {
+func addressingClassificationMessages(request agentcontract.AddressingClassificationRequest) []model.Message {
 	return []model.Message{
 		{Role: "system", Content: "Classify the intended target of the latest message in a multi-person conversation. Return only the requested JSON. Do not answer the user."},
 		{Role: "user", Content: addressingClassificationPrompt(request)},
 	}
 }
 
-func addressingClassificationPrompt(request AddressingClassificationRequest) string {
+func addressingClassificationPrompt(request agentcontract.AddressingClassificationRequest) string {
 	lines := []string{
 		"Decide how the assistant (InternKim, Korean name 김인턴) should handle the latest message in a group conversation. Return only the requested JSON; do not answer the user.",
 		"Make two independent decisions:",
@@ -142,7 +134,7 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 	return strings.Join(lines, "\n")
 }
 
-func recentVisibleMessages(messages []VisibleContextMessage, limit int) []VisibleContextMessage {
+func recentVisibleMessages(messages []agentcontract.VisibleContextMessage, limit int) []agentcontract.VisibleContextMessage {
 	if limit <= 0 || len(messages) <= limit {
 		return messages
 	}
@@ -158,12 +150,9 @@ func firstNonEmptyAddressingText(values ...string) string {
 	return ""
 }
 
-func addressingClassificationSchema(includeReason bool) model.StructuredOutputSchema {
+func addressingClassificationSchema() model.StructuredOutputSchema {
 	reactionEmojiProperty := `"reactionEmoji":{"type":"string","enum":` + addressingReactionEmojiEnumJSON() + `}`
 	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence"],"additionalProperties":false}`
-	if includeReason {
-		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"},"reason":{"type":"string"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence","reason"],"additionalProperties":false}`
-	}
 	return model.StructuredOutputSchema{
 		Name:               "blueclaw_addressing_classification",
 		Document:           document,
@@ -171,9 +160,9 @@ func addressingClassificationSchema(includeReason bool) model.StructuredOutputSc
 	}
 }
 
-func isValidAddressingTarget(target AddressingTarget) bool {
+func isValidAddressingTarget(target agentcontract.AddressingTarget) bool {
 	switch target {
-	case AddressingTargetBot, AddressingTargetHuman, AddressingTargetAnyone, AddressingTargetNone, AddressingTargetUnclear:
+	case agentcontract.AddressingTargetBot, agentcontract.AddressingTargetHuman, agentcontract.AddressingTargetAnyone, agentcontract.AddressingTargetNone, agentcontract.AddressingTargetUnclear:
 		return true
 	}
 	return false
