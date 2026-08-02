@@ -12,9 +12,8 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -59,7 +58,7 @@ func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "오늘의 조사 결과입니다."),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 		WorkspaceID:            "workspace-1",
 	}
@@ -111,7 +110,7 @@ func TestTaskSchedulePollerDoesNotClaimDueScheduleWhenQuiesced(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     &pollerDeliveryRepository{},
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "오늘의 조사 결과입니다."),
 		TaskIntakeGate:         pollerTaskIntakeGate{isQuiesced: true},
 	}
 
@@ -181,7 +180,6 @@ func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) 
 func TestTaskSchedulePollerDoesNotAdvanceWhenDeliveryFails(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
-	generatedResponseCount := 0
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
 		TaskScheduleID:   "schedule-1",
 		CreatorPersonID:  "person-1",
@@ -196,10 +194,11 @@ func TestTaskSchedulePollerDoesNotAdvanceWhenDeliveryFails(t *testing.T) {
 		MaxRunCount:      10,
 		NextRunAt:        &nextRunAt,
 	}}}
+	taskScheduleRunner, harness := taskScheduleRunnerWithHarness(task.TaskStatusCompleted, "오늘의 조사 결과입니다.")
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     &pollerDeliveryRepository{errorValue: errors.New("outbox unavailable")},
-		TaskScheduleRunner:     testTaskScheduleRunnerWithResponseCount("오늘의 조사 결과입니다.", &generatedResponseCount),
+		TaskScheduleRunner:     taskScheduleRunner,
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -214,11 +213,8 @@ func TestTaskSchedulePollerDoesNotAdvanceWhenDeliveryFails(t *testing.T) {
 	if len(repository.failed) != 0 {
 		t.Fatalf("expected direct run not to record poller failure, got %+v", repository.failed)
 	}
-	// The agent turn now legitimately makes more than one structured-response call per
-	// run (completion-evidence/quality-criteria checks), so this only asserts the task
-	// executor ran at all, not an exact call count.
-	if generatedResponseCount == 0 {
-		t.Fatalf("expected task executor to run, got %d calls", generatedResponseCount)
+	if harness.RunTurnCallCount() == 0 {
+		t.Fatal("expected the task executor to run")
 	}
 }
 
@@ -243,7 +239,7 @@ func TestTaskSchedulePollerAtomicSuccessAdvancesOnceAndEnqueuesOnce(t *testing.T
 	}
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "오늘의 조사 결과입니다."),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -288,7 +284,7 @@ func TestTaskSchedulePollerRetriedOccurrenceDoesNotDoubleEnqueue(t *testing.T) {
 	}
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "오늘의 조사 결과입니다."),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 	claimedTaskSchedule := repository.taskSchedules[0]
@@ -376,7 +372,7 @@ func TestTaskSchedulePollerLogsDeliveryFailures(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     &pollerDeliveryRepository{errorValue: errors.New("outbox unavailable")},
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "오늘의 조사 결과입니다."),
 		Logger:                 slog.New(slog.NewTextHandler(&logBuffer, nil)),
 	}
 
@@ -406,7 +402,7 @@ func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"continue","toolName":"ask_confirm","toolInput":{"message":"확인이 필요해요."}}`),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusBlocked, "확인이 필요해요."),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -440,7 +436,7 @@ func TestTaskSchedulePollerSkipsActiveRunForSameSchedule(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     &pollerDeliveryRepository{},
-		TaskScheduleRunner:     testTaskScheduleRunner("should not run"),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusCompleted, "should not run"),
 		TaskRunService:         taskRunService,
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
@@ -464,7 +460,7 @@ func TestTaskSchedulePollerDoesNotDeliverFailedTaskReply(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"fail","reason":"calendar unavailable"}`),
+		TaskScheduleRunner:     testTaskScheduleRunner(task.TaskStatusFailed, "calendar unavailable"),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -682,22 +678,21 @@ func (staticPersonAccessResolver) ResolvePersonAccess(personID string) policy.Pe
 	return policy.PersonAccess{PersonID: personID, SecurityLevelRank: 100, GrantedClasses: []string{"internal"}}
 }
 
-func testTaskScheduleRunner(content string) agentruntime.TaskScheduleRunner {
-	return testTaskScheduleRunnerWithResponseCount(content, nil)
+func testTaskScheduleRunner(turnStatus task.TaskStatus, finishMessage string) agentruntime.TaskScheduleRunner {
+	taskScheduleRunner, _ := taskScheduleRunnerWithHarness(turnStatus, finishMessage)
+	return taskScheduleRunner
 }
 
-func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCount *int) agentruntime.TaskScheduleRunner {
+func taskScheduleRunnerWithHarness(turnStatus task.TaskStatus, finishMessage string) (agentruntime.TaskScheduleRunner, *harnessstub.Stub) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	languageModel := staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount}
-	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	harness := harnessstub.New(taskRunService)
+	harness.TurnStatus = turnStatus
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: finishMessage}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder))
+	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)), harness
 }
 
 func waitingTaskSchedule(runAt time.Time) task.TaskSchedule {
@@ -714,28 +709,6 @@ func waitingTaskSchedule(runAt time.Time) task.TaskSchedule {
 		RunAt:            &runAt,
 		NextRunAt:        &runAt,
 	}
-}
-
-type staticPollerLanguageModel struct {
-	content                string
-	generatedResponseCount *int
-}
-
-func (languageModel staticPollerLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if languageModel.generatedResponseCount != nil {
-		*languageModel.generatedResponseCount++
-	}
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
-		return llm.StructuredResponse{Content: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled objective","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`}, nil
-	}
-	if strings.HasPrefix(languageModel.content, "{") {
-		return llm.StructuredResponse{Content: languageModel.content}, nil
-	}
-	return llm.StructuredResponse{Content: `{"action":"finish","message":"` + languageModel.content + `","replyParts":[{"type":"text","text":"` + languageModel.content + `"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`}, nil
 }
 
 func TestRecordTaskScheduleFailureExpiresAfterRepeatedFailures(t *testing.T) {
