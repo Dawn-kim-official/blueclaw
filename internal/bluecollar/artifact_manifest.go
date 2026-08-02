@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 const artifactManifestEntryLimit = 10

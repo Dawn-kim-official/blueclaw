@@ -2,7 +2,7 @@ package e2e
 
 import (
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"os"
 	"path/filepath"
 	"runtime"

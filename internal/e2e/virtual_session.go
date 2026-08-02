@@ -12,7 +12,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"io"
 	"log/slog"
 	"math"

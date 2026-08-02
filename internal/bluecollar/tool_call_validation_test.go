@@ -3,11 +3,11 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {

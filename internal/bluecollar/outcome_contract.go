@@ -1,10 +1,10 @@
 package bluecollar
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
