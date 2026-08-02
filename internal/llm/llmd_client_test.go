@@ -1055,3 +1055,36 @@ func (languageModel *llmdTestLanguageModel) GenerateChatCompletion(context.Conte
 	languageModel.chatCallCount++
 	return languageModel.chatResponse, languageModel.chatError
 }
+
+func TestLLMDClientGenerateChatCompletionPrefersRequestModelName(t *testing.T) {
+	sentModelNames := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		var requestDocument llmdChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&requestDocument); errorValue != nil {
+			t.Fatalf("expected valid request document: %v", errorValue)
+		}
+		sentModelNames = append(sentModelNames, requestDocument.Model)
+		_, _ = responseWriter.Write([]byte(`{"finishReason":"stop","provider":"openrouter","model":"answered","selectedBackend":"remote","message":{"role":"assistant","content":"done"}}`))
+	}))
+	defer server.Close()
+
+	client := NewLLMDClient(LLMDClientConfiguration{
+		Endpoint:  server.URL,
+		AuthKey:   "installation-key",
+		ModelName: "configured-model",
+	})
+	if _, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "check"}},
+	}); errorValue != nil {
+		t.Fatalf("expected configured model completion: %v", errorValue)
+	}
+	if _, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		ModelName: "requested-model",
+		Messages:  []ChatCompletionMessage{{Role: "user", Content: "check"}},
+	}); errorValue != nil {
+		t.Fatalf("expected requested model completion: %v", errorValue)
+	}
+	if !reflect.DeepEqual(sentModelNames, []string{"configured-model", "requested-model"}) {
+		t.Fatalf("expected the request model to win over the client model, got %v", sentModelNames)
+	}
+}

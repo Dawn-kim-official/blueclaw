@@ -9,6 +9,7 @@ import (
 
 type ChatCompletionRequest struct {
 	SchemaName        string                  `json:"-"`
+	ModelName         string                  `json:"model,omitempty"`
 	Messages          []ChatCompletionMessage `json:"messages"`
 	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
 	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`

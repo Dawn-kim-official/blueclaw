@@ -233,7 +233,7 @@ func (client LLMDClient) generateLLMDChatCompletion(responseContext context.Cont
 		return ChatCompletionResponse{}, errors.New("llmd auth key is not configured")
 	}
 	requestDocument := llmdChatCompletionRequestDocument{
-		Model:             client.ModelName,
+		Model:             requestedModelNameOrDefault(request, client.ModelName),
 		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
 		Messages:          append([]ChatCompletionMessage{}, request.Messages...),

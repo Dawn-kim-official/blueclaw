@@ -235,7 +235,7 @@ func (capabilityLLMClient CapabilityLLMClient) generateChatCompletion(responseCo
 	}
 
 	requestDocument := capabilityChatCompletionRequestDocument{
-		Model:             capabilityLLMClient.ModelName,
+		Model:             requestedModelNameOrDefault(request, capabilityLLMClient.ModelName),
 		ExecutionMode:     executionMode,
 		Context:           requestContextPointer(responseContext),
 		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
@@ -281,6 +281,13 @@ func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(re
 			IsStrictlyEnforced: structuredResponseRequest.StructuredOutputSchema.IsStrictlyEnforced,
 		},
 	}, nil
+}
+
+func requestedModelNameOrDefault(request ChatCompletionRequest, defaultModelName string) string {
+	if requestedModelName := strings.TrimSpace(request.ModelName); requestedModelName != "" {
+		return requestedModelName
+	}
+	return defaultModelName
 }
 
 func generationOptionsPointer(options GenerationOptions) *GenerationOptions {
