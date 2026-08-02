@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -79,8 +80,8 @@ func TestExpectedEventCountRejectsRepeatedReadResults(t *testing.T) {
 }
 
 func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
-	defaultOptions := virtualTurnOptions(bluecollar.TurnOptions{})
-	lowProfile := bluecollar.TaskLevelProfileForLevel(bluecollar.TaskLevelLow)
+	defaultOptions := virtualTurnOptions(agentcontract.TurnOptions{})
+	lowProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelLow)
 	if defaultOptions.TaskLevel != lowProfile.TaskLevel ||
 		defaultOptions.MaxIterationCount != lowProfile.MaxIterationCount ||
 		defaultOptions.MaxToolCallCount != lowProfile.MaxToolCallCount ||
@@ -88,8 +89,8 @@ func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
 		t.Fatalf("expected production low defaults, got %+v", defaultOptions)
 	}
 
-	xHighOptions := virtualTurnOptions(bluecollar.TurnOptions{TaskLevel: bluecollar.TaskLevelXHigh})
-	xHighProfile := bluecollar.TaskLevelProfileForLevel(bluecollar.TaskLevelXHigh)
+	xHighOptions := virtualTurnOptions(agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
+	xHighProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
 	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
 		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
 		t.Fatalf("expected xhigh task budget, got %+v", xHighOptions)

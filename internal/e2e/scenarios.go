@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -18,7 +18,7 @@ func actionInvokeCapabilityTool(toolName string, input string) string {
 	return actionCallTool(toolName, input)
 }
 
-func workspaceSkillInstruction(skillName string) bluecollar.SkillInstruction {
+func workspaceSkillInstruction(skillName string) agentcontract.SkillInstruction {
 	skillBundle, errorValue := (skill.SkillLoader{}).LoadSkillBundle(rootWorkspaceSkillDirectoryPath(skillName))
 	if errorValue != nil {
 		panic(fmt.Errorf("load root workspace skill %q: %w", skillName, errorValue))
@@ -78,7 +78,7 @@ func PresentationLocalMultiturnSuccessScenario(artifactDirectoryPath string) Vir
 	return VirtualSessionScenario{
 		Name:                  "presentation_local_multiturn_success",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{presentationSkill()},
+		Skills:                []agentcontract.SkillInstruction{presentationSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "terminal_run", "file_write", "file_deliver"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐",
@@ -129,7 +129,7 @@ func MemoryGuidedFollowupScenario(artifactDirectoryPath string) VirtualSessionSc
 		Turns: []VirtualTurn{
 			{
 				Prompt:          "내 발표 자료는 항상 짧은 문장과 한국어 제목을 선호한다고 기억해줘",
-				RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+				RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("기억해둘게요."),
 				},
@@ -137,7 +137,7 @@ func MemoryGuidedFollowupScenario(artifactDirectoryPath string) VirtualSessionSc
 			},
 			{
 				Prompt:          "아까 말한 선호를 반영해서 다음 발표 스타일을 한 문장으로 정리해줘",
-				RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+				RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("짧은 문장과 한국어 제목 중심으로 정리하겠습니다."),
 				},
@@ -153,7 +153,7 @@ func PlainQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Turns: []VirtualTurn{{
 			Prompt:          "도구 없이 짧게 답해줘. 좋은 회의록의 핵심은 뭐야?",
-			RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+			RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("좋은 회의록의 핵심은 결정사항, 담당자, 기한을 분명히 남기는 것입니다."),
 			},
@@ -169,7 +169,7 @@ func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 		AllowedTools:          []string{"conversation_history", "memory_search", "web_search"},
 		CapabilityToolNames:   []string{"web_search"},
 		InitialToolNames:      []string{"web_search"},
-		RouterTaskShape:       bluecollar.TaskShapeResearchTask,
+		RouterTaskShape:       agentcontract.TaskShapeResearchTask,
 		Turns: []VirtualTurn{{
 			Prompt:                 "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
 			RouterRequiredEvidence: []string{"web_search"},
@@ -190,11 +190,11 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 	return VirtualSessionScenario{
 		Name:                  "tool_permission_hides_skill",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{presentationSkill()},
+		Skills:                []agentcontract.SkillInstruction{presentationSkill()},
 		AllowedTools:          []string{"memory_search", "file_write"},
 		Turns: []VirtualTurn{{
 			Prompt:          "피피티 만들어줘",
-			RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+			RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("현재 profile에서는 필요한 도구가 없어 슬라이드 생성 skill을 실행하지 않았습니다."),
 			},
@@ -280,7 +280,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 		CapabilityToolNames:   []string{"image_read", "document_read"},
 		Turns: []VirtualTurn{{
 			Prompt:          "다시 이미지 내가 첨부한 거 봐봐",
-			RouterTaskShape: bluecollar.TaskShapeResearchTask,
+			RouterTaskShape: agentcontract.TaskShapeResearchTask,
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "샘플",
 				SpeakerCallingName: "샘플 님",
@@ -324,7 +324,7 @@ func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) Virtual
 		AllowedTools:          []string{"conversation_history", "memory_search", "terminal_run", "file_preview", "file_read", "image_read"},
 		Turns: []VirtualTurn{{
 			Prompt:           "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
-			RouterTaskShape:  bluecollar.TaskShapeResearchTask,
+			RouterTaskShape:  agentcontract.TaskShapeResearchTask,
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
 				actionCallTool("file_preview", `{"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"}`),
@@ -363,7 +363,7 @@ func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string)
 		AllowedTools:          []string{"conversation_history", "memory_search", "terminal_run", "file_preview", "file_read", "image_read"},
 		Turns: []VirtualTurn{{
 			Prompt:          "다시",
-			RouterTaskShape: bluecollar.TaskShapeResearchTask,
+			RouterTaskShape: agentcontract.TaskShapeResearchTask,
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "샘플",
 				SpeakerCallingName: "샘플 님",
@@ -412,7 +412,7 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 		CapabilityToolNames:   []string{"image_read", "document_read"},
 		Turns: []VirtualTurn{{
 			Prompt:           "이거 보여? 묘사 좀 자세히 해봐.",
-			RouterTaskShape:  bluecollar.TaskShapeImmediateReply,
+			RouterTaskShape:  agentcontract.TaskShapeImmediateReply,
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
 				actionFinishWithReplyPart(
@@ -477,7 +477,7 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 		AllowedTools:          []string{"memory_search", "terminal_run", "file_write"},
 		Turns: []VirtualTurn{{
 			Prompt:          "구글 드라이브에 파일 올릴 수 있는지 확인해줘",
-			RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+			RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("Google Workspace 도구는 현재 사용할 수 없습니다. 로컬 파일 작업은 가능합니다."),
 			},
@@ -492,7 +492,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Name:                   "schedule_create_acceptance",
 		SkillSearchQueries:     []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		Skills:                 []bluecollar.SkillInstruction{scheduledTaskSkill()},
+		Skills:                 []agentcontract.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:           append(toolcontract.KernelToolNames(), "schedule_create", "schedule_cancel"),
 		InitialToolNames:       []string{"schedule_create", "schedule_cancel"},
 		RouterRequiredEvidence: []string{"schedule_create"},
@@ -524,7 +524,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		Name:                  "schedule_lifecycle_acceptance",
 		SkillSearchQueries:    []string{"schedule a recurring interval reminder"},
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{scheduledTaskSkill()},
+		Skills:                []agentcontract.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          append(toolcontract.KernelToolNames(), "schedule_create", "schedule_update", "schedule_cancel"),
 		InitialToolNames:      []string{"schedule_create", "schedule_update", "schedule_cancel"},
 		Turns: []VirtualTurn{
@@ -576,7 +576,7 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	return VirtualSessionScenario{
 		Name:                  "calendar_event_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{calendarSkill()},
+		Skills:                []agentcontract.SkillInstruction{calendarSkill()},
 		AllowedTools:          append(toolcontract.KernelToolNames(), "calendar_add", "calendar_update", "calendar_delete"),
 		CapabilityToolNames:   []string{"calendar_add", "calendar_update", "calendar_delete"},
 		InitialToolNames:      []string{"calendar_add"},
@@ -642,7 +642,7 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 	return VirtualSessionScenario{
 		Name:                  "calendar_false_finish_recovery_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{calendarSkill()},
+		Skills:                []agentcontract.SkillInstruction{calendarSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "calendar_add"},
 		CapabilityToolNames:   []string{"calendar_add"},
 		InitialToolNames:      []string{"calendar_add"},
@@ -676,7 +676,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"calendar_add"},
 		AddressingResponse:     `{"target":"human","shouldRespond":false,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
-		Skills:                 []bluecollar.SkillInstruction{calendarSkill()},
+		Skills:                 []agentcontract.SkillInstruction{calendarSkill()},
 		AllowedTools:           []string{"conversation_history", "memory_search", "calendar_add"},
 		CapabilityToolNames:    []string{"calendar_add"},
 		InitialToolNames:       []string{"calendar_add"},
@@ -710,7 +710,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
-func flowTaskSkill() bluecollar.SkillInstruction {
+func flowTaskSkill() agentcontract.SkillInstruction {
 	return workspaceSkillInstruction("internkim-flow")
 }
 
@@ -719,7 +719,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Name:                  "ambient_task_capture_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AddressingResponse:    `{"target":"human","shouldRespond":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
-		Skills:                []bluecollar.SkillInstruction{flowTaskSkill()},
+		Skills:                []agentcontract.SkillInstruction{flowTaskSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "task_add", "task_list", "task_update"},
 		CapabilityToolNames:   []string{"task_add", "task_list", "task_update"},
 		InitialToolNames:      []string{"task_add"},
@@ -783,7 +783,7 @@ func CompletionJudgeRecoveryAcceptanceScenario(artifactDirectoryPath string) Vir
 	return VirtualSessionScenario{
 		Name:                  "completion_judge_recovery_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{flowTaskSkill()},
+		Skills:                []agentcontract.SkillInstruction{flowTaskSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "task_add", "task_list", "task_update"},
 		CapabilityToolNames:   []string{"task_add", "task_list", "task_update"},
 		InitialToolNames:      []string{"task_add"},
@@ -872,11 +872,11 @@ func CapabilityQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	return VirtualSessionScenario{
 		Name:                  "capability_question_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{presentationSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
+		Skills:                []agentcontract.SkillInstruction{presentationSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "skill_search"},
 		Turns: []VirtualTurn{{
 			Prompt:          "너는 무엇을 할 수 있어?",
-			RouterTaskShape: bluecollar.TaskShapeResearchTask,
+			RouterTaskShape: agentcontract.TaskShapeResearchTask,
 			ActionResponses: []string{
 				actionCallTool("skill_search", `{}`),
 				actionFinishMessage("사용 가능한 skill에는 presentation, scheduled-task, site-prototype이 있습니다.", "obs-001:skill_search:0"),
@@ -901,7 +901,7 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Turns: []VirtualTurn{
 			{
 				Prompt:          "계약서 확인 요약 작업을 완료했다고 답해줘",
-				RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+				RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 				ActionResponses: []string{
 					actionFinishMessage("계약서 확인 요약 작업을 완료했습니다."),
 				},
@@ -912,7 +912,7 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 			},
 			{
 				Prompt:          "최근에 어떤 작업을 했는지 알려줘",
-				RouterTaskShape: bluecollar.TaskShapeResearchTask,
+				RouterTaskShape: agentcontract.TaskShapeResearchTask,
 				ActionResponses: []string{
 					actionCallTool("conversation_history", `{"limit":20}`),
 					actionFinishMessage("최근에는 계약서 확인 요약 작업을 완료했습니다.", "obs-001:conversation_history:0"),
@@ -955,7 +955,7 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			},
 			{
 				Prompt:                 "What language do I prefer?",
-				RouterTaskShape:        bluecollar.TaskShapeResearchTask,
+				RouterTaskShape:        agentcontract.TaskShapeResearchTask,
 				RouterRequiredEvidence: []string{"memory_search"},
 				ActionResponses: []string{
 					actionCallTool("memory_search", `{"query":"preferred language"}`),
@@ -976,8 +976,8 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Name:                  "failure_explanation_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AllowedTools:          []string{"conversation_history", "memory_search", "terminal_run"},
-		TurnOptions: bluecollar.TurnOptions{
-			RecoveryBudget: bluecollar.RecoveryBudget{
+		TurnOptions: agentcontract.TurnOptions{
+			RecoveryBudget: agentcontract.RecoveryBudget{
 				CorrectedRetry: -1,
 				AlternateRoute: -1,
 				AdjacentTool:   -1,
@@ -1000,7 +1000,7 @@ func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			},
 			{
 				Prompt:          "왜 실패했어?",
-				RouterTaskShape: bluecollar.TaskShapeResearchTask,
+				RouterTaskShape: agentcontract.TaskShapeResearchTask,
 				ActionResponses: []string{
 					actionCallTool("conversation_history", `{"limit":20}`),
 					actionFinishMessage("terminal_run 실행이 permission denied 때문에 실패했습니다.", "obs-001:conversation_history:0"),
@@ -1020,7 +1020,7 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		Name:                  "one_time_schedule_acceptance",
 		SkillSearchQueries:    []string{"schedule a one-time reminder"},
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []bluecollar.SkillInstruction{scheduledTaskSkill()},
+		Skills:                []agentcontract.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation_history", "memory_search", "schedule_create", "schedule_cancel"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
@@ -1050,11 +1050,11 @@ description: Organize short notes into concise memos and extract action items wh
 Organize notes into concise memos with action items and owners.`
 }
 
-func calendarSkill() bluecollar.SkillInstruction {
+func calendarSkill() agentcontract.SkillInstruction {
 	return workspaceSkillInstruction("calendar")
 }
 
-func scheduledTaskSkill() bluecollar.SkillInstruction {
+func scheduledTaskSkill() agentcontract.SkillInstruction {
 	return workspaceSkillInstruction("scheduled-task")
 }
 
@@ -1065,7 +1065,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"site_serve"},
 		RouterSiteEvidence:     "Local Fleet Studio",
-		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
+		Skills:                 []agentcontract.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"file_write", "site_serve"},
@@ -1105,7 +1105,7 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"site_serve"},
 		RouterSiteEvidence:     "Local Fleet Studio website",
-		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
+		Skills:                 []agentcontract.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"site_serve", "site_list", "file_write"},
@@ -1157,7 +1157,7 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"site_serve"},
 		RouterSiteEvidence:     "Local Fleet Studio",
-		Skills:                 []bluecollar.SkillInstruction{sitePrototypeSkill()},
+		Skills:                 []agentcontract.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
 		InitialToolNames:       []string{"site_serve", "file_write", "terminal_run"},
@@ -1202,7 +1202,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		SkillSearchQueries:        []string{"create and publish a website prototype"},
 		ArtifactDirectoryPath:     artifactDirectoryPath,
 		RouterSiteEvidence:        "Local Fleet Studio",
-		Skills:                    []bluecollar.SkillInstruction{sitePrototypeSkill()},
+		Skills:                    []agentcontract.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:              append(toolcontract.KernelToolNames(), sitePrototypeCapabilityToolNames()...),
 		CapabilityToolNames:       sitePrototypeCapabilityToolNames(),
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{Name: "site_unserve", RequiresApproval: true}},
@@ -1307,7 +1307,7 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 			ExpectedModelContexts:  []string{"choices"},
 		}, {
 			Prompt:          "두 번째",
-			RouterTaskShape: bluecollar.TaskShapeImmediateReply,
+			RouterTaskShape: agentcontract.TaskShapeImmediateReply,
 			ActionResponses: []string{
 				actionFinishMessage("두 번째로 진행하겠습니다."),
 			},
@@ -1323,7 +1323,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		Name:                   "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"message_send"},
-		ScriptedExecutionPlan: &bluecollar.ExecutionPlan{
+		ScriptedExecutionPlan: &agentcontract.ExecutionPlan{
 			OriginalInstruction:     "테스트이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			Summary:                 "테스트이에게 오늘 오후 3시 확인 요청을 DM으로 보낸다",
 			Targets:                 []string{"테스트"},
@@ -1376,7 +1376,7 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 		Name:                   "channel_post_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"message_send"},
-		ScriptedExecutionPlan: &bluecollar.ExecutionPlan{
+		ScriptedExecutionPlan: &agentcontract.ExecutionPlan{
 			OriginalInstruction:     "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
 			Summary:                 "announcements 채널에 오늘 5시 전체 공지 회의를 게시한다",
 			Targets:                 []string{"announcements"},
@@ -1463,11 +1463,11 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
-func presentationSkill() bluecollar.SkillInstruction {
+func presentationSkill() agentcontract.SkillInstruction {
 	return workspaceSkillInstruction("presentation")
 }
 
-func sitePrototypeSkill() bluecollar.SkillInstruction {
+func sitePrototypeSkill() agentcontract.SkillInstruction {
 	return workspaceSkillInstruction("website")
 }
 
