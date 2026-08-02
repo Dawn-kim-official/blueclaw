@@ -11,7 +11,7 @@ agent should not be trusted with: identity, isolation, task state, the tool
 catalog, and delivery.
 
 The agent loop is a replaceable component behind a Go interface
-(`agentcontract.Harness`, 7 methods). One implementation ships in this
+(`agentcontract.Harness`, 3 methods and shrinking). One implementation ships in this
 repository. Swapping it does not move the isolation boundary, because tool
 execution never leaves blueclaw.
 
@@ -249,21 +249,25 @@ and `--scenario-file` loads one from JSON instead.
 
 ## Harnesses
 
-A *harness* is the agent loop: it routes a turn, runs it, produces an answer,
-and refreshes its skill index. In blueclaw a harness is anything satisfying
-`agentcontract.Harness` (`agentcontract/harness.go`), 7 methods:
+A *harness* is the agent loop: it runs a turn and reports what happened. In
+blueclaw a harness is anything satisfying `agentcontract.Harness`
+(`agentcontract/harness.go`), 3 methods:
 
 ```go
 type Harness interface {
 	RunTurn(context.Context, AgentTurnRequest) (AgentTurnResult, error)
 	RouteTurn(context.Context, AgentRequest) (TurnDecision, error)
-	RunAgentRequest(context.Context, AgentRequest) (AgentTurnResult, error)
 	CompleteLaunchFailure(context.Context, AgentTurnRequest, string, string, error) AgentTurnResult
-	GenerateReply(context.Context, string) (string, error)
-	GenerateReplyWithContext(context.Context, string, VisibleContext, []MemoryFact) (string, error)
-	RefreshSkillIndex(context.Context, InstructionBundle)
 }
 ```
+
+The port is deliberately shrinking. It began at nine methods, several of which
+were the host asking a model a question rather than the host asking an agent to
+work — classifying whether a chat message was addressed to the bot, writing a
+reply sentence, refreshing a skill index. No external harness could honestly
+answer those, which made the port unimplementable by anything blueclaw did not
+ship. Those now live in the host (`internal/intake`, `internal/reply`). The two
+that remain beyond `RunTurn` are on the same path out; see Project status.
 
 Everything else the host needs — task events, cancellation, run lookup — it
 takes from the task store directly rather than through the harness.
@@ -497,6 +501,7 @@ Planned and **not built**. Nothing below is a feature you can use today.
 | MCP server exposing blueclaw's tool catalog | not built. blueclaw consumes MCP servers today; it does not publish one. |
 | `internal/bluecollar` moving to its own repository | not done. The 131 files are still here. |
 | Removal of the `internal/access` Go-side ACL pre-check | not done. See Known gaps in the boundary. |
+| A harness port narrow enough for an external harness | in progress. Down from nine methods to three. `RouteTurn` decides whether an inbound message becomes a task at all, which is host policy, and `CompleteLaunchFailure` writes a host task run; both are on their way out of the port. |
 
 Publishing blockers, in order: remove the Go-side ACL pre-check so the
 POSIX-only claim is true; complete a secrets and history audit; get at least one
