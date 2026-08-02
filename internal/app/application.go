@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/auth"
@@ -167,7 +168,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
-	instructionBundleLoader := func() bluecollar.InstructionBundle {
+	instructionBundleLoader := func() agentcontract.InstructionBundle {
 		return loadAgentInstructionBundle(runtimeConfiguration)
 	}
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
@@ -195,9 +196,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	refreshSkillIndex := func(ctx context.Context) {
 		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
 	}
-	agentKernel.UseCompanyProvider(func() bluecollar.CompanyContext {
+	agentKernel.UseCompanyProvider(func() agentcontract.CompanyContext {
 		company := policyWatcher.CurrentPolicyDocument().Company
-		return bluecollar.CompanyContext{
+		return agentcontract.CompanyContext{
 			Name:           company.Name,
 			BrandName:      company.BrandName,
 			Slogan:         company.Slogan,
@@ -483,9 +484,9 @@ func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider to
 	logger.Warn("capability.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
 }
 
-func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) bluecollar.TurnOptions {
-	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
-	return bluecollar.TurnOptions{
+func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.TurnOptions {
+	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
+	return agentcontract.TurnOptions{
 		MaxIterationCount:   taskLevelProfile.MaxIterationCount,
 		MaxToolCallCount:    taskLevelProfile.MaxToolCallCount,
 		MaxElapsedSecond:    int(taskLevelProfile.Duration.Seconds()),
@@ -496,7 +497,7 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) bl
 			Seed:        runtimeConfiguration.Agent.GenerationOptions.Seed,
 			Temperature: runtimeConfiguration.Agent.GenerationOptions.Temperature,
 		},
-		RecoveryBudget: bluecollar.RecoveryBudget{
+		RecoveryBudget: agentcontract.RecoveryBudget{
 			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
 			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,
 			AdjacentTool:   runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AdjacentTool,
@@ -505,11 +506,11 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) bl
 	}
 }
 
-func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) bluecollar.IntakeOptions {
-	return bluecollar.IntakeOptions{
+func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.IntakeOptions {
+	return agentcontract.IntakeOptions{
 		IsEnabled:           runtimeConfiguration.Agent.Intake.Enabled,
-		DefaultTaskLevel:    bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
-		SkillTaskLevelFloor: bluecollar.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
+		DefaultTaskLevel:    agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
+		SkillTaskLevelFloor: agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
 	}
 }
 
@@ -517,10 +518,10 @@ func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration
 	return loadAgentInstructionBundle(runtimeConfiguration).Prompt
 }
 
-func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) bluecollar.InstructionBundle {
+func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) agentcontract.InstructionBundle {
 	parts := []string{}
-	sources := []bluecollar.InstructionSource{}
-	skillInstructions := []bluecollar.SkillInstruction{}
+	sources := []agentcontract.InstructionSource{}
+	skillInstructions := []agentcontract.SkillInstruction{}
 	includedSkillByName := map[string]bool{}
 	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
 		for _, instructionDocument := range readInstructionDocuments(rootPath) {
@@ -543,13 +544,13 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 		}
 	}
 	if !includedSkillByName["agent-browser"] {
-		sources = append(sources, bluecollar.InstructionSource{
+		sources = append(sources, agentcontract.InstructionSource{
 			Path:      ".agents/skills/agent-browser/SKILL.md",
 			SkillName: "agent-browser",
 			Missing:   true,
 		})
 	}
-	return bluecollar.InstructionBundle{
+	return agentcontract.InstructionBundle{
 		Prompt:  strings.Join(parts, "\n\n"),
 		Sources: sources,
 		Skills:  skillInstructions,
@@ -596,7 +597,7 @@ func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []st
 
 type instructionDocument struct {
 	Prompt string
-	Source bluecollar.InstructionSource
+	Source agentcontract.InstructionSource
 }
 
 func readInstructionDocuments(rootPath string) []instructionDocument {
@@ -618,7 +619,7 @@ func readInstructionDocuments(rootPath string) []instructionDocument {
 	return documents
 }
 
-func readLegacyInstructionDocument(rootPath string) (string, bluecollar.InstructionSource) {
+func readLegacyInstructionDocument(rootPath string) (string, agentcontract.InstructionSource) {
 	for _, fileName := range []string{"AGENTS.md", "CLAUDE.md"} {
 		path := filepath.Join(rootPath, fileName)
 		document, errorValue := os.ReadFile(path)
@@ -626,11 +627,11 @@ func readLegacyInstructionDocument(rootPath string) (string, bluecollar.Instruct
 			return strings.TrimSpace(string(document)), instructionSource(path, "", document)
 		}
 	}
-	return "", bluecollar.InstructionSource{}
+	return "", agentcontract.InstructionSource{}
 }
 
-func readSkillInstructions(rootPath string) []bluecollar.SkillInstruction {
-	skillInstructions := []bluecollar.SkillInstruction{}
+func readSkillInstructions(rootPath string) []agentcontract.SkillInstruction {
+	skillInstructions := []agentcontract.SkillInstruction{}
 	skillRegistry := skill.NewSkillRegistry()
 	for _, relativePath := range []string{filepath.Join(".agents", "skills"), "skills"} {
 		discoveredSkillBundles, errorValue := skillRegistry.DiscoverSkill(filepath.Join(rootPath, relativePath))
@@ -638,7 +639,7 @@ func readSkillInstructions(rootPath string) []bluecollar.SkillInstruction {
 			for _, skillBundle := range discoveredSkillBundles {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
-					skillInstructions = append(skillInstructions, bluecollar.SkillInstruction{
+					skillInstructions = append(skillInstructions, agentcontract.SkillInstruction{
 						Name:           skillBundle.Name,
 						Description:    skillBundle.Description,
 						Prompt:         strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
@@ -710,9 +711,9 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func instructionSource(path string, skillName string, document []byte) bluecollar.InstructionSource {
+func instructionSource(path string, skillName string, document []byte) agentcontract.InstructionSource {
 	hash := sha256.Sum256(document)
-	return bluecollar.InstructionSource{
+	return agentcontract.InstructionSource{
 		Path:      path,
 		SkillName: skillName,
 		ByteSize:  len(document),
