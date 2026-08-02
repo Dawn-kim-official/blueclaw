@@ -639,19 +639,9 @@ func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *
 }
 
 func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		ChatResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {"지금 처리 중입니다."},
-		},
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked for progress","userFacingReply":"","busyRoute":"status","busyInstruction":""}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{Route: agentcontract.TurnRouteAnswerQuestion, BusyRoute: agentcontract.BusyRouteStatus, Reason: "user asked for progress"}
+	harness.Reply = "지금 처리 중입니다."
 	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "보고서 작성")
 	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
 		t.Fatal("expected active task before busy status event")
@@ -699,7 +689,9 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 		Status:        task.TaskAttemptStatusRunning,
 		StartedAt:     now.Add(-time.Minute),
 	}
-	connectorRuntime, adapter, taskEventService := newRepositoryBackedTestConnectorRuntime(t, testLanguageModel{reply: "새 작업으로 처리했습니다."}, taskRunRepository)
+	connectorRuntime, adapter, taskEventService, harness := newStubbedRepositoryBackedTestConnectorRuntime(t, taskRunRepository)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "새 작업으로 처리했습니다."}
 	taskEventService.AppendTaskEvent(orphanedTaskRun.TaskRunID, "tool.site.build.requested", `{"observationID":"observation-1","toolName":"site.build"}`)
 	event := testInboundEvent("message-after-stale-task")
 	event.Prompt = "다시 해줘"
@@ -729,19 +721,9 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 }
 
 func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		ChatResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {"방향 수정 내용을 현재 작업에 반영하겠습니다."},
-		},
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"revise_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user corrected active task","userFacingReply":"","busyRoute":"steer","busyInstruction":"PDF 대신 HTML로 작성한다."}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{Route: agentcontract.TurnRouteReviseTask, BusyRoute: agentcontract.BusyRouteSteer, BusyInstruction: "PDF 대신 HTML로 작성한다.", Reason: "user corrected active task"}
+	harness.Reply = "방향 수정 내용을 현재 작업에 반영하겠습니다."
 	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "PDF 보고서 작성")
 	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
 		t.Fatal("expected active task before busy steer event")
@@ -769,19 +751,9 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 }
 
 func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		ChatResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {"진행 중인 작업을 중단했습니다."},
-		},
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked to cancel active task","userFacingReply":"","busyRoute":"cancel","busyInstruction":""}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, BusyRoute: agentcontract.BusyRouteCancel, Reason: "user asked to cancel active task"}
+	harness.Reply = "진행 중인 작업을 중단했습니다."
 	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "긴 작업")
 	event := testInboundEvent("message-busy-cancel")
 	event.Prompt = "중단해"
@@ -810,14 +782,6 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 }
 
 func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		ChatResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {"그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?"},
-		},
-		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
-		},
-	})
 	taskRunRepository := newTestTaskRunRepository()
 	finishedTaskRun := task.TaskRun{
 		TaskRunID:            "task-finished",
@@ -829,7 +793,9 @@ func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(
 		UpdatedAt:            time.Now(),
 	}
 	taskRunRepository.taskRuns[finishedTaskRun.TaskRunID] = finishedTaskRun
-	connectorRuntime, adapter, _ := newRepositoryBackedTestConnectorRuntime(t, languageModel, taskRunRepository)
+	connectorRuntime, adapter, _, harness := newStubbedRepositoryBackedTestConnectorRuntime(t, taskRunRepository)
+	harness.IsActiveTaskFollowUp = true
+	harness.Reply = "그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?"
 
 	event := testInboundEvent("message-after-finish")
 	event.Prompt = "아니야 하지마"
@@ -852,11 +818,6 @@ func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(
 }
 
 func TestConnectorRuntimeUnrelatedMessageAfterFinishedTaskStartsNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_active_task_followup": `{"relatesToActiveTask":false}`,
-		},
-	})
 	taskRunRepository := newTestTaskRunRepository()
 	finishedTaskRun := task.TaskRun{
 		TaskRunID:            "task-finished",
@@ -868,7 +829,10 @@ func TestConnectorRuntimeUnrelatedMessageAfterFinishedTaskStartsNewTask(t *testi
 		UpdatedAt:            time.Now(),
 	}
 	taskRunRepository.taskRuns[finishedTaskRun.TaskRunID] = finishedTaskRun
-	connectorRuntime, adapter, _ := newRepositoryBackedTestConnectorRuntime(t, languageModel, taskRunRepository)
+	connectorRuntime, adapter, _, harness := newStubbedRepositoryBackedTestConnectorRuntime(t, taskRunRepository)
+	harness.IsActiveTaskFollowUp = false
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "새 주제로 진행했습니다."}
 
 	event := testInboundEvent("message-new-topic")
 	event.Prompt = "다른 걸 도와줘"
@@ -884,20 +848,9 @@ func TestConnectorRuntimeUnrelatedMessageAfterFinishedTaskStartsNewTask(t *testi
 }
 
 func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user replaced active task","userFacingReply":"","busyRoute":"replace","busyInstruction":"새 지시로 교체한다."}`,
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"replacement task","userFacingReply":""}`,
-			},
-		},
-		ActionResponses: []string{
-			connectorFinishMessage("새 작업으로 진행했습니다."),
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{Route: agentcontract.TurnRouteStartTask, BusyRoute: agentcontract.BusyRouteReplace, BusyInstruction: "새 지시로 교체한다.", Reason: "user replaced active task"}
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "새 작업으로 진행했습니다."}
 	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "기존 작업")
 	event := testInboundEvent("message-busy-replace")
 	event.Prompt = "아니 그거 취소하고 새 작업 해"
@@ -923,18 +876,9 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 }
 
 func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is independent","userFacingReply":"","busyRoute":"new_task","busyInstruction":""}`,
-				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"answer latest question","userFacingReply":""}`,
-			},
-		},
-		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = agentcontract.TurnDecision{Route: agentcontract.TurnRouteStartTask, BusyRoute: agentcontract.BusyRouteNewTask, Reason: "latest message is independent"}
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "휴게소 들러도 괜찮습니다."}
 	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "경산 영남대 근처 맛집 추천")
 	event := testInboundEvent("message-independent-question")
 	event.Prompt = "휴게소 가야해?"
@@ -4326,15 +4270,16 @@ func waitRoutingTaskWaitToken(taskRun task.TaskRun, dispatchID string, interacti
 	}
 }
 
-func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService) {
+func newStubbedRepositoryBackedTestConnectorRuntime(t *testing.T, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService, *harnessstub.Stub) {
 	t.Helper()
 
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskRunService.UseRepository(taskRunRepository)
 
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
-	return connectorRuntime, adapter, taskEventService
+	harness := harnessstub.New(taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, taskRunService)
+	return connectorRuntime, adapter, taskEventService, harness
 }
 
 type testTaskRunRepository struct {
