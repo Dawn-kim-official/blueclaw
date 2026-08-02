@@ -540,7 +540,6 @@ type virtualModelTierProviders struct {
 	high   llm.LanguageModelProvider
 	xHigh  llm.LanguageModelProvider
 	max    llm.LanguageModelProvider
-	coding llm.LanguageModelProvider
 }
 
 type virtualModelTierNames struct {
@@ -550,7 +549,6 @@ type virtualModelTierNames struct {
 	high   string
 	xHigh  string
 	max    string
-	coding string
 }
 
 func configureVirtualScenarioModelTiers(scenario *e2e.VirtualSessionScenario, maximumModelTier string, providerFactory func(string) llm.LanguageModelProvider) {
@@ -570,7 +568,6 @@ func configureVirtualScenarioModelTiers(scenario *e2e.VirtualSessionScenario, ma
 		xLow: providers.providerAtOrBelow("xlow", maximumModelTier), low: providers.providerAtOrBelow("low", maximumModelTier),
 		medium: providers.providerAtOrBelow("medium", maximumModelTier), high: providers.providerAtOrBelow("high", maximumModelTier),
 		xHigh: providers.providerAtOrBelow("xhigh", maximumModelTier), max: providers.providerAtOrBelow("max", maximumModelTier),
-		coding: maximumProvider,
 	}, maximumProvider)
 }
 
@@ -581,7 +578,6 @@ func applyVirtualModelTierProviders(scenario *e2e.VirtualSessionScenario, provid
 	scenario.HighLanguageModel = providers.high
 	scenario.XHighLanguageModel = providers.xHigh
 	scenario.MaxLanguageModel = providers.max
-	scenario.CodingLanguageModel = providers.coding
 	scenario.IntakeLanguageModel = intakeProvider
 }
 
@@ -598,8 +594,7 @@ func buildUncappedVirtualModelTierProviders(tierNames virtualModelTierNames, pro
 	highProvider := fallbackVirtualModelProvider(highModel, mediumProvider, "high", "medium")
 	xHighProvider := fallbackVirtualModelProvider(xHighModel, highProvider, "xhigh", "high")
 	maxProvider := fallbackVirtualModelProvider(maxModel, xHighProvider, "max", "xhigh")
-	codingProvider := fallbackVirtualModelProvider(llm.VisionFallbackProvider{TextOnlyModel: llm.WithModelTier(providerFactory(tierNames.coding), "coding"), VisionModel: highProvider}, mediumProvider, "coding", "medium")
-	return virtualModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider, coding: codingProvider}
+	return virtualModelTierProviders{xLow: xLowProvider, low: lowProvider, medium: mediumProvider, high: highProvider, xHigh: xHighProvider, max: maxProvider}
 }
 
 func buildCappedVirtualModelTierProviders(tierNames virtualModelTierNames, providerFactory func(string) llm.LanguageModelProvider) virtualModelTierProviders {
@@ -667,7 +662,7 @@ func defaultVirtualModelTierNames() virtualModelTierNames {
 	tierNames := llm.ResolveModelTierNames(config.RuntimeConfiguration{})
 	return virtualModelTierNames{
 		xLow: tierNames.XLow, low: tierNames.Low, medium: tierNames.Medium,
-		high: tierNames.High, xHigh: tierNames.XHigh, max: tierNames.Max, coding: tierNames.Coding,
+		high: tierNames.High, xHigh: tierNames.XHigh, max: tierNames.Max,
 	}
 }
 

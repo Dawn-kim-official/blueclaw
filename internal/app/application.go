@@ -970,8 +970,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 			"high", tierNames.High,
 			"medium", tierNames.Medium,
 			"low", tierNames.Low,
-			"xlow", tierNames.XLow,
-			"coding", tierNames.Coding)
+			"xlow", tierNames.XLow)
 	}
 	hasConfigurationError := false
 	configuredProvider := func(modelName string) llm.LanguageModelProvider {
@@ -990,7 +989,6 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	highModel := llm.WithModelTier(configuredProvider(tierNames.High), "high")
 	xHighModel := llm.WithModelTier(configuredProvider(tierNames.XHigh), "xhigh")
 	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
-	codingModel := llm.WithModelTier(configuredProvider(tierNames.Coding), "coding")
 	if hasConfigurationError {
 		return harnessdriver.TaskTierLanguageModels{}
 	}
@@ -1040,16 +1038,6 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		FallbackLabel:    "xhigh",
 		Logger:           logger,
 	}
-	codingWithFallback := llm.FallbackLanguageModelProvider{
-		PrimaryProvider: llm.VisionFallbackProvider{
-			TextOnlyModel: codingModel,
-			VisionModel:   highWithFallback,
-		},
-		FallbackProvider: mediumWithFallback,
-		PrimaryLabel:     "coding",
-		FallbackLabel:    "medium",
-		Logger:           logger,
-	}
 	return harnessdriver.TaskTierLanguageModels{
 		Low:    lowWithFallback,
 		XLow:   xLowWithFallback,
@@ -1057,7 +1045,6 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		High:   highWithFallback,
 		XHigh:  xHighWithFallback,
 		Max:    maxWithFallback,
-		Coding: codingWithFallback,
 	}
 }
 
@@ -1147,7 +1134,6 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 		High:   providers.providerWithinBounds("high", minimumModelTier, maximumModelTier),
 		XHigh:  providers.providerWithinBounds("xhigh", minimumModelTier, maximumModelTier),
 		Max:    providers.providerWithinBounds("max", minimumModelTier, maximumModelTier),
-		Coding: providers.providerForTier(maximumModelTier),
 	}
 }
 

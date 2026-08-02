@@ -7,12 +7,12 @@ import (
 
 func newVisionFallbackProviderForTest() VisionFallbackProvider {
 	return VisionFallbackProvider{
-		TextOnlyModel: staticLanguageModelProvider{response: StructuredResponse{ModelName: "coding"}},
+		TextOnlyModel: staticLanguageModelProvider{response: StructuredResponse{ModelName: "text-only"}},
 		VisionModel:   staticLanguageModelProvider{response: StructuredResponse{ModelName: "vision"}},
 	}
 }
 
-func TestVisionFallbackProviderRoutesTextOnlyRequestToCodingModel(t *testing.T) {
+func TestVisionFallbackProviderRoutesTextOnlyRequestToTextOnlyModel(t *testing.T) {
 	provider := newVisionFallbackProviderForTest()
 
 	response, errorValue := provider.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
@@ -22,8 +22,8 @@ func TestVisionFallbackProviderRoutesTextOnlyRequestToCodingModel(t *testing.T) 
 	if errorValue != nil {
 		t.Fatalf("unexpected error: %v", errorValue)
 	}
-	if response.ModelName != "coding" {
-		t.Fatalf("expected coding model, got %q", response.ModelName)
+	if response.ModelName != "text-only" {
+		t.Fatalf("expected text-only model, got %q", response.ModelName)
 	}
 }
 
