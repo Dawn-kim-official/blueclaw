@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
@@ -47,15 +44,13 @@ func TestTurnRouterCallLedgerPreservesMissingModelTier(t *testing.T) {
 	}
 }
 
-func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"structured_output_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"finish_reason","finishReason":"length"}}}`))
-	}))
-	defer server.Close()
+func TestObserveLanguageModelRecordsSafeStructuredDiagnosticsAndRequestSizes(t *testing.T) {
 	records := []llmCallRecord{}
-	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
-	observed := observeLanguageModel(client, func(record llmCallRecord) {
+	failingProvider := diagnosticFailingProvider{errorValue: structuredOutputDiagnosticError{
+		message:    "PRIVATE_GENERATED_CONTENT",
+		diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticFinishReason, FinishReason: model.StructuredOutputDiagnosticFinishLength},
+	}}
+	observed := observeLanguageModel(failingProvider, func(record llmCallRecord) {
 		records = append(records, record)
 	})
 	request := model.StructuredResponseRequest{
@@ -65,7 +60,7 @@ func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testin
 
 	_, errorValue := observed.GenerateStructuredResponse(context.Background(), request)
 	if errorValue == nil {
-		t.Fatal("expected LLMD structured error")
+		t.Fatal("expected structured generation error")
 	}
 	if len(records) != 1 {
 		t.Fatalf("expected one call record, got %+v", records)
@@ -80,19 +75,22 @@ func TestObserveLanguageModelRecordsSafeLLMDDiagnosticsAndRequestSizes(t *testin
 }
 
 func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.WriteHeader(http.StatusBadGateway)
-		_, _ = responseWriter.Write([]byte(`{"error":{"code":"provider_response_invalid","allowLegacyFallback":false,"message":"PRIVATE_GENERATED_CONTENT","diagnostic":{"category":"schema_validation","toolName":"task_add","validationIssues":[{"fieldPath":"/prompt","code":"required"}],"repairStatus":"failed"}}}`))
-	}))
-	defer server.Close()
 	records := []llmCallRecord{}
-	client := llm.NewLLMDClient(llm.LLMDClientConfiguration{Endpoint: server.URL, AuthKey: "installation-key"})
-	observed := observeLanguageModel(client, func(record llmCallRecord) {
+	failingProvider := diagnosticFailingProvider{errorValue: structuredOutputDiagnosticError{
+		message: "PRIVATE_GENERATED_CONTENT",
+		diagnostic: model.StructuredOutputDiagnostic{
+			Category:         model.StructuredOutputDiagnosticSchemaValidation,
+			ToolName:         "task_add",
+			ValidationIssues: []model.StructuredOutputValidationIssue{{FieldPath: "/prompt", Code: model.StructuredOutputValidationRequired}},
+			RepairStatus:     model.StructuredOutputRepairFailed,
+		},
+	}}
+	observed := observeLanguageModel(failingProvider, func(record llmCallRecord) {
 		records = append(records, record)
 	})
 	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
-		t.Fatal("expected observed LLMD Chat capability")
+		t.Fatal("expected observed chat capability")
 	}
 
 	_, errorValue := chatCompleter.GenerateChatCompletion(context.Background(), nativeActionChatRequest())
@@ -551,4 +549,33 @@ func TestChatCallRecordCountsNativeToolDefinitionBytes(t *testing.T) {
 	if record.ToolBytes <= 0 {
 		t.Fatalf("expected positive tool definition bytes, got %d", record.ToolBytes)
 	}
+}
+
+type structuredOutputDiagnosticError struct {
+	message    string
+	diagnostic model.StructuredOutputDiagnostic
+}
+
+func (errorValue structuredOutputDiagnosticError) Error() string {
+	return errorValue.message
+}
+
+func (errorValue structuredOutputDiagnosticError) StructuredOutputDiagnostic() (model.StructuredOutputDiagnostic, bool) {
+	return errorValue.diagnostic, true
+}
+
+type diagnosticFailingProvider struct {
+	errorValue error
+}
+
+func (provider diagnosticFailingProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", provider.errorValue
+}
+
+func (provider diagnosticFailingProvider) GenerateStructuredResponse(context.Context, model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return model.StructuredResponse{}, provider.errorValue
+}
+
+func (provider diagnosticFailingProvider) GenerateChatCompletion(context.Context, model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
+	return model.ChatCompletionResponse{}, provider.errorValue
 }

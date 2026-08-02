@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -62,7 +61,7 @@ func TestAgentKernelGeneratesChatReplyWithoutTools(t *testing.T) {
 	}
 }
 
-func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
+func TestAgentKernelResolvesChatReplyThroughCompleterAccessor(t *testing.T) {
 	taskEventService := taskstate.NewTaskEventService()
 	taskRunService := taskstate.NewTaskRunService(taskEventService)
 	taskStepService := taskstate.NewTaskStepService()
@@ -70,17 +69,17 @@ func TestAgentKernelResolvesChatReplyThroughFallbackProvider(t *testing.T) {
 	replyProvider := &chatReplyProvider{
 		response: model.ChatCompletionResponse{Message: model.ChatCompletionMessage{Content: "fallback chat"}},
 	}
-	agentKernel.UseLanguageModelProvider(llm.FallbackLanguageModelProvider{
-		PrimaryProvider:  staticReplyProvider{content: `{"reply":"structured"}`},
-		FallbackProvider: replyProvider,
+	agentKernel.UseLanguageModelProvider(chatCompleterAccessorProvider{
+		structuredProvider: staticReplyProvider{content: `{"reply":"structured"}`},
+		chatCompleter:      replyProvider,
 	})
 
 	reply, errorValue := agentKernel.GenerateReply(context.Background(), "hello")
 	if errorValue != nil {
-		t.Fatalf("expected fallback chat reply generation: %v", errorValue)
+		t.Fatalf("expected accessor chat reply generation: %v", errorValue)
 	}
 	if reply != "fallback chat" {
-		t.Fatalf("expected fallback chat reply, got %q", reply)
+		t.Fatalf("expected accessor chat reply, got %q", reply)
 	}
 }
 
@@ -259,6 +258,23 @@ type staticReplyProvider struct {
 
 type structuredOnlyReplyProvider struct {
 	structuredCallCount int
+}
+
+type chatCompleterAccessorProvider struct {
+	structuredProvider model.LanguageModelProvider
+	chatCompleter      model.ChatCompleter
+}
+
+func (replyProvider chatCompleterAccessorProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	return replyProvider.structuredProvider.GenerateResponse(responseContext, prompt)
+}
+
+func (replyProvider chatCompleterAccessorProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	return replyProvider.structuredProvider.GenerateStructuredResponse(responseContext, structuredResponseRequest)
+}
+
+func (replyProvider chatCompleterAccessorProvider) TextChatCompleter() (model.ChatCompleter, bool) {
+	return replyProvider.chatCompleter, replyProvider.chatCompleter != nil
 }
 
 func (replyProvider staticReplyProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
