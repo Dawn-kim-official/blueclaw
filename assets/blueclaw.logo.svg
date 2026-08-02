@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 2084 2084" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <rect id="Artboard2" x="0" y="0" width="2083.33" height="2084" style="fill:none;"/>
+    <clipPath id="_clip1">
+        <rect id="Artboard21" serif:id="Artboard2" x="0" y="0" width="2083.33" height="2084"/>
+    </clipPath>
+    <g clip-path="url(#_clip1)">
+        <rect id="Artboard1" x="0" y="0" width="2083.33" height="2083.33" style="fill:none;"/>
+        <g>
+            <clipPath id="_clip2">
+                <rect x="0" y="0" width="2083.33" height="2083.33"/>
+            </clipPath>
+            <g clip-path="url(#_clip2)">
+                <g transform="matrix(-4.58718,-5.61768e-16,5.1803e-16,-4.23004,3803.83,9671.56)">
+                    <g transform="matrix(-4.70452,6.24782e-16,-5.76138e-16,-5.10173,3282.08,6797.97)">
+                        <rect x="521.381" y="884.32" width="96.538" height="96.538" style="fill:white;fill-opacity:0;"/>
+                    </g>
+                    <g transform="matrix(1,1.6415e-22,-1.03506e-22,1,-7.83345e-05,1435.13)">
+                        <path d="M600,660.966C528.31,732.988 577.73,828.733 577.73,828.733C445.346,754.259 433.517,615.739 433.517,480.21L600,520.536L766.483,480.21C766.483,615.739 754.654,754.259 622.27,828.733C622.27,828.733 671.69,732.988 600,660.966Z" style="fill:rgb(34,116,187);"/>
+                    </g>
+                    <g transform="matrix(1,1.6415e-22,-1.03506e-22,1,-7.83345e-05,1435.13)">
+                        <path d="M600,520.536L600,660.966C671.69,732.988 622.27,828.733 622.27,828.733C754.654,754.259 766.483,615.739 766.483,480.21L600,520.536Z" style="fill:rgb(34,116,187);"/>
+                    </g>
+                    <g transform="matrix(-0.871633,2.31514e-16,1.18696e-16,0.525529,1103.67,1312.43)">
+                        <path d="M576.979,956.252C471.961,956.721 386.845,1042.12 386.845,1147.25C386.845,1252.38 471.961,1337.78 576.979,1338.25L578.715,1338.25C683.733,1337.78 768.848,1252.38 768.848,1147.25C768.848,1042.12 683.733,956.721 578.715,956.252C578.426,956.251 578.136,956.25 577.847,956.25C577.557,956.25 577.268,956.251 576.979,956.252Z" style="fill:url(#_Radial3);"/>
+                    </g>
+                    <g transform="matrix(-1,2.65609e-16,2.2586e-16,1,1200,1435.13)">
+                        <clipPath id="_clip4">
+                            <path d="M600,660.966C671.69,732.988 622.27,828.733 622.27,828.733C754.654,754.259 766.483,615.739 766.483,480.21L600,520.536L433.517,480.21C433.517,615.739 445.346,754.259 577.73,828.733C577.73,828.733 528.31,732.988 600,660.966Z"/>
+                        </clipPath>
+                        <g clip-path="url(#_clip4)">
+                            <path d="M587.544,500.972C561.5,455.9 478.826,530.896 486.396,556.618C503.179,613.65 567.96,626.221 600,660.966C669.103,735.903 622.27,828.733 622.27,828.733C711.388,733.469 684.115,647.397 639.223,592.995C615.288,563.988 605.467,531.991 587.544,500.972Z" style="fill:url(#_Radial5);"/>
+                        </g>
+                    </g>
+                    <g transform="matrix(1,1.6415e-22,-1.03506e-22,1,-7.83345e-05,1435.13)">
+                        <clipPath id="_clip6">
+                            <path d="M600,660.963C528.31,732.985 577.73,828.73 577.73,828.73C445.346,754.256 433.517,615.736 433.517,480.207L600,520.533L766.483,480.207C766.483,615.736 754.654,754.256 622.27,828.73C622.27,828.73 671.69,732.985 600,660.963Z"/>
+                        </clipPath>
+                        <g clip-path="url(#_clip6)">
+                            <path d="M587.544,500.972C561.5,455.9 478.826,530.896 486.396,556.618C503.179,613.65 567.96,626.221 600,660.966C669.103,735.903 622.27,828.733 622.27,828.733C711.388,733.469 684.115,647.397 639.223,592.995C615.288,563.988 605.467,531.991 587.544,500.972Z" style="fill:url(#_Radial7);"/>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+    <defs>
+        <radialGradient id="_Radial3" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1.81179e-12,-399.626,-483.583,-6.51538e-12,578.715,1338.25)"><stop offset="0" style="stop-color:rgb(34,116,187);stop-opacity:1"/><stop offset="0.51" style="stop-color:rgb(83,139,197);stop-opacity:1"/><stop offset="1" style="stop-color:rgb(235,208,229);stop-opacity:1"/></radialGradient>
+        <radialGradient id="_Radial5" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(69.642,-248.144,-479.827,-158.363,628.709,828.733)"><stop offset="0" style="stop-color:rgb(235,208,229);stop-opacity:1"/><stop offset="0.48" style="stop-color:rgb(181,183,218);stop-opacity:0.73"/><stop offset="1" style="stop-color:rgb(34,116,187);stop-opacity:0"/></radialGradient>
+        <radialGradient id="_Radial7" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(37.9042,-207.669,-191.501,-41.1044,621.046,828.733)"><stop offset="0" style="stop-color:rgb(235,208,229);stop-opacity:1"/><stop offset="0.46" style="stop-color:rgb(179,182,217);stop-opacity:0.72"/><stop offset="1" style="stop-color:rgb(34,116,187);stop-opacity:0"/></radialGradient>
+    </defs>
+</svg>

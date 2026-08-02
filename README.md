@@ -1,4 +1,8 @@
+<img src="assets/blueclaw.logo.svg" alt="Blueclaw" width="112">
+
 # Blueclaw
+
+**A host that runs agents as the person who asked.**
 
 Blueclaw is a host that runs agents for a team's chat and task workflows. It
 accepts normalized messages from chat connectors, turns them into durable task
