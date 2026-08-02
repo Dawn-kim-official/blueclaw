@@ -33,18 +33,18 @@ func (connectorRuntime *ConnectorRuntime) handleTaskControlIfRequested(
 
 	selection := connectorRuntime.applyTaskControlIntent(decision, personID, event)
 	for _, taskRun := range selection.cancelledTaskRuns {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.stop.requested", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.stop.requested", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"intent":    string(selection.intent),
 			"reason":    selection.reason,
 		}))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.stop.classified", marshalConnectorEventBody(map[string]any{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.stop.classified", marshalConnectorEventBody(map[string]any{
 			"intent":             string(selection.intent),
 			"reason":             selection.reason,
 			"classifiedByLLM":    false,
 			"originConversation": event.ConversationID,
 		}))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.stop.cancelled", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.stop.cancelled", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 		}))
 	}
@@ -73,7 +73,7 @@ func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision blueco
 	}
 	switch decision.Intent {
 	case bluecollar.TaskControlIntentStopAll:
-		selection.cancelledTaskRuns = connectorRuntime.agentKernel.CancelActiveTasks(task.TaskRunCancelRequest{
+		selection.cancelledTaskRuns = connectorRuntime.taskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
 			RequesterPersonID: personID,
 			Reason:            selection.reason,
 		})
@@ -89,7 +89,7 @@ func (connectorRuntime *ConnectorRuntime) cancelLatestStopScopedTask(personID st
 	if !isFound {
 		return nil
 	}
-	return connectorRuntime.agentKernel.CancelActiveTasks(task.TaskRunCancelRequest{
+	return connectorRuntime.taskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
 		TaskRunIDs:        []string{taskRun.TaskRunID},
 		RequesterPersonID: personID,
 		Reason:            reason,
@@ -124,7 +124,7 @@ func taskRunMatchesStopScope(taskRun task.TaskRun, event PlatformInboundEvent) b
 
 func (connectorRuntime *ConnectorRuntime) activeTaskRunsForPerson(personID string) []task.TaskRun {
 	taskRuns := []task.TaskRun{}
-	for _, taskRun := range connectorRuntime.agentKernel.ListTaskRunByPersonID(personID) {
+	for _, taskRun := range connectorRuntime.taskRunService.ListTaskRunByPersonID(personID) {
 		if connectorRuntime.interruptInactiveRuntimeTaskIfNeeded(taskRun) {
 			continue
 		}
@@ -139,10 +139,10 @@ func (connectorRuntime *ConnectorRuntime) interruptInactiveRuntimeTaskIfNeeded(t
 	if taskRun.Status != task.TaskStatusRunning && taskRun.Status != task.TaskStatusPlanned {
 		return false
 	}
-	if connectorRuntime.agentKernel.IsTaskRunActuallyRunning(taskRun) {
+	if connectorRuntime.taskRunService.IsTaskRunActuallyRunning(taskRun) {
 		return false
 	}
-	_, isInterrupted := connectorRuntime.agentKernel.InterruptInactiveTaskRun(taskRun.TaskRunID, "runtime no longer owns this execution")
+	_, isInterrupted := connectorRuntime.taskRunService.InterruptInactiveTaskRun(taskRun.TaskRunID, "runtime no longer owns this execution")
 	return isInterrupted
 }
 
@@ -151,7 +151,7 @@ func (connectorRuntime *ConnectorRuntime) hasActiveTaskForPerson(personID string
 }
 
 func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) bool {
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRunID)
 	return isFound && taskRun.Status == task.TaskStatusCancelled
 }
 

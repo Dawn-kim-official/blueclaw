@@ -261,7 +261,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
-	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
@@ -291,6 +291,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
+		taskRunService,
 		logger,
 	)
 	connectorRuntime.UseTaskLauncher(taskLauncher)

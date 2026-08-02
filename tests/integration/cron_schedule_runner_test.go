@@ -24,7 +24,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
 
-	result, errorValue := agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)).RunIfDue(context.Background(), agentruntime.TaskScheduleRunRequest{
+	result, errorValue := agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)).RunIfDue(context.Background(), agentruntime.TaskScheduleRunRequest{
 		TaskSchedule: task.TaskSchedule{
 			TaskScheduleID:   "schedule-daily-research",
 			CreatorPersonID:  "person-1",

@@ -26,7 +26,8 @@ import (
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
@@ -38,7 +39,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 		"default": {"conversation_history", "memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -78,12 +79,13 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 
 func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
 	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
 	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceAdmin,
 		RequesterPersonID: "person-1",
 		ConversationID:    "admin:person-1",
@@ -107,7 +109,8 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 
 func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -118,7 +121,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -156,7 +159,8 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 
 func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -167,7 +171,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -207,7 +211,8 @@ func TestPlatformMessageDescriptorHashIncludesInputIntentSchema(t *testing.T) {
 
 func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("should not run"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTestCapabilityToolDescriptors(capability.Client{
@@ -224,7 +229,7 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 		"default": {"mattermost_post_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-1",
 		RequesterPersonID: "person-1",
@@ -266,7 +271,8 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 
 func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	workspacePath := t.TempDir()
 	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
@@ -289,7 +295,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
 	}, nil)
-	taskLauncher := NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	taskLauncher := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseRequesterWorkspaceProvisioner(provisioner)
 
 	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
@@ -333,7 +339,8 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
@@ -345,7 +352,7 @@ func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T)
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-1",
 		RequesterPersonID: "person-1",

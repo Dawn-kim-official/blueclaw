@@ -72,13 +72,13 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
 	case taskReplyDecisionSuppressCancelled:
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"reason":    "task was cancelled before final reply send",
 		}))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	case taskReplyDecisionSuppressSuperseded, taskReplyDecisionSuppressRequested:
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reply.suppressed", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "connector.reply.suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"reason":    decision.Reason,
 		}))

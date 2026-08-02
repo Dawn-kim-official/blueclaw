@@ -18,7 +18,7 @@ func newIngressGateTestRuntime(gate IngressGate) (*ConnectorRuntime, *task.TaskR
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, slog.Default())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, slog.Default())
 	connectorRuntime.UseIngressGate(gate)
 	return connectorRuntime, taskRunService
 }

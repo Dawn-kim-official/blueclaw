@@ -25,6 +25,7 @@ const (
 
 type TaskLauncher struct {
 	agentKernel                   *bluecollar.AgentKernel
+	taskRunService                *taskstate.TaskRunService
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
 	requesterEmailResolver        RequesterEmailResolver
@@ -127,12 +128,13 @@ type launchMemoryResult struct {
 	Error           string
 }
 
-func NewTaskLauncher(agentKernel *bluecollar.AgentKernel, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
+func NewTaskLauncher(agentKernel *bluecollar.AgentKernel, taskRunService *taskstate.TaskRunService, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
 	if toolCatalogBuilder == nil {
 		toolCatalogBuilder = NewToolCatalogBuilder()
 	}
 	return &TaskLauncher{
 		agentKernel:        agentKernel,
+		taskRunService:     taskRunService,
 		toolCatalogBuilder: toolCatalogBuilder,
 	}
 }
@@ -216,17 +218,17 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	if turnResult.TaskRun.TaskRunID != "" {
 		taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, launchRecords)
 		if memoryResult.Error != "" {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", memoryResult.Error)
+			taskLauncher.taskRunService.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", memoryResult.Error)
 		} else {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{
+			taskLauncher.taskRunService.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{
 				"factCount":       len(memoryResult.Facts),
 				"pinnedFactCount": memoryResult.PinnedFactCount,
 				"graphFactCount":  memoryResult.GraphFactCount,
 			}))
 		}
-		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryResult.Facts)))
+		taskLauncher.taskRunService.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryResult.Facts)))
 		taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)
-		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
+		taskLauncher.taskRunService.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
 	}
 	return TaskLaunchResult{
 		TurnResult:            turnResult,
@@ -457,7 +459,7 @@ func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string,
 	if !ambientDuty.IsMatch {
 		return
 	}
-	taskLauncher.agentKernel.AppendTaskEvent(taskRunID, "agent.ambient_duty_launch", marshalToolResult(map[string]any{
+	taskLauncher.taskRunService.AppendTaskEvent(taskRunID, "agent.ambient_duty_launch", marshalToolResult(map[string]any{
 		"dutyName":   ambientDuty.Name,
 		"confidence": ambientDuty.Confidence,
 	}))
@@ -466,7 +468,7 @@ func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string,
 func (taskLauncher *TaskLauncher) appendLaunchStepRecords(taskRunID string, records []launchStepRecord) {
 	for _, record := range records {
 		eventName := "agent.launch_step." + record.Status
-		taskLauncher.agentKernel.AppendTaskEvent(taskRunID, eventName, marshalToolResult(record))
+		taskLauncher.taskRunService.AppendTaskEvent(taskRunID, eventName, marshalToolResult(record))
 	}
 }
 

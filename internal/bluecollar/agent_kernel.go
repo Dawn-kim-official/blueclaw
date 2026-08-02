@@ -112,42 +112,6 @@ func (agentKernel *AgentKernel) RefreshSkillIndex(ctx context.Context, instructi
 	agentKernel.skillRetriever.Refresh(ctx, instructionBundle.Skills)
 }
 
-func (agentKernel *AgentKernel) AppendTaskEvent(taskRunID string, name string, body string) {
-	agentKernel.taskRunService.AppendTaskEvent(taskRunID, name, body)
-}
-
-func (agentKernel *AgentKernel) ListTaskRunByPersonID(personID string) []taskstate.TaskRun {
-	return agentKernel.taskRunService.ListTaskRunByPersonID(personID)
-}
-
-func (agentKernel *AgentKernel) FindTaskRun(taskRunID string) (taskstate.TaskRun, bool) {
-	return agentKernel.taskRunService.FindTaskRun(taskRunID)
-}
-
-func (agentKernel *AgentKernel) ListTaskEvent(taskRunID string) []taskstate.TaskEvent {
-	return agentKernel.taskRunService.ListTaskEvent(taskRunID)
-}
-
-func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (taskstate.TaskRun, error) {
-	return agentKernel.taskRunService.CompleteTaskRun(taskRunID, result)
-}
-
-func (agentKernel *AgentKernel) CancelTask(taskRunID string, requesterPersonID string, reason string) (taskstate.TaskRun, error) {
-	return agentKernel.taskRunService.CancelTaskRunWithReason(taskRunID, requesterPersonID, reason)
-}
-
-func (agentKernel *AgentKernel) CancelActiveTasks(request taskstate.TaskRunCancelRequest) []taskstate.TaskRun {
-	return agentKernel.taskRunService.CancelActiveTaskRuns(request)
-}
-
-func (agentKernel *AgentKernel) IsTaskRunActuallyRunning(taskRun taskstate.TaskRun) bool {
-	return agentKernel.taskRunService.IsTaskRunActuallyRunning(taskRun)
-}
-
-func (agentKernel *AgentKernel) InterruptInactiveTaskRun(taskRunID string, reason string) (taskstate.TaskRun, bool) {
-	return agentKernel.taskRunService.InterruptInactiveTaskRun(taskRunID, reason)
-}
-
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
 	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -209,8 +173,8 @@ func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Co
 		DiagnosticEventID:  diagnosticEventID(request, taskRun.TaskRunID, phase),
 	}
 	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, launchFailureReport)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_reply", marshalEventBody(noticeStatus))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody(phase, launchFailureReport, noticeStatus)))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_reply", marshalEventBody(noticeStatus))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody(phase, launchFailureReport, noticeStatus)))
 	failedTaskRun = persistTaskRunResult(agentKernel.taskRunService, failedTaskRun, failureNotice.SendableMessage())
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: failedTaskRun.Result, FailureNotice: failureNotice, ToolNames: toolNamesForEvent(request.ToolSet)}
 }
@@ -314,7 +278,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(taskContext, baseInstructionBundle, request, intakeDecision)
 	}
 	if instructionBundle.ContractSkillArbitrationFailed {
-		agentKernel.AppendTaskEvent(request.ExistingTaskRunID, "agent.contract_arbitration_degraded", marshalEventBody(map[string]string{
+		agentKernel.taskRunService.AppendTaskEvent(request.ExistingTaskRunID, "agent.contract_arbitration_degraded", marshalEventBody(map[string]string{
 			"reason": "contract skill arbitration failed; continuing with score-selected skills",
 		}))
 	}
@@ -356,7 +320,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return AgentTurnResult{}, errorValue
 	}
 	if confirmationPlan.DegradedError != nil {
-		agentKernel.AppendTaskEvent(strings.TrimSpace(request.ExistingTaskRunID), "agent.confirmation_plan_degraded", marshalEventBody(map[string]string{
+		agentKernel.taskRunService.AppendTaskEvent(strings.TrimSpace(request.ExistingTaskRunID), "agent.confirmation_plan_degraded", marshalEventBody(map[string]string{
 			"reason": "execution plan generation failed twice; continuing with the runtime tool approval gate: " + confirmationPlan.DegradedError.Error(),
 		}))
 	}
@@ -456,7 +420,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.appendTurnRouterCallRecords(result.TaskRun.TaskRunID, routerCallLedger.records)
-		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		agentKernel.taskRunService.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
@@ -577,8 +541,8 @@ func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, de
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	reactionEmojiName := NormalizeReactionEmojiName(decision.ReactionEmojiName)
 	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(decision.IntakeDecision()))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.consumed", marshalEventBody(map[string]string{
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(decision.IntakeDecision()))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.consumed", marshalEventBody(map[string]string{
 		"route":             string(decision.Route),
 		"reason":            strings.TrimSpace(decision.Reason),
 		"reactionEmojiName": reactionEmojiName,
@@ -619,9 +583,9 @@ func (agentKernel *AgentKernel) pauseForClarification(responseContext context.Co
 	executionPlan := plan.ExecutionPlan
 	decision := plan.Decision
 	taskRun := agentKernel.createTaskRunForRequest(request)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
 	reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
 	if errorValue != nil {
 		return AgentTurnResult{TaskRun: taskRun}, errorValue
@@ -635,10 +599,10 @@ func (agentKernel *AgentKernel) pauseForClarification(responseContext context.Co
 	waitingGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
 	waitingGoal.SelectedToolNames = appendUniqueStrings(nil, request.PinnedToolNames...)
 	waitingGoal.SelectedSkillNames = appendUniqueStrings(nil, selectedSkills...)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
 		"kind":             "ask_input",
 		"question":         reply,
 		"message":          reply,
@@ -678,7 +642,7 @@ func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (taskstate.TaskRun,
 func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status taskstate.TaskStatus, routerCallRecords []llmCallRecord) (AgentTurnResult, error) {
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	finishMessage := strings.TrimSpace(intakeDecision.UserFacingReply)
 	if finishMessage == "" {
 		finishMessage = (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).GenerateIntakeNotice(responseContext, IntakeReport{
@@ -697,7 +661,7 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext contex
 		return AgentTurnResult{}, errorValue
 	}
 	if status == taskstate.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
+		agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
 			"kind":                 "ask_input",
 			"question":             finishMessage,
 			"message":              finishMessage,
@@ -722,7 +686,7 @@ func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) ta
 
 func (agentKernel *AgentKernel) appendTurnRouterCallRecords(taskRunID string, records []llmCallRecord) {
 	for _, record := range records {
-		agentKernel.AppendTaskEvent(taskRunID, "llm.call", marshalEventBody(record))
+		agentKernel.taskRunService.AppendTaskEvent(taskRunID, "llm.call", marshalEventBody(record))
 	}
 }
 
@@ -733,7 +697,7 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun taskstate.TaskR
 	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, taskRun.TaskRunID)
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.Status = activeGoalStatusForTaskStatus(taskRun.Status)
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
 }
 
 type turnBudgetContext struct {
@@ -822,11 +786,11 @@ func (agentKernel *AgentKernel) completeIntakeElapsed(turnBudget turnBudgetConte
 	taskRun := agentKernel.taskRunForIntakeLimit(request)
 	agentKernel.appendTurnRouterCallRecords(taskRun.TaskRunID, routerCallRecords)
 	if intakeDecision.TaskLevel != "" {
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(turnBudget)))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(turnBudget)))
 	if turnBudget.didClampAnchor {
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(turnAnchorClampedEventBody(turnBudget)))
+		agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.turn_anchor_clamped", marshalEventBody(turnAnchorClampedEventBody(turnBudget)))
 	}
 	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, taskstate.TaskStatusBlocked, "max_elapsed")
 	if errorValue != nil {
@@ -836,7 +800,7 @@ func (agentKernel *AgentKernel) completeIntakeElapsed(turnBudget turnBudgetConte
 	}
 	failureNotice, noticeStatus := agentKernel.generateIntakeElapsedNotice(turnBudget.totalContext, request, taskRun.TaskRunID)
 	replyStatus := limitReplyStatus{Source: noticeStatus.Source, Reason: noticeStatus.Reason, TextRecoveryError: noticeStatus.TextRecoveryError}
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
+	agentKernel.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun = persistTaskRunResult(agentKernel.taskRunService, blockedTaskRun, failureNotice.SendableMessage())
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, taskstate.TaskStatusBlocked))
 	return AgentTurnResult{

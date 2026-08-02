@@ -18,7 +18,8 @@ import (
 
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
@@ -32,7 +33,7 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 		},
 	})
 	handler := TaskRunHandler{
-		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder),
+		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
 		IdentityService: identityService,
 		WorkspaceID:     "workspace-1",
 	}
@@ -51,7 +52,8 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 
 func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
 	useAdminTaskLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
@@ -65,7 +67,7 @@ func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 		},
 	})
 	handler := TaskRunHandler{
-		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder),
+		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
 		IdentityService: identityService,
 		WorkspaceID:     "workspace-1",
 	}
@@ -273,7 +275,7 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 		},
 	})
 	return TaskRunHandler{
-		TaskLauncher:            agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder),
+		TaskLauncher:            agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
 		IdentityService:         identityService,
 		WorkspaceID:             "workspace-1",
 		TaskRunService:          taskRunService,
