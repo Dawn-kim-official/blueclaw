@@ -11,6 +11,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -18,11 +19,9 @@ import (
 )
 
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	languageModel := staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
-	useAdminTaskLanguageModel(agentKernel, languageModel)
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness := harnessstub.New(taskRunService)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "admin done"}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"admin": {"memory_search"},
@@ -34,7 +33,7 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 		},
 	})
 	handler := TaskRunHandler{
-		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
+		TaskLauncher:    agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder),
 		IdentityService: identityService,
 		WorkspaceID:     "workspace-1",
 	}
@@ -52,11 +51,9 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 }
 
 func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	languageModel := contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`}
-	useAdminTaskLanguageModel(agentKernel, languageModel)
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness := contextObservingHarness{Stub: harnessstub.New(taskRunService)}
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "admin done"}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"admin": {"memory_search"},
@@ -68,7 +65,7 @@ func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
 		},
 	})
 	handler := TaskRunHandler{
-		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
+		TaskLauncher:    agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder),
 		IdentityService: identityService,
 		WorkspaceID:     "workspace-1",
 	}
@@ -133,7 +130,7 @@ func TestTaskRunHandlerRejectsTaskDecisionPresetOverrides(t *testing.T) {
 	}
 	for _, override := range overrides {
 		t.Run(override, func(t *testing.T) {
-			handler, taskRunService, _, _ := newPresetTaskRunHandler(true)
+			handler, taskRunService := newStubbedPresetTaskRunHandler(true)
 			body := `{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology",` + override + `}`
 			request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(body))
 			responseRecorder := httptest.NewRecorder()
@@ -151,7 +148,7 @@ func TestTaskRunHandlerRejectsTaskDecisionPresetOverrides(t *testing.T) {
 }
 
 func TestTaskRunHandlerRejectsDisabledTaskDecisionPresetBeforeLaunch(t *testing.T) {
-	handler, taskRunService, _, _ := newPresetTaskRunHandler(false)
+	handler, taskRunService := newStubbedPresetTaskRunHandler(false)
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"llmd_topology"}`))
 	responseRecorder := httptest.NewRecorder()
 
@@ -166,7 +163,7 @@ func TestTaskRunHandlerRejectsDisabledTaskDecisionPresetBeforeLaunch(t *testing.
 }
 
 func TestTaskRunHandlerRejectsUnsupportedTaskDecisionPreset(t *testing.T) {
-	handler, taskRunService, _, _ := newPresetTaskRunHandler(true)
+	handler, taskRunService := newStubbedPresetTaskRunHandler(true)
 	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"reply exactly","taskDecisionPreset":"unsafe"}`))
 	responseRecorder := httptest.NewRecorder()
 
@@ -235,10 +232,6 @@ func TestTaskRunHandlerStopsRequesterTasksOnly(t *testing.T) {
 	}
 }
 
-type staticAdminLanguageModel struct {
-	content string
-}
-
 type schemaRecordingAdminLanguageModel struct {
 	schemaNames     []string
 	schemaDocuments []string
@@ -266,6 +259,15 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
+	return presetTaskRunHandler(agentKernel, taskRunService, isPresetAllowed), taskRunService, taskEventService, languageModel
+}
+
+func newStubbedPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRunService) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	return presetTaskRunHandler(harnessstub.New(taskRunService), taskRunService, isPresetAllowed), taskRunService
+}
+
+func presetTaskRunHandler(harness agentcontract.Harness, taskRunService *task.TaskRunService, isPresetAllowed bool) TaskRunHandler {
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		llmdTopologyDiagnosticProfileName: {"llmd.diagnostic.no_tools"},
@@ -276,12 +278,25 @@ func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRu
 		},
 	})
 	return TaskRunHandler{
-		TaskLauncher:            agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder),
+		TaskLauncher:            agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder),
 		IdentityService:         identityService,
 		WorkspaceID:             "workspace-1",
 		TaskRunService:          taskRunService,
 		AllowTaskDecisionPreset: isPresetAllowed,
-	}, taskRunService, taskEventService, languageModel
+	}
+}
+
+// The launch must survive a client that walked away, so this double fails the
+// turn exactly when the request context it was handed is already cancelled.
+type contextObservingHarness struct {
+	*harnessstub.Stub
+}
+
+func (harness contextObservingHarness) RunTurn(ctx context.Context, request agentcontract.AgentTurnRequest) (agentcontract.AgentTurnResult, error) {
+	if errorValue := ctx.Err(); errorValue != nil {
+		return agentcontract.AgentTurnResult{}, errorValue
+	}
+	return harness.Stub.RunTurn(ctx, request)
 }
 
 func taskEventsContainBody(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {
@@ -291,47 +306,4 @@ func taskEventsContainBody(taskEvents []task.TaskEvent, name string, bodyFragmen
 		}
 	}
 	return false
-}
-
-func (languageModel staticAdminLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
-		return llm.StructuredResponse{Content: adminTaskTurnRouterResponse()}, nil
-	}
-	return llm.StructuredResponse{Content: languageModel.content}, nil
-}
-
-func useAdminTaskLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
-	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-}
-
-func adminTaskTurnRouterResponse() string {
-	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"admin task test","userFacingReply":""}`
-}
-
-type contextAwareAdminLanguageModel struct {
-	content string
-}
-
-func (languageModel contextAwareAdminLanguageModel) GenerateResponse(ctx context.Context, prompt string) (string, error) {
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-		return staticAdminLanguageModel{content: languageModel.content}.GenerateResponse(ctx, prompt)
-	}
-}
-
-func (languageModel contextAwareAdminLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	select {
-	case <-ctx.Done():
-		return llm.StructuredResponse{}, ctx.Err()
-	default:
-		return staticAdminLanguageModel{content: languageModel.content}.GenerateStructuredResponse(ctx, request)
-	}
 }
