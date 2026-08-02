@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/app"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
@@ -18,6 +19,6 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
-	application := app.NewApplication(runtimeConfiguration, *policyPath)
+	application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
 	log.Fatal(application.Start())
 }

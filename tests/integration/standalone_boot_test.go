@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/app"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
@@ -24,7 +25,7 @@ func TestStandaloneRuntimeIsHealthyWithoutACapabilityService(t *testing.T) {
 	}
 
 	runtimeConfiguration := loadStandaloneRuntimeConfiguration(t, connectionString)
-	application := app.NewApplication(runtimeConfiguration, "../../config/policy.example.json")
+	application := app.NewApplication(runtimeConfiguration, "../../config/policy.example.json", bluecollarharness.New)
 	healthDocument := map[string]any{}
 	responseRecorder := httptest.NewRecorder()
 	application.Handler().ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/admin/api/health", nil))

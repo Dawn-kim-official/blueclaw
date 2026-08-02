@@ -19,10 +19,10 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/auth"
 	"github.com/Dawn-kim-official/blueclaw/internal/backup"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
@@ -92,7 +92,7 @@ type interruptedTaskResumer interface {
 	FailUnresumedInterruptedTaskRun(context.Context, task.TaskRun, string) bool
 }
 
-func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string) *Application {
+func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string, agentHarnessFactory agentharness.Factory) *Application {
 	runtimeLogger, startupError := runtimelogging.NewPersistentLogger(runtimeConfiguration, time.Now())
 	if startupError != nil {
 		runtimeLogger = runtimelogging.NewDiscardLogger()
@@ -164,22 +164,13 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
 	logger.Info("application.initializing", "stage", "agent_kernel")
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
-	agentKernel.UseTaskArtifactService(taskArtifactService)
-	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
-	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
 	instructionBundleLoader := func() agentcontract.InstructionBundle {
 		return loadAgentInstructionBundle(runtimeConfiguration)
 	}
-	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	taskTierLanguageModels := resolveTaskTierLanguageModelProviders(runtimeConfiguration, logger)
 	languageModelProvider := taskTierLanguageModels.High
 	lowTierLanguageModelProvider := taskTierLanguageModels.Low
-	if lowTierLanguageModelProvider != nil {
-		agentKernel.UseLanguageModelProvider(lowTierLanguageModelProvider)
-		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.Max, taskTierLanguageModels.XHigh, taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.XLow, taskTierLanguageModels.Coding)
-	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	logger.Info("application.initializing", "stage", "skill_retriever")
 	embeddingClient := llm.CapabilityEmbeddingClient{
@@ -187,29 +178,31 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ModelName:        llm.DefaultEmbeddingModelName,
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
-	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(
-		embeddingClient,
-		skillIndexPath(runtimeConfiguration),
-	)
-	skillRetriever.EmbeddingModel = embeddingClient.ModelName
-	agentKernel.UseSkillRetriever(skillRetriever)
-	refreshSkillIndex := func(ctx context.Context) {
-		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
-	}
-	agentKernel.UseCompanyProvider(func() agentcontract.CompanyContext {
-		company := policyWatcher.CurrentPolicyDocument().Company
-		return agentcontract.CompanyContext{
-			Name:           company.Name,
-			BrandName:      company.BrandName,
-			Slogan:         company.Slogan,
-			Description:    company.Description,
-			Representative: company.Representative,
-			Website:        company.Website,
-		}
+	harness, skillRetriever := agentHarnessFactory(agentharness.Dependencies{
+		RuntimeConfiguration:    runtimeConfiguration,
+		TaskRunStore:            taskRunService,
+		TaskStepStore:           taskStepService,
+		TaskArtifactStore:       taskArtifactService,
+		InstructionBundleLoader: instructionBundleLoader,
+		CompanyProvider: func() agentcontract.CompanyContext {
+			company := policyWatcher.CurrentPolicyDocument().Company
+			return agentcontract.CompanyContext{
+				Name:           company.Name,
+				BrandName:      company.BrandName,
+				Slogan:         company.Slogan,
+				Description:    company.Description,
+				Representative: company.Representative,
+				Website:        company.Website,
+			}
+		},
+		EmbeddingProvider:           embeddingClient,
+		EmbeddingModelName:          embeddingClient.ModelName,
+		SkillIndexPath:              skillIndexPath(runtimeConfiguration),
+		TaskTierLanguageModels:      taskTierLanguageModels,
+		IntakeLanguageModelProvider: resolveIntakeLanguageModelProvider(runtimeConfiguration, logger),
 	})
-	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
-	if intakeLanguageModelProvider != nil {
-		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
+	refreshSkillIndex := func(ctx context.Context) {
+		harness.RefreshSkillIndex(ctx, instructionBundleLoader())
 	}
 	logger.Info("application.initializing", "stage", "memory")
 	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
@@ -262,7 +255,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
-	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
@@ -291,7 +284,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
-		agentKernel,
+		harness,
 		taskRunService,
 		logger,
 	)
@@ -482,36 +475,6 @@ func logCapabilityProviderQuarantine(logger *slog.Logger, quarantinedProvider to
 		return
 	}
 	logger.Warn("capability.provider.quarantined", "providerID", quarantinedProvider.ProviderID, "reason", quarantinedProvider.Reason)
-}
-
-func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.TurnOptions {
-	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
-	return agentcontract.TurnOptions{
-		MaxIterationCount:   taskLevelProfile.MaxIterationCount,
-		MaxToolCallCount:    taskLevelProfile.MaxToolCallCount,
-		MaxElapsedSecond:    int(taskLevelProfile.Duration.Seconds()),
-		ContextWindowTokens: runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens,
-		TaskLevel:           taskLevelProfile.TaskLevel,
-		ToolResultMaxBytes:  runtimeConfiguration.Agent.ToolResultMaxBytes,
-		GenerationOptions: llm.GenerationOptions{
-			Seed:        runtimeConfiguration.Agent.GenerationOptions.Seed,
-			Temperature: runtimeConfiguration.Agent.GenerationOptions.Temperature,
-		},
-		RecoveryBudget: agentcontract.RecoveryBudget{
-			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
-			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,
-			AdjacentTool:   runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AdjacentTool,
-			NoToolFallback: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.NoToolFallback,
-		},
-	}
-}
-
-func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.IntakeOptions {
-	return agentcontract.IntakeOptions{
-		IsEnabled:           runtimeConfiguration.Agent.Intake.Enabled,
-		DefaultTaskLevel:    agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
-		SkillTaskLevelFloor: agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
-	}
 }
 
 func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration) string {
@@ -989,20 +952,10 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	return languageModelProvider
 }
 
-type taskTierLanguageModelProviders struct {
-	Low    llm.LanguageModelProvider
-	XLow   llm.LanguageModelProvider
-	Medium llm.LanguageModelProvider
-	High   llm.LanguageModelProvider
-	XHigh  llm.LanguageModelProvider
-	Max    llm.LanguageModelProvider
-	Coding llm.LanguageModelProvider
-}
-
-func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) taskTierLanguageModelProviders {
+func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) agentharness.TaskTierLanguageModels {
 	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
-		return taskTierLanguageModelProviders{}
+		return agentharness.TaskTierLanguageModels{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
@@ -1039,7 +992,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
 	codingModel := llm.WithModelTier(configuredProvider(tierNames.Coding), "coding")
 	if hasConfigurationError {
-		return taskTierLanguageModelProviders{}
+		return agentharness.TaskTierLanguageModels{}
 	}
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
@@ -1097,7 +1050,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		FallbackLabel:    "medium",
 		Logger:           logger,
 	}
-	return taskTierLanguageModelProviders{
+	return agentharness.TaskTierLanguageModels{
 		Low:    lowWithFallback,
 		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
@@ -1167,7 +1120,7 @@ type cappedModelTierProviders struct {
 	max    llm.LanguageModelProvider
 }
 
-func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) taskTierLanguageModelProviders {
+func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) agentharness.TaskTierLanguageModels {
 	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
 		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
@@ -1182,12 +1135,12 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 	}
 	providers := buildCappedModelTierProviders(tierNames, providerFactory, logger)
 	if hasConfigurationError {
-		return taskTierLanguageModelProviders{}
+		return agentharness.TaskTierLanguageModels{}
 	}
 	if logger != nil {
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
-	return taskTierLanguageModelProviders{
+	return agentharness.TaskTierLanguageModels{
 		Low:    providers.providerWithinBounds("low", minimumModelTier, maximumModelTier),
 		XLow:   providers.providerWithinBounds("xlow", minimumModelTier, maximumModelTier),
 		Medium: providers.providerWithinBounds("medium", minimumModelTier, maximumModelTier),
