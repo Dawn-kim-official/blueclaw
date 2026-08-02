@@ -29,12 +29,12 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/agenttest"
-	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -746,9 +746,9 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 	}
 }
 
-var virtualSessionAgentHarnessFactory agentharness.VirtualSessionFactory
+var virtualSessionAgentHarnessFactory harnessdriver.VirtualSessionFactory
 
-func UseAgentHarnessFactory(factory agentharness.VirtualSessionFactory) {
+func UseAgentHarnessFactory(factory harnessdriver.VirtualSessionFactory) {
 	virtualSessionAgentHarnessFactory = factory
 }
 
@@ -818,11 +818,11 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		maxLanguageModel = languageModel
 	}
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(agentharness.VirtualSessionDependencies{
+	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(harnessdriver.VirtualSessionDependencies{
 		TaskRunStore:      taskRunService,
 		TaskStepStore:     taskStepService,
 		TaskArtifactStore: taskArtifactService,
-		TaskTierLanguageModels: agentharness.TaskTierLanguageModels{
+		TaskTierLanguageModels: harnessdriver.TaskTierLanguageModels{
 			Low:    lowLanguageModel,
 			XLow:   xLowLanguageModel,
 			Medium: mediumLanguageModel,

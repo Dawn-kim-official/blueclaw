@@ -2,11 +2,11 @@ package bluecollarharness
 
 import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 )
 
-func NewVirtualSession(dependencies agentharness.VirtualSessionDependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
+func NewVirtualSession(dependencies harnessdriver.VirtualSessionDependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 	agentKernel := bluecollar.NewAgentKernel(dependencies.TaskRunStore, dependencies.TaskStepStore)
 	agentKernel.UseTaskArtifactService(dependencies.TaskArtifactStore)
 	taskTierLanguageModels := dependencies.TaskTierLanguageModels

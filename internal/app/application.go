@@ -19,7 +19,6 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
-	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/auth"
 	"github.com/Dawn-kim-official/blueclaw/internal/backup"
@@ -27,6 +26,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	apiconnector "github.com/Dawn-kim-official/blueclaw/internal/connectors/api"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -92,7 +92,7 @@ type interruptedTaskResumer interface {
 	FailUnresumedInterruptedTaskRun(context.Context, task.TaskRun, string) bool
 }
 
-func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string, agentHarnessFactory agentharness.Factory) *Application {
+func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string, agentHarnessFactory harnessdriver.Factory) *Application {
 	runtimeLogger, startupError := runtimelogging.NewPersistentLogger(runtimeConfiguration, time.Now())
 	if startupError != nil {
 		runtimeLogger = runtimelogging.NewDiscardLogger()
@@ -178,7 +178,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ModelName:        llm.DefaultEmbeddingModelName,
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
-	harness, skillRetriever := agentHarnessFactory(agentharness.Dependencies{
+	harness, skillRetriever := agentHarnessFactory(harnessdriver.Dependencies{
 		RuntimeConfiguration:    runtimeConfiguration,
 		TaskRunStore:            taskRunService,
 		TaskStepStore:           taskStepService,
@@ -952,10 +952,10 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	return languageModelProvider
 }
 
-func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) agentharness.TaskTierLanguageModels {
+func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) harnessdriver.TaskTierLanguageModels {
 	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
-		return agentharness.TaskTierLanguageModels{}
+		return harnessdriver.TaskTierLanguageModels{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
@@ -992,7 +992,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
 	codingModel := llm.WithModelTier(configuredProvider(tierNames.Coding), "coding")
 	if hasConfigurationError {
-		return agentharness.TaskTierLanguageModels{}
+		return harnessdriver.TaskTierLanguageModels{}
 	}
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
@@ -1050,7 +1050,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		FallbackLabel:    "medium",
 		Logger:           logger,
 	}
-	return agentharness.TaskTierLanguageModels{
+	return harnessdriver.TaskTierLanguageModels{
 		Low:    lowWithFallback,
 		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
@@ -1120,7 +1120,7 @@ type cappedModelTierProviders struct {
 	max    llm.LanguageModelProvider
 }
 
-func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) agentharness.TaskTierLanguageModels {
+func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) harnessdriver.TaskTierLanguageModels {
 	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
 		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
@@ -1135,12 +1135,12 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 	}
 	providers := buildCappedModelTierProviders(tierNames, providerFactory, logger)
 	if hasConfigurationError {
-		return agentharness.TaskTierLanguageModels{}
+		return harnessdriver.TaskTierLanguageModels{}
 	}
 	if logger != nil {
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
-	return agentharness.TaskTierLanguageModels{
+	return harnessdriver.TaskTierLanguageModels{
 		Low:    providers.providerWithinBounds("low", minimumModelTier, maximumModelTier),
 		XLow:   providers.providerWithinBounds("xlow", minimumModelTier, maximumModelTier),
 		Medium: providers.providerWithinBounds("medium", minimumModelTier, maximumModelTier),

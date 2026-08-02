@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -985,7 +985,7 @@ func TestExactPrecomputedDecisionSkipsArtifactTaskLevelPromotion(t *testing.T) {
 func TestAgentKernelPreservesExactPrecomputedTaskLevel(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("diagnostic done")}})
-	agentKernel.UseTaskTierLanguageModels(agentharness.TaskTierLanguageModels{XHigh: failingLanguageModel{}})
+	agentKernel.UseTaskTierLanguageModels(harnessdriver.TaskTierLanguageModels{XHigh: failingLanguageModel{}})
 	precomputedDecision := TurnDecision{
 		Route:              TurnRouteStartTask,
 		Classification:     IntakeClassificationQuickReply,
