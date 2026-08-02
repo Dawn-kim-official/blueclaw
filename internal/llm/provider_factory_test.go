@@ -76,8 +76,7 @@ func TestResolveModelTierNamesIgnoresUntieredModelForTiers(t *testing.T) {
 		tierNames.High != defaultHighModelName ||
 		tierNames.Medium != defaultMediumModelName ||
 		tierNames.Low != defaultLowModelName ||
-		tierNames.XLow != defaultXLowModelName ||
-		tierNames.Coding != defaultCodingModelName {
+		tierNames.XLow != defaultXLowModelName {
 		t.Fatalf("expected each tier to keep its own default and ignore the untiered model, got %+v", tierNames)
 	}
 }

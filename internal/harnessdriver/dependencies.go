@@ -14,7 +14,6 @@ type TaskTierLanguageModels struct {
 	High   model.LanguageModelProvider
 	XHigh  model.LanguageModelProvider
 	Max    model.LanguageModelProvider
-	Coding model.LanguageModelProvider
 }
 
 type Dependencies struct {

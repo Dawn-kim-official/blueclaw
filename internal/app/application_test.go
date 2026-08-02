@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -158,7 +157,7 @@ func TestMaximumXLowTierCapsTaskModelsAndUsesLowForImages(t *testing.T) {
 
 	for providerName, provider := range map[string]llm.LanguageModelProvider{
 		"low": providers.Low, "xlow": providers.XLow, "medium": providers.Medium,
-		"high": providers.High, "xhigh": providers.XHigh, "max": providers.Max, "coding": providers.Coding,
+		"high": providers.High, "xhigh": providers.XHigh, "max": providers.Max,
 	} {
 		modelNames := languageModelProviderNames(provider)
 		if !reflect.DeepEqual(modelNames, []string{"vendor/low", "vendor/xlow"}) {
@@ -243,22 +242,6 @@ func TestMaximumLowTierCapsIntakeUsesLLMDWhenSelected(t *testing.T) {
 	}
 }
 
-func TestCodingUsesConfiguredModelOnlyWithoutMaximumTier(t *testing.T) {
-	uncappedProviders := resolveTaskTierLanguageModelProviders(configuredModelTierRuntime(""), slog.New(slog.DiscardHandler))
-	if modelNames := languageModelProviderNames(uncappedProviders.Coding); !slices.Contains(modelNames, "vendor/coding") {
-		t.Fatalf("expected uncapped coding provider to use the configured coding model, got %v", modelNames)
-	}
-
-	cappedProviders := resolveTaskTierLanguageModelProviders(configuredModelTierRuntime("high"), slog.New(slog.DiscardHandler))
-	modelNames := languageModelProviderNames(cappedProviders.Coding)
-	if slices.Contains(modelNames, "vendor/coding") || slices.Contains(modelNames, "vendor/xhigh") || slices.Contains(modelNames, "vendor/max") {
-		t.Fatalf("expected capped coding provider to use the high ceiling and lower fallbacks, got %v", modelNames)
-	}
-	if !slices.Contains(modelNames, "vendor/high") {
-		t.Fatalf("expected capped coding provider to include the high ceiling model, got %v", modelNames)
-	}
-}
-
 func configuredModelTierRuntime(maximumModelTier string) config.RuntimeConfiguration {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.Capability.MaximumModelTier = maximumModelTier
@@ -268,7 +251,6 @@ func configuredModelTierRuntime(maximumModelTier string) config.RuntimeConfigura
 	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/medium"
 	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/low"
 	runtimeConfiguration.LanguageModel.Capability.XLowModel = "vendor/xlow"
-	runtimeConfiguration.LanguageModel.Capability.CodingModel = "vendor/coding"
 	return runtimeConfiguration
 }
 

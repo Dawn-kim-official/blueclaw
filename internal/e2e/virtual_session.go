@@ -59,7 +59,6 @@ type VirtualSessionScenario struct {
 	HighLanguageModel         llm.LanguageModelProvider
 	XHighLanguageModel        llm.LanguageModelProvider
 	MaxLanguageModel          llm.LanguageModelProvider
-	CodingLanguageModel       llm.LanguageModelProvider
 	DisableScriptedModel      bool
 	UseLooseAssertions        bool
 	FailOnLanguageModelError  bool
@@ -74,7 +73,7 @@ type VirtualSessionScenario struct {
 	RouterRequiredEvidence    []string
 	RouterTaskShape           agentcontract.TaskShape
 	RouterTaskLevel           string
-	CodingTierVisionFallback  bool
+	XLowTierVisionFallback    bool
 	AddressingResponse        string
 	SkillSearchQueries        []string
 	RouterSiteEvidence        string
@@ -553,7 +552,7 @@ func (model imageRejectingLanguageModel) GenerateStructuredResponse(responseCont
 	for _, message := range request.Messages {
 		for _, part := range message.Parts {
 			if part.Type == "image" {
-				return llm.StructuredResponse{}, errors.New("text-only coding model received an image part")
+				return llm.StructuredResponse{}, errors.New("text-only xlow model received an image part")
 			}
 		}
 	}
@@ -739,8 +738,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath), nil
 	case "attachment_current_image_input":
 		return AttachmentCurrentImageInputScenario(artifactDirectoryPath), nil
-	case "coding_image_vision_fallback":
-		return CodingImageVisionFallbackScenario(artifactDirectoryPath), nil
+	case "xlow_image_vision_fallback":
+		return XLowImageVisionFallbackScenario(artifactDirectoryPath), nil
 	default:
 		return VirtualSessionScenario{}, fmt.Errorf("unknown virtual session scenario: %s", name)
 	}
@@ -804,18 +803,12 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	highLanguageModel := observedVirtualLanguageModelOrDefault(scenario.HighLanguageModel, languageModel, observationStore)
 	xHighLanguageModel := observedVirtualLanguageModelOrDefault(scenario.XHighLanguageModel, languageModel, observationStore)
 	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel, observationStore)
-	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel, observationStore)
 	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel, observationStore)
-	if scenario.CodingTierVisionFallback && scenario.CodingLanguageModel == nil {
-		codingLanguageModel = llm.VisionFallbackProvider{
-			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
-			VisionModel:   languageModel,
+	if scenario.XLowTierVisionFallback {
+		xLowLanguageModel = llm.VisionFallbackProvider{
+			TextOnlyModel: imageRejectingLanguageModel{delegate: xLowLanguageModel},
+			VisionModel:   lowLanguageModel,
 		}
-		xLowLanguageModel = languageModel
-		mediumLanguageModel = languageModel
-		highLanguageModel = languageModel
-		xHighLanguageModel = languageModel
-		maxLanguageModel = languageModel
 	}
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
 	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(harnessdriver.VirtualSessionDependencies{
@@ -829,7 +822,6 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 			High:   highLanguageModel,
 			XHigh:  xHighLanguageModel,
 			Max:    maxLanguageModel,
-			Coding: codingLanguageModel,
 		},
 		IntakeLanguageModelProvider: intakeLanguageModel,
 		IntakeOptions:               agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow},

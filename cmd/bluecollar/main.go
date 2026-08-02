@@ -139,7 +139,6 @@ func runTask(options runOptions) (TaskResult, error) {
 		Medium: languageModel,
 		Low:    languageModel,
 		XLow:   languageModel,
-		Coding: languageModel,
 	})
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})

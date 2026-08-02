@@ -220,7 +220,6 @@ type LanguageModelCapabilityConfiguration struct {
 	MediumModel         string `json:"mediumModel"`
 	LowModel            string `json:"lowModel"`
 	XLowModel           string `json:"xlowModel"`
-	CodingModel         string `json:"codingModel"`
 	ExecutionMode       string `json:"executionMode"`
 	ContextWindowTokens int    `json:"contextWindowTokens"`
 }

@@ -550,7 +550,7 @@ what that maps to. A tool that needs the user's own browser or files resolves to
 `companion` regardless of the rest.
 
 Requests route across six named tiers — `xlowModel`, `lowModel`, `mediumModel`,
-`highModel`, `xhighModel`, and a separate `codingModel` — with
+`highModel`, `xhighModel`, and `maxModel` — with
 `maximumModelTier` and `minimumModelTier` bounding where the runtime may ladder.
 Cheap classification (addressing, intake routing) sits at the bottom, ordinary
 work in the middle, deep or extended effort at the top; failure and recovery

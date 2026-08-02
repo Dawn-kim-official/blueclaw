@@ -25,7 +25,6 @@ type AgentKernel struct {
 	mediumTaskLanguageModel model.LanguageModelProvider
 	lowTaskLanguageModel    model.LanguageModelProvider
 	xLowTaskLanguageModel   model.LanguageModelProvider
-	codingTaskLanguageModel model.LanguageModelProvider
 	intakeLanguageModel     model.LanguageModelProvider
 	turnOptions             TurnOptions
 	intakeOptions           IntakeOptions
@@ -56,7 +55,6 @@ func (agentKernel *AgentKernel) UseTaskTierLanguageModels(taskTierLanguageModels
 	agentKernel.mediumTaskLanguageModel = taskTierLanguageModels.Medium
 	agentKernel.lowTaskLanguageModel = taskTierLanguageModels.Low
 	agentKernel.xLowTaskLanguageModel = taskTierLanguageModels.XLow
-	agentKernel.codingTaskLanguageModel = taskTierLanguageModels.Coding
 }
 
 func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService taskstate.TaskArtifactStore) {

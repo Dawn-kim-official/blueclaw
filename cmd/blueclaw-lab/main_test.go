@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -587,31 +586,6 @@ func TestParseVirtualSessionArgumentsAcceptsStrictScenarioFile(t *testing.T) {
 	}
 }
 
-func TestConfigureVirtualScenarioCodingUsesCeilingOnlyWhenConfigured(t *testing.T) {
-	providerFactory := func(modelName string) llm.LanguageModelProvider {
-		return llm.OpenRouterClient{ModelName: modelName}
-	}
-
-	uncappedScenario := e2e.VirtualSessionScenario{}
-	configureVirtualScenarioModelTiers(&uncappedScenario, "", providerFactory)
-	uncappedModelNames := virtualProviderModelNames(uncappedScenario.CodingLanguageModel)
-	if !slices.Contains(uncappedModelNames, "z-ai/glm-5.2") {
-		t.Fatalf("expected uncapped coding provider to use coding model, got %v", uncappedModelNames)
-	}
-
-	cappedScenario := e2e.VirtualSessionScenario{}
-	configureVirtualScenarioModelTiers(&cappedScenario, "high", providerFactory)
-	cappedModelNames := virtualProviderModelNames(cappedScenario.CodingLanguageModel)
-	if !slices.Contains(cappedModelNames, "google/gemini-3.5-flash-lite") {
-		t.Fatalf("expected coding provider to use high ceiling, got %v", cappedModelNames)
-	}
-	for _, forbiddenModelName := range []string{"z-ai/glm-5.2", "google/gemini-3.6-flash"} {
-		if slices.Contains(cappedModelNames, forbiddenModelName) {
-			t.Fatalf("expected coding provider to stay at or below high, got %v", cappedModelNames)
-		}
-	}
-}
-
 type virtualTierTestProvider struct {
 	modelName string
 }
@@ -715,36 +689,6 @@ func virtualTurnActionModelTier(t *testing.T, turnResult e2e.VirtualTurnResult) 
 	}
 	t.Fatalf("expected authoritative action llm.call event, got %+v", turnResult.Events)
 	return ""
-}
-
-func virtualProviderModelNames(provider llm.LanguageModelProvider) []string {
-	modelNames := map[string]bool{}
-	var collect func(llm.LanguageModelProvider)
-	collect = func(currentProvider llm.LanguageModelProvider) {
-		if tieredProvider, isTieredProvider := currentProvider.(interface {
-			UnderlyingProvider() llm.LanguageModelProvider
-		}); isTieredProvider {
-			collect(tieredProvider.UnderlyingProvider())
-			return
-		}
-		switch typedProvider := currentProvider.(type) {
-		case llm.OpenRouterClient:
-			modelNames[typedProvider.ModelName] = true
-		case llm.FallbackLanguageModelProvider:
-			collect(typedProvider.PrimaryProvider)
-			collect(typedProvider.FallbackProvider)
-		case llm.VisionFallbackProvider:
-			collect(typedProvider.TextOnlyModel)
-			collect(typedProvider.VisionModel)
-		}
-	}
-	collect(provider)
-	result := make([]string, 0, len(modelNames))
-	for modelName := range modelNames {
-		result = append(result, modelName)
-	}
-	sort.Strings(result)
-	return result
 }
 
 func allOpenRouterRequestsUseGenerationOptions(requestDocuments []map[string]any, seed int64, temperature float64) bool {

@@ -165,7 +165,6 @@ func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
 		lowTaskLanguageModel:    labeledLanguageModel{label: "low"},
 		xLowTaskLanguageModel:   labeledLanguageModel{label: "xlow"},
-		codingTaskLanguageModel: labeledLanguageModel{label: "coding"},
 	}
 	cases := map[TaskLevel]string{
 		TaskLevelMax:    "max",

@@ -438,7 +438,7 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 	}
 }
 
-func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSessionScenario {
+func XLowImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	attachment := connectors.InputAttachment{
 		Platform:    "mattermost",
 		FileID:      "file-code-shot",
@@ -448,11 +448,11 @@ func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSess
 		SizeBytes:   13,
 	}
 	return VirtualSessionScenario{
-		Name:                     "coding_image_vision_fallback",
-		ArtifactDirectoryPath:    artifactDirectoryPath,
-		RouterTaskLevel:          "medium",
-		CodingTierVisionFallback: true,
-		AllowedTools:             []string{"conversation_history", "memory_search"},
+		Name:                   "xlow_image_vision_fallback",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterTaskLevel:        "xlow",
+		XLowTierVisionFallback: true,
+		AllowedTools:           []string{"conversation_history", "memory_search"},
 		Turns: []VirtualTurn{{
 			Prompt:           "이 스크린샷에 있는 로그인 핸들러 코드 리뷰하고 리팩터링 방향 알려줘.",
 			InputAttachments: []connectors.InputAttachment{attachment},

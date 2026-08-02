@@ -144,7 +144,6 @@ const (
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
 	defaultLowModelName    = "xiaomi/mimo-v2.5"
 	defaultXLowModelName   = "deepseek/deepseek-v4-flash"
-	defaultCodingModelName = "z-ai/glm-5.2"
 )
 
 type ModelTierNames struct {
@@ -154,7 +153,6 @@ type ModelTierNames struct {
 	Medium string
 	Low    string
 	XLow   string
-	Coding string
 }
 
 func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) ModelTierNames {
@@ -166,7 +164,6 @@ func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) Mod
 		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, defaultMediumModelName),
 		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, defaultLowModelName),
 		XLow:   firstNonEmptyModelName(capabilityConfiguration.XLowModel, defaultXLowModelName),
-		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, defaultCodingModelName),
 	}
 }
 
