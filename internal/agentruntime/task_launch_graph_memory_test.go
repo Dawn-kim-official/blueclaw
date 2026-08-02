@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -27,8 +27,7 @@ func (store staticGraphMemoryStore) SearchFacts(context.Context, memory.MemorySe
 func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
+	harness := harnessstub.New(taskRunService)
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -48,7 +47,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -76,8 +75,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
+	harness := harnessstub.New(taskRunService)
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -91,7 +89,7 @@ func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-2",
 		RequesterPersonID: "person-1",
