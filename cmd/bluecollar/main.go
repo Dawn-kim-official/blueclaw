@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
@@ -131,7 +132,15 @@ func runTask(options runOptions) (TaskResult, error) {
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, languageModel)
+	agentKernel.UseTaskTierLanguageModels(agentharness.TaskTierLanguageModels{
+		Max:    languageModel,
+		XHigh:  languageModel,
+		High:   languageModel,
+		Medium: languageModel,
+		Low:    languageModel,
+		XLow:   languageModel,
+		Coding: languageModel,
+	})
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
 

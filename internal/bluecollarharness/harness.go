@@ -17,14 +17,7 @@ func New(dependencies agentharness.Dependencies) (agentcontract.Harness, agentco
 	taskTierLanguageModels := dependencies.TaskTierLanguageModels
 	if taskTierLanguageModels.Low != nil {
 		agentKernel.UseLanguageModelProvider(taskTierLanguageModels.Low)
-		agentKernel.UseTaskTierLanguageModels(
-			taskTierLanguageModels.Max,
-			taskTierLanguageModels.XHigh,
-			taskTierLanguageModels.High,
-			taskTierLanguageModels.Medium,
-			taskTierLanguageModels.XLow,
-			taskTierLanguageModels.Coding,
-		)
+		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels)
 	}
 	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(dependencies.EmbeddingProvider, dependencies.SkillIndexPath)
 	skillRetriever.EmbeddingModel = dependencies.EmbeddingModelName

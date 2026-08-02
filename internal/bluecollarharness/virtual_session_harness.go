@@ -11,14 +11,7 @@ func NewVirtualSession(dependencies agentharness.VirtualSessionDependencies) (ag
 	agentKernel.UseTaskArtifactService(dependencies.TaskArtifactStore)
 	taskTierLanguageModels := dependencies.TaskTierLanguageModels
 	agentKernel.UseLanguageModelProvider(taskTierLanguageModels.Low)
-	agentKernel.UseTaskTierLanguageModels(
-		taskTierLanguageModels.Max,
-		taskTierLanguageModels.XHigh,
-		taskTierLanguageModels.High,
-		taskTierLanguageModels.Medium,
-		taskTierLanguageModels.XLow,
-		taskTierLanguageModels.Coding,
-	)
+	agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels)
 	agentKernel.UseIntakeLanguageModelProvider(dependencies.IntakeLanguageModelProvider)
 	agentKernel.UseIntakeOptions(dependencies.IntakeOptions)
 	agentKernel.UseTurnOptions(virtualTurnOptions(dependencies.ScenarioTurnOptions))
