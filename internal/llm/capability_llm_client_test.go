@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -561,5 +562,40 @@ func buildTestStructuredResponseRequest() StructuredResponseRequest {
 			Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
+	}
+}
+
+func TestCapabilityLLMClientGenerateChatCompletionPrefersRequestModelName(t *testing.T) {
+	sentModelNames := []string{}
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		var requestDocument capabilityChatCompletionRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&requestDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		sentModelNames = append(sentModelNames, requestDocument.Model)
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","provider":"capabilityLLM","model":"answered","message":{"role":"assistant","content":"done"}}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName: "configured-model",
+	}
+
+	if _, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "check"}},
+	}); errorValue != nil {
+		t.Fatalf("expected configured model completion: %v", errorValue)
+	}
+	if _, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		ModelName: "requested-model",
+		Messages:  []ChatCompletionMessage{{Role: "user", Content: "check"}},
+	}); errorValue != nil {
+		t.Fatalf("expected requested model completion: %v", errorValue)
+	}
+	if !reflect.DeepEqual(sentModelNames, []string{"configured-model", "requested-model"}) {
+		t.Fatalf("expected the request model to win over the client model, got %v", sentModelNames)
 	}
 }
