@@ -162,6 +162,13 @@ const (
 )
 
 var (
+	prepareFailureNoticeWithGenerator    = agentcontract.PrepareFailureNoticeWithGenerator
+	buildIntakeNoticePrompt              = agentcontract.BuildIntakeNoticePrompt
+	buildFailureNoticeCompressionPrompt  = agentcontract.BuildFailureNoticeCompressionPrompt
+	buildFailureNoticeRepairPrompt       = agentcontract.BuildFailureNoticeRepairPrompt
+	buildFailureNoticePrompt             = agentcontract.BuildFailureNoticePrompt
+	failureReportAttachmentFilenames     = agentcontract.FailureReportAttachmentFilenames
+	redactRawFailureNotice               = agentcontract.RedactRawFailureNotice
 	DefaultResponseLanguage              = toolcontract.DefaultResponseLanguage
 	IsApprovingSignal                    = agentcontract.IsApprovingSignal
 	LargerTaskLevel                      = agentcontract.LargerTaskLevel
@@ -209,4 +216,37 @@ var buildMemoryContext = agentcontract.BuildMemoryContext
 var (
 	buildTemporalContextDescription = agentcontract.BuildTemporalContextDescription
 	temporalContextLocation         = agentcontract.TemporalContextLocation
+)
+
+var (
+	responseLanguageInstruction = agentcontract.ResponseLanguageInstruction
+	redactUnsafeText            = agentcontract.RedactUnsafeText
+)
+
+type (
+	FailureReport                 = agentcontract.FailureReport
+	FailureNoticeGenerator        = agentcontract.FailureNoticeGenerator
+	FailureNoticeGenerationStatus = agentcontract.FailureNoticeGenerationStatus
+	IntakeReport                  = agentcontract.IntakeReport
+)
+
+var (
+	diagnosticEventID              = agentcontract.DiagnosticEventID
+	failureNoticeMessageIsSendable = agentcontract.FailureNoticeMessageIsSendable
+	buildRawErrorFailureNotice     = agentcontract.BuildRawErrorFailureNotice
+)
+
+var (
+	elapsedLimitRawErrorSummary            = agentcontract.ElapsedLimitRawErrorSummary
+	textExceedsCharacterBudget             = agentcontract.TextExceedsCharacterBudget
+	finishMessageMaximumCharacters         = agentcontract.FinishMessageMaximumCharacters
+	buildFinishMessageCompressionPrompt    = agentcontract.BuildFinishMessageCompressionPrompt
+	generateRecoveryChatText               = agentcontract.GenerateRecoveryChatText
+	recoveryContextError                   = agentcontract.RecoveryContextError
+	generateLocalRecoveryChatText          = agentcontract.GenerateLocalRecoveryChatText
+	recoveryChatCompletionRequest          = agentcontract.RecoveryChatCompletionRequest
+	buildElapsedLimitRawErrorFailureNotice = agentcontract.BuildElapsedLimitRawErrorFailureNotice
+	failureNoticeRequiresReview            = agentcontract.FailureNoticeRequiresReview
+	normalizeFailureReport                 = agentcontract.NormalizeFailureReport
+	buildFailureNotice                     = agentcontract.BuildFailureNotice
 )

@@ -30,6 +30,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -263,6 +264,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
 	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModelProvider))
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
@@ -295,6 +297,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskRunService,
 		logger,
 	)
+	launchFailureCompleter := launchfailure.NewCompleter(taskRunService, languageModelProvider)
+	connectorRuntime.UseLaunchFailureCompleter(launchFailureCompleter)
 	connectorRuntime.UseReplyGenerator(reply.NewGenerator(languageModelProvider, instructionBundleLoader))
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)

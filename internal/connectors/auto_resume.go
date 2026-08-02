@@ -90,7 +90,7 @@ func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(c
 		"reason": reason,
 		"detail": detail,
 	}))
-	connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+	connectorRuntime.launchFailureCompleter.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 		RequesterPersonID: taskRun.RequesterPersonID,
 		ExistingTaskRunID: taskRun.TaskRunID,
 		Prompt:            taskRun.Prompt,
@@ -98,7 +98,7 @@ func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(c
 }
 
 func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFailure(ctx context.Context, taskRun task.TaskRun, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, replyTarget ReplyTarget, adapter PlatformAdapter, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error), errorValue error) (ConnectorRuntimeResult, error) {
-	turnResult := connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+	turnResult := connectorRuntime.launchFailureCompleter.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 		RequesterPersonID:      taskRun.RequesterPersonID,
 		RequesterEmail:         connectorRuntime.identityService.ResolvePersonPrimaryEmail(taskRun.RequesterPersonID),
 		IsApprovalContinuation: true,

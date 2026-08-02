@@ -750,18 +750,6 @@ func truncateText(value string, limit int) string {
 	return value[:limit] + "..."
 }
 
-func redactUnsafeText(value string) string {
-	lines := []string{}
-	for _, line := range strings.Split(value, "\n") {
-		lowerLine := strings.ToLower(line)
-		if strings.Contains(lowerLine, "cookie") || strings.Contains(lowerLine, "authorization") || strings.Contains(lowerLine, "cdp") || strings.Contains(lowerLine, "profile") || strings.Contains(lowerLine, "devicepath") || strings.Contains(lowerLine, "localpath") {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
-}
-
 func isUnsafePromptField(fieldName string, fieldValue any) bool {
 	normalizedFieldName := strings.ToLower(fieldName)
 	if isAgentWorkspacePathField(normalizedFieldName) && isAgentWorkspacePathValue(fieldValue) {

@@ -25,6 +25,7 @@ const (
 
 type TaskLauncher struct {
 	harness                       agentcontract.Harness
+	launchFailureCompleter        LaunchFailureCompleter
 	taskRunService                *taskstate.TaskRunService
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
@@ -127,6 +128,14 @@ type launchMemoryResult struct {
 	PinnedFactCount int
 	GraphFactCount  int
 	Error           string
+}
+
+type LaunchFailureCompleter interface {
+	CompleteLaunchFailure(context.Context, agentcontract.AgentTurnRequest, string, string, error) agentcontract.AgentTurnResult
+}
+
+func (taskLauncher *TaskLauncher) UseLaunchFailureCompleter(launchFailureCompleter LaunchFailureCompleter) {
+	taskLauncher.launchFailureCompleter = launchFailureCompleter
 }
 
 func NewTaskLauncher(harness agentcontract.Harness, taskRunService *taskstate.TaskRunService, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
@@ -374,7 +383,7 @@ func errorFromStepRecord(record launchStepRecord) error {
 
 func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, request TaskLaunchRequest, profileName string, toolNames []string, stepName string, records []launchStepRecord, errorValue error) TaskLaunchResult {
 	turnRequest := taskLauncher.agentTurnRequestForLaunch(request, profileName, nil, nil, ConversationResourceScope{})
-	turnResult := taskLauncher.harness.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
+	turnResult := taskLauncher.launchFailureCompleter.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
 	turnResult.ToolNames = append([]string{}, toolNames...)
 	taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, records)
 	taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)

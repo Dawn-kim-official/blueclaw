@@ -350,17 +350,18 @@ const connectorReplyKindUserNotice = "user_notice"
 const connectorReplyKindPermissionNotice = "permission_notice"
 
 type ConnectorRuntime struct {
-	identityService      *identity.IdentityService
-	harness              agentcontract.Harness
-	intakeClassifier     IntakeClassifier
-	replyGenerator       ReplyGenerator
-	taskRunService       *taskstate.TaskRunService
-	taskLauncher         *agentruntime.TaskLauncher
-	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
-	memoryService        *memory.MemoryService
-	workspaceID          string
-	adminTaskLinkBaseURL string
-	logger               *slog.Logger
+	identityService        *identity.IdentityService
+	harness                agentcontract.Harness
+	intakeClassifier       IntakeClassifier
+	replyGenerator         ReplyGenerator
+	launchFailureCompleter LaunchFailureCompleter
+	taskRunService         *taskstate.TaskRunService
+	taskLauncher           *agentruntime.TaskLauncher
+	toolCatalogBuilder     *agentruntime.ToolCatalogBuilder
+	memoryService          *memory.MemoryService
+	workspaceID            string
+	adminTaskLinkBaseURL   string
+	logger                 *slog.Logger
 
 	mutex                   sync.Mutex
 	adapterByPlatform       map[string]PlatformAdapter
@@ -529,6 +530,14 @@ func connectorRuntimeDefaultAllowedToolNames() []string {
 
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, defaultAllowedToolNames)
+}
+
+type LaunchFailureCompleter interface {
+	CompleteLaunchFailure(context.Context, agentcontract.AgentTurnRequest, string, string, error) agentcontract.AgentTurnResult
+}
+
+func (connectorRuntime *ConnectorRuntime) UseLaunchFailureCompleter(launchFailureCompleter LaunchFailureCompleter) {
+	connectorRuntime.launchFailureCompleter = launchFailureCompleter
 }
 
 type ReplyGenerator interface {
@@ -1082,7 +1091,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		failureTurnResult := connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.launchFailureCompleter.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 			RequesterPersonID: personID,
 			RequesterEmail:    requesterEmail,
 			Platform:          platform,
@@ -3270,6 +3279,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 		return connectorRuntime.taskLauncher
 	}
 	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
 	return taskLauncher
 }

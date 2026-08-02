@@ -36,6 +36,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -836,6 +837,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentHarness, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	adapter := &virtualAdapter{workspacePath: workspacePath}
+	runtime.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, highLanguageModel))
 	runtime.UseReplyGenerator(reply.NewGenerator(highLanguageModel, instructionBundleLoader))
 	runtime.UseIntakeClassifier(intake.NewClassifier(firstAvailableLanguageModel(xLowLanguageModel, intakeLanguageModel, highLanguageModel)))
 	runtime.RegisterAdapter(adapter)
@@ -879,6 +881,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		agentHarness,
 	)
 	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentHarness, taskRunService, toolCatalogBuilder)
+	virtualTaskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, highLanguageModel))
 	virtualTaskLauncher.UseRequesterEmailResolver(identityService)
 	runtime.UseTaskLauncher(virtualTaskLauncher)
 

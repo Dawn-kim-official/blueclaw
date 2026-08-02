@@ -18,6 +18,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -122,7 +123,9 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	taskLauncher := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, nil))
+	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -171,7 +174,9 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 		"default": {"message_context", "message_search", "message_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	taskLauncher := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, nil))
+	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -228,7 +233,9 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 		"default": {"mattermost_post_delete"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	taskLauncher := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, nil))
+	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-1",
 		RequesterPersonID: "person-1",
@@ -352,7 +359,9 @@ func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T)
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	taskLauncher := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, nil))
+	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-1",
 		RequesterPersonID: "person-1",
