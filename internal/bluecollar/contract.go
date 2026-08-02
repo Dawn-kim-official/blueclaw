@@ -71,10 +71,18 @@ const (
 	AddressingTargetNone    = agentcontract.AddressingTargetNone
 	AddressingTargetUnclear = agentcontract.AddressingTargetUnclear
 
+	AgentPartTypeFile  = agentcontract.AgentPartTypeFile
+	AgentPartTypeImage = agentcontract.AgentPartTypeImage
+	AgentPartTypeText  = agentcontract.AgentPartTypeText
+
 	ApprovalSignalApprove     = agentcontract.ApprovalSignalApprove
 	ApprovalSignalApproveTask = agentcontract.ApprovalSignalApproveTask
 	ApprovalSignalReject      = agentcontract.ApprovalSignalReject
 	ApprovalSignalUnclear     = agentcontract.ApprovalSignalUnclear
+
+	ArtifactRequirementNone      = agentcontract.ArtifactRequirementNone
+	ArtifactRequirementPreferred = agentcontract.ArtifactRequirementPreferred
+	ArtifactRequirementRequired  = agentcontract.ArtifactRequirementRequired
 
 	BusyRouteCancel    = agentcontract.BusyRouteCancel
 	BusyRouteNewTask   = agentcontract.BusyRouteNewTask
