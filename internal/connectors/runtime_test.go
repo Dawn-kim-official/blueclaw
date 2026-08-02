@@ -19,6 +19,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
@@ -28,7 +29,9 @@ import (
 )
 
 func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "안녕하세요"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "안녕하세요"}
 	event := testInboundEvent("message-1")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
@@ -129,7 +132,7 @@ func TestConnectorRuntimeSuppressesStaleRetryWhileOriginalTaskIsRunning(t *testi
 }
 
 func TestConnectorRuntimeDefersNewTaskLaunchWhenQuiesced(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "should not run"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	repository := &testConnectorQueueRepository{}
 	connectorRuntime.UseEventRepository(repository)
 	connectorRuntime.UseTaskIntakeGate(testTaskIntakeGate{isQuiesced: true})
@@ -191,7 +194,7 @@ func TestConnectorRuntimeAllowsWaitingTaskContinuationWhenQuiesced(t *testing.T)
 }
 
 func TestExactStopCommandsAndActiveTaskFollowUpsBypassConversationLock(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	ctx := context.Background()
 
 	stopEvent := testInboundEvent("message-stop")
@@ -224,15 +227,9 @@ func TestExactStopCommandsAndActiveTaskFollowUpsBypassConversationLock(t *testin
 }
 
 func TestActiveTaskFollowUpBypassesConversationLockWhenClassifiedAsRelated(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.IsActiveTaskFollowUp = true
+	seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "보고서 작성")
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
 
 	event := testInboundEvent("message-correction")
@@ -244,15 +241,9 @@ func TestActiveTaskFollowUpBypassesConversationLockWhenClassifiedAsRelated(t *te
 }
 
 func TestActiveTaskFollowUpDoesNotBypassConversationLockWhenClassifiedAsUnrelated(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_active_task_followup": `{"relatesToActiveTask":false}`,
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.IsActiveTaskFollowUp = false
+	seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "보고서 작성")
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
 
 	event := testInboundEvent("message-unrelated")
@@ -265,9 +256,7 @@ func TestActiveTaskFollowUpDoesNotBypassConversationLockWhenClassifiedAsUnrelate
 
 func TestActiveTaskFollowUpClassificationErrorDoesNotBypassConversationLock(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
-	if _, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "보고서 작성")
 	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
 
 	event := testInboundEvent("message-correction-error")
@@ -542,11 +531,8 @@ func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 }
 
 func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	taskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "long task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
+	taskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "long task")
 	event := testInboundEvent("message-stop")
 	event.Prompt = "/stop"
 	event.ReplyTargetID = event.MessageID
@@ -569,33 +555,24 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 }
 
 func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	topLevelTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
+	topLevelTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-1",
 		IsThread:       false,
 	}, "top level task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	time.Sleep(time.Millisecond)
-	threadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	threadTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-1",
 		IsThread:       true,
 	}, "thread task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	time.Sleep(time.Millisecond)
-	otherThreadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	otherThreadTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-2",
 		IsThread:       true,
 	}, "other thread task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	event := testChannelInboundEvent("message-stop")
 	event.Prompt = "/stop"
 	event.ReplyTargetID = "root-1"
@@ -620,33 +597,24 @@ func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) 
 }
 
 func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	oldRootTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
+	oldRootTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-old",
 		IsThread:       false,
 	}, "old root task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	time.Sleep(time.Millisecond)
-	latestRootTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	latestRootTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "root-latest",
 		IsThread:       false,
 	}, "latest root task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	time.Sleep(time.Millisecond)
-	threadTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+	threadTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{
 		ConversationID: "channel-1",
 		ReplyTargetID:  "thread-root",
 		IsThread:       true,
 	}, "thread task")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
 	event := testChannelInboundEvent("message-stop")
 	event.Prompt = "/stop"
 	event.ReplyTargetID = event.MessageID
@@ -684,10 +652,7 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "보고서 작성")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "보고서 작성")
 	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
 		t.Fatal("expected active task before busy status event")
 	}
@@ -777,10 +742,7 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "PDF 보고서 작성")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "PDF 보고서 작성")
 	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
 		t.Fatal("expected active task before busy steer event")
 	}
@@ -820,10 +782,7 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "긴 작업")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "긴 작업")
 	event := testInboundEvent("message-busy-cancel")
 	event.Prompt = "중단해"
 
@@ -939,10 +898,7 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "기존 작업")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "기존 작업")
 	event := testInboundEvent("message-busy-replace")
 	event.Prompt = "아니 그거 취소하고 새 작업 해"
 
@@ -979,10 +935,7 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-	activeTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "경산 영남대 근처 맛집 추천")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	activeTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "경산 영남대 근처 맛집 추천")
 	event := testInboundEvent("message-independent-question")
 	event.Prompt = "휴게소 가야해?"
 
@@ -1233,7 +1186,7 @@ func TestOutboundReplyJSONPreservesFailureNotice(t *testing.T) {
 }
 
 func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopProgress := connectorRuntime.startProgress(ctx, adapter, ReplyTarget{
 		ConversationID: "conversation-1",
@@ -1252,7 +1205,7 @@ func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing
 }
 
 func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	adapter.senderEmail = "outside@example.com"
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -1277,10 +1230,8 @@ func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.
 			"person-1": {PersonID: "person-1"},
 		},
 	})
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	connectorRuntime := NewConnectorRuntime(identityService, harnessstub.New(taskRunService), taskRunService, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "Sender@Example.com"
 
@@ -1298,10 +1249,8 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 			"person-1": {PersonID: "person-1"},
 		},
 	})
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	connectorRuntime := NewConnectorRuntime(identityService, harnessstub.New(taskRunService), taskRunService, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "sender@example.com"
 
@@ -1313,8 +1262,9 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 }
 
 func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetHuman), reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	event := testInboundEvent("message-1")
 	event.Context.ConversationType = "D"
 
@@ -1326,8 +1276,8 @@ func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T)
 	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected direct message task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
 	}
-	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
-		t.Fatalf("expected direct message to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	if harness.ClassifyAddressingCallCount() != 0 {
+		t.Fatalf("expected direct message to skip addressing classifier, got %d classifications", harness.ClassifyAddressingCallCount())
 	}
 }
 
@@ -1646,19 +1596,19 @@ func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testi
 func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
 	tests := []struct {
 		name             string
-		addressingTarget string
+		addressingTarget agentcontract.AddressingTarget
 		reason           string
 	}{
-		{name: "human", addressingTarget: string(agentcontract.AddressingTargetHuman), reason: "addressing_human dutyMatch=false"},
-		{name: "anyone", addressingTarget: string(agentcontract.AddressingTargetAnyone), reason: "addressing_anyone dutyMatch=false"},
-		{name: "none", addressingTarget: string(agentcontract.AddressingTargetNone), reason: "addressing_none dutyMatch=false"},
-		{name: "unclear", addressingTarget: string(agentcontract.AddressingTargetUnclear), reason: "addressing_unclear dutyMatch=false"},
+		{name: "human", addressingTarget: agentcontract.AddressingTargetHuman, reason: "addressing_human dutyMatch=false"},
+		{name: "anyone", addressingTarget: agentcontract.AddressingTargetAnyone, reason: "addressing_anyone dutyMatch=false"},
+		{name: "none", addressingTarget: agentcontract.AddressingTargetNone, reason: "addressing_none dutyMatch=false"},
+		{name: "unclear", addressingTarget: agentcontract.AddressingTargetUnclear, reason: "addressing_unclear dutyMatch=false"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			languageModel := &addressingTestLanguageModel{addressingTarget: test.addressingTarget, reply: "unused"}
-			connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+			connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+			harness.AddressingDecision = agentcontract.AddressingDecision{Target: test.addressingTarget}
 
 			result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
 			if errorValue != nil {
@@ -1676,7 +1626,8 @@ func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
 }
 
 func TestConnectorRuntimeIgnoresUninvitedAmbiguousChannelMessageWithoutReply(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.AddressingDecision = agentcontract.AddressingDecision{Target: agentcontract.AddressingTargetBot, ShouldRespond: true}
 	adapter.senderEmail = "outside@example.com"
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
@@ -1710,7 +1661,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 }
 
 func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.Prompt = "파일 만들어줘"
@@ -1736,7 +1687,7 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 }
 
 func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	connectorRuntime.taskRunService.AppendTaskEvent("task-1", "ask.requested", `{"kind":"input","question":"제목은 어떻게 할까요?"}`)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -1767,7 +1718,7 @@ func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
 }
 
 func TestConnectorRuntimePassesThroughUserNoticeWithoutContentFiltering(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.Prompt = "html 파일 만들어줘"
@@ -1793,7 +1744,7 @@ func TestConnectorRuntimePassesThroughUserNoticeWithoutContentFiltering(t *testi
 }
 
 func TestConnectorRuntimeSendsSafeUserNoticeForBlockedTask(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 
@@ -1822,7 +1773,7 @@ func TestConnectorRuntimeSendsSafeUserNoticeForBlockedTask(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 
@@ -1861,7 +1812,7 @@ func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
 }
 
 func TestConnectorRuntimeFailureFooterLinksAdminTaskWhenConfigured(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	connectorRuntime.UseAdminTaskLinkBaseURL("https://demo.example.test/")
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -1896,7 +1847,7 @@ func TestConnectorRuntimeFailureFooterLinksAdminTaskWhenConfigured(t *testing.T)
 }
 
 func TestConnectorRuntimeWaitingNoticeHasNoRunFooter(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 
@@ -1925,7 +1876,7 @@ func TestConnectorRuntimeWaitingNoticeHasNoRunFooter(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsSafeUserNoticeWhenFailureNoticeMissing(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 
@@ -1954,7 +1905,7 @@ func TestConnectorRuntimeSendsSafeUserNoticeWhenFailureNoticeMissing(t *testing.
 }
 
 func TestConnectorRuntimeSendsGenericFailureNoticeWhenFailureReplyMissing(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 
@@ -1982,7 +1933,7 @@ func TestConnectorRuntimeSendsGenericFailureNoticeWhenFailureReplyMissing(t *tes
 }
 
 func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.SenderID = "sender-user-1"
@@ -2056,7 +2007,9 @@ func TestConnectorRuntimeSendsNoticeWhenLaunchReturnsNoTask(t *testing.T) {
 }
 
 func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "reply"}
 	event := testInboundEvent("message-1")
 	event.ReplyTargetID = "opaque-reply-target"
 
@@ -2071,7 +2024,9 @@ func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 }
 
 func TestConnectorRuntimeStartsDirectProgressBeforeInitialHistoryFetch(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "reply"}
 	event := testInboundEvent("message-1")
 	event.Context.HasMoreBefore = true
 	event.Context.HistoryCursor = "history-cursor-1"
@@ -2921,7 +2876,7 @@ func TestAskReplyConsumesInputRevision(t *testing.T) {
 }
 
 func TestTargetedInlineAskResolvesPublicPost(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	event := testInboundEvent("message-2")
 	event.LegacyFields = map[string]interface{}{"postID": "ask-post-1"}
 
@@ -2936,7 +2891,7 @@ func TestTargetedInlineAskResolvesPublicPost(t *testing.T) {
 }
 
 func TestLegacyEphemeralAskDoesNotPatchPublicPost(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	event := testInboundEvent("message-2")
 	event.LegacyFields = map[string]interface{}{"postID": "ask-post-1", "ephemeralAsk": true}
 
@@ -3352,7 +3307,7 @@ func structuredRequestsContainMessage(requests []llm.StructuredResponseRequest, 
 }
 
 func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	connectorRuntime.UseAllowedToolNames([]string{"allowed_tool"})
 	mcpRegistry := mcp.NewMcpRegistry()
 	inputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`)
@@ -3385,7 +3340,9 @@ func TestConnectorRuntimeQuarantinesSchemaOnlyMCPConfiguration(t *testing.T) {
 }
 
 func TestConnectorRuntimeDetachesHTTPEventFromCanceledRequestContext(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	request, errorValue := http.NewRequest(http.MethodPost, "/connectors/test/events", strings.NewReader(`{}`))
 	if errorValue != nil {
 		t.Fatalf("expected request: %v", errorValue)
@@ -3408,7 +3365,9 @@ func TestConnectorRuntimeDetachesHTTPEventFromCanceledRequestContext(t *testing.
 }
 
 func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "queued reply"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "queued reply"}
 	repository := &testConnectorQueueRepository{}
 	connectorRuntime.UseEventRepository(repository)
 	event := testInboundEvent("message-http")
@@ -3498,7 +3457,7 @@ func TestConnectorRuntimeRecordsQueuedOutboxSendFailure(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	event := testInboundEvent("message-checkpoint")
 	replyTarget := ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: event.ReplyTargetID}
 
@@ -3565,7 +3524,9 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryButInjectsGraphMemoryAt
 }
 
 func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplySendFails(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	adapter.sendReplyError = errors.New("send failed")
 	graphStore := &fakeGraphMemoryStore{}
 	memoryService := &memory.MemoryService{}
@@ -3587,7 +3548,9 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplySendFails(t *t
 }
 
 func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryForPathBearingReply(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "saved at /workspace/result.md"})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnDecision = startTaskTurnDecision()
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "saved at /workspace/result.md"}
 	graphStore := &fakeGraphMemoryStore{}
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(graphStore)
@@ -3633,7 +3596,7 @@ func TestConnectorRuntimeDoesNotShareUserMemoryWithOtherPerson(t *testing.T) {
 }
 
 func TestConnectorRuntimeRejectsMissingHistoryCursorWhenMoreContextExists(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	connectorRuntime, adapter, _ := newStubbedTestConnectorRuntime(t)
 	event := testInboundEvent("message-1")
 	event.Context.HasMoreBefore = true
 
@@ -4264,48 +4227,78 @@ func connectorRuntimeAgentKernel(connectorRuntime *ConnectorRuntime) *bluecollar
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
-	identityService := identity.NewIdentityService(policy.PolicyProjection{
-		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
-		PersonAccessByPersonID: map[string]policy.PersonAccess{
-			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
-		},
-	})
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
+}
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapter, *harnessstub.Stub) {
+	t.Helper()
+
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness := harnessstub.New(taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, taskRunService)
+	return connectorRuntime, adapter, harness
+}
+
+func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
+	t.Helper()
+
+	connectorRuntime := NewConnectorRuntime(testConnectorIdentityService(), harness, taskRunService, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
 }
 
-func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter, *task.TaskRunService, *task.InMemoryTaskWaitTokenRepository) {
-	t.Helper()
+func startTaskTurnDecision() agentcontract.TurnDecision {
+	return agentcontract.TurnDecision{
+		Route:            agentcontract.TurnRouteStartTask,
+		Classification:   agentcontract.IntakeClassificationBoundedTask,
+		TaskShape:        agentcontract.TaskShapeResearchTask,
+		TaskLevel:        agentcontract.TaskLevelLow,
+		EstimatedMinutes: 1,
+		ResponseLanguage: "ko",
+	}
+}
 
-	identityService := identity.NewIdentityService(policy.PolicyProjection{
+func testConnectorIdentityService() *identity.IdentityService {
+	return identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
 		PersonAccessByPersonID: map[string]policy.PersonAccess{
 			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
 		},
 	})
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
+}
+
+func testConnectorAgentKernel(taskRunService *task.TaskRunService, languageModel llm.LanguageModelProvider) *bluecollar.AgentKernel {
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	return agentKernel
+}
+
+// Connector tests only need a task run the runtime can react to, so they seed
+// one the way the task service does instead of running a whole agent turn.
+func seedRunningTaskRun(t *testing.T, taskRunService *task.TaskRunService, origin task.TaskRunOrigin, prompt string) task.TaskRun {
+	t.Helper()
+
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", origin, prompt)
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "planner")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return runningTaskRun
+}
+
+func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter, *task.TaskRunService, *task.InMemoryTaskWaitTokenRepository) {
+	t.Helper()
+
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
-	connectorRuntime.UseTaskRunService(taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
 	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
-	adapter := &testAdapter{senderEmail: "invited@example.com"}
-	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter, taskRunService, taskWaitRepository
 }
 
@@ -4372,24 +4365,11 @@ func waitRoutingTaskWaitToken(taskRun task.TaskRun, dispatchID string, interacti
 func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService) {
 	t.Helper()
 
-	identityService := identity.NewIdentityService(policy.PolicyProjection{
-		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
-		PersonAccessByPersonID: map[string]policy.PersonAccess{
-			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
-		},
-	})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskRunService.UseRepository(taskRunRepository)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
-	connectorRuntime.UseTaskRunService(taskRunService)
-	adapter := &testAdapter{senderEmail: "invited@example.com"}
-	connectorRuntime.RegisterAdapter(adapter)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), taskRunService)
 	return connectorRuntime, adapter, taskEventService
 }
 
