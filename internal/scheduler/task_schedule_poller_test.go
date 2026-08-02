@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
@@ -19,7 +20,7 @@ import (
 )
 
 func TestScheduledTaskReplyPreservesModelWording(t *testing.T) {
-	turnResult := bluecollar.AgentTurnResult{
+	turnResult := agentcontract.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "완료했습니다: sandbox:/mnt/data/report.pdf",
 		Attachments:   []toolcontract.FileAttachment{{Filename: "report.pdf", DevicePath: "/workspace/private/people/p1/artifacts/report.pdf"}},
@@ -692,7 +693,7 @@ func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCo
 	languageModel := staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
