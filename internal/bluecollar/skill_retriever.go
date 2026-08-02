@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/model"
+	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
 const defaultEmbeddingModelName = "embedding_create"

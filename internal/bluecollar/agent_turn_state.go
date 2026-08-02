@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/model"
+	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 

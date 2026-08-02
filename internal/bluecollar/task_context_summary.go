@@ -6,7 +6,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/model"
+	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 

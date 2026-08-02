@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/model"
+	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
 func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {

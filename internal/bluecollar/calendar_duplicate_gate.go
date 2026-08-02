@@ -7,7 +7,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/model"
+	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
 const calendarAddOperation = "calendar_add"
