@@ -1,4 +1,4 @@
-package agentcontract
+package toolcontract
 
 import "strings"
 

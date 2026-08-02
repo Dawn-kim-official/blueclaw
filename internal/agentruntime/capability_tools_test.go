@@ -228,7 +228,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		PrivacyClass:  "platform_message",
 		Idempotency:   CapabilityIdempotency{Supported: true, Scope: "operation"},
 	})
-	toolContext := bluecollar.WithToolConflictResolution(context.Background(), bluecollar.ToolConflictResolutionAllowDuplicate)
+	toolContext := toolcontract.WithToolConflictResolution(context.Background(), toolcontract.ToolConflictResolutionAllowDuplicate)
 	requestDocument := capabilityToolRequest(toolContext, descriptor, ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
@@ -250,7 +250,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	if contextDocument["replyTargetID"] != "reply-target-1" {
 		t.Fatalf("expected reply target in context, got %+v", contextDocument)
 	}
-	if contextDocument["conflictResolution"] != bluecollar.ToolConflictResolutionAllowDuplicate {
+	if contextDocument["conflictResolution"] != toolcontract.ToolConflictResolutionAllowDuplicate {
 		t.Fatalf("expected typed conflict resolution in context, got %+v", contextDocument)
 	}
 }
@@ -596,7 +596,7 @@ func TestImageGenerateSendsRequesterWorkspacePathToBridge(t *testing.T) {
 }
 
 func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
-	ctx := bluecollar.WithObservationID(bluecollar.WithTaskRunID(context.Background(), "run-1"), "obs-3")
+	ctx := toolcontract.WithObservationID(toolcontract.WithTaskRunID(context.Background(), "run-1"), "obs-3")
 	sendDescriptor := CapabilityToolDescriptor{CanonicalName: "message_send", Idempotency: CapabilityIdempotency{Supported: true}}
 	readDescriptor := CapabilityToolDescriptor{CanonicalName: "web_search"}
 	sendKey := capabilityToolIdempotencyKey(ctx, sendDescriptor)
@@ -606,14 +606,14 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	if again := capabilityToolIdempotencyKey(ctx, sendDescriptor); again != sendKey {
 		t.Fatalf("idempotency key not deterministic: %q vs %q", sendKey, again)
 	}
-	differentObservation := bluecollar.WithObservationID(bluecollar.WithTaskRunID(context.Background(), "run-1"), "obs-4")
+	differentObservation := toolcontract.WithObservationID(toolcontract.WithTaskRunID(context.Background(), "run-1"), "obs-4")
 	if other := capabilityToolIdempotencyKey(differentObservation, sendDescriptor); other == sendKey {
 		t.Fatal("expected different observation to produce different key")
 	}
 	if nonSend := capabilityToolIdempotencyKey(ctx, readDescriptor); nonSend != "" {
 		t.Fatalf("expected no key for non-send tool, got %q", nonSend)
 	}
-	missing := bluecollar.WithTaskRunID(context.Background(), "run-1")
+	missing := toolcontract.WithTaskRunID(context.Background(), "run-1")
 	if noObservation := capabilityToolIdempotencyKey(missing, sendDescriptor); noObservation != "" {
 		t.Fatalf("expected no key without observation id, got %q", noObservation)
 	}

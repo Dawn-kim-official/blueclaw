@@ -6,7 +6,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -18,7 +17,7 @@ func TestAskInputUsesTypedQuestionAndResultData(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_input"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolContext := bluecollar.WithUserFacingMessage(bluecollar.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Context question must not replace input")
+	toolContext := toolcontract.WithUserFacingMessage(toolcontract.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Context question must not replace input")
 	result, errorValue := toolRegistry.Invoke(toolContext, toolcontract.ToolInvocation{
 		ToolName: "ask_input",
 		Input: toolcontract.MarshalToolInput(map[string]any{
