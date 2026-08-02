@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -27,7 +27,7 @@ func (store staticGraphMemoryStore) SearchFacts(context.Context, memory.MemorySe
 func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -75,7 +75,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
 		t.Fatal(errorValue)

@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -683,10 +683,10 @@ func testTaskScheduleRunner(turnStatus task.TaskStatus, finishMessage string) ag
 	return taskScheduleRunner
 }
 
-func taskScheduleRunnerWithHarness(turnStatus task.TaskStatus, finishMessage string) (agentruntime.TaskScheduleRunner, *harnessstub.Stub) {
+func taskScheduleRunnerWithHarness(turnStatus task.TaskStatus, finishMessage string) (agentruntime.TaskScheduleRunner, *harnesstest.Harness) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	harness := harnessstub.New(taskRunService)
+	harness := harnesstest.New(taskRunService)
 	harness.TurnStatus = turnStatus
 	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: finishMessage}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()

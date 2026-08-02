@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -17,7 +17,7 @@ import (
 func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T) {
 	identityService := identity.NewIdentityService(policy.PolicyProjection{})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	connectorRuntime := NewConnectorRuntime(identityService, harnessstub.New(taskRunService), taskRunService, slog.Default())
+	connectorRuntime := NewConnectorRuntime(identityService, harnesstest.New(taskRunService), taskRunService, slog.Default())
 
 	var sentReply OutboundReply
 	sendReply := func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
@@ -47,7 +47,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	connectorRuntime := NewConnectorRuntime(
 		identity.NewIdentityService(policy.PolicyProjection{}),
-		harnessstub.New(taskRunService),
+		harnesstest.New(taskRunService),
 		taskRunService,
 		slog.Default(),
 	)
