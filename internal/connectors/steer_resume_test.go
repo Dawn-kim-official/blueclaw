@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/agenttest"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -28,16 +27,9 @@ func TestPlatformFromSourceReferenceRejectsResumePrefixes(t *testing.T) {
 }
 
 func TestResumePausedTaskForSteerWithoutLaunchContextSendsNoticeWithoutOrphan(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		ChatResponsesBySchema: map[string][]string{
-			"blueclaw_reply": {"저장된 컨텍스트에서 이 작업을 재개할 수 없습니다."},
-		},
-	})
-	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
-	pausedTaskRun, errorValue := connectorRuntimeAgentKernel(connectorRuntime).RunTask("person-1", "direct-1", "사이트 만들어")
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
+	connectorRuntime, _, harness := newStubbedTestConnectorRuntime(t)
+	harness.Reply = "저장된 컨텍스트에서 이 작업을 재개할 수 없습니다."
+	pausedTaskRun := seedRunningTaskRun(t, connectorRuntime.taskRunService, task.TaskRunOrigin{ConversationID: "direct-1"}, "사이트 만들어")
 	event := testInboundEvent("message-steer-resume")
 	sendReply := func(context.Context, ReplyTarget, OutboundReply) (string, error) {
 		return "dispatch-1", nil
