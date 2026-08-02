@@ -15,7 +15,6 @@ type Stub struct {
 
 	TurnResult           agentcontract.AgentTurnResult
 	TurnStatus           taskstate.TaskStatus
-	TurnError            error
 	TurnDecision         agentcontract.TurnDecision
 	Reply                string
 	AddressingDecision   agentcontract.AddressingDecision
@@ -36,9 +35,6 @@ func New(taskRunService *taskstate.TaskRunService) *Stub {
 func (stub *Stub) RunTurn(_ context.Context, request agentcontract.AgentTurnRequest) (agentcontract.AgentTurnResult, error) {
 	stub.runTurnCallCount++
 	stub.lastTurnRequest = request
-	if stub.TurnError != nil {
-		return stub.TurnResult, stub.TurnError
-	}
 	turnResult := stub.TurnResult
 	settledTaskRun, errorValue := stub.settleTaskRun(request, stub.TurnStatus, turnResult.FinishMessage)
 	if errorValue != nil {
