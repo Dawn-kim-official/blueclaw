@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -22,6 +23,7 @@ type AgentKernel struct {
 	xHighTaskLanguageModel  model.LanguageModelProvider
 	highTaskLanguageModel   model.LanguageModelProvider
 	mediumTaskLanguageModel model.LanguageModelProvider
+	lowTaskLanguageModel    model.LanguageModelProvider
 	xLowTaskLanguageModel   model.LanguageModelProvider
 	codingTaskLanguageModel model.LanguageModelProvider
 	intakeLanguageModel     model.LanguageModelProvider
@@ -47,13 +49,14 @@ func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel model.Lan
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(maxTaskLanguageModel model.LanguageModelProvider, xHighTaskLanguageModel model.LanguageModelProvider, highTaskLanguageModel model.LanguageModelProvider, mediumTaskLanguageModel model.LanguageModelProvider, xLowTaskLanguageModel model.LanguageModelProvider, codingTaskLanguageModel model.LanguageModelProvider) {
-	agentKernel.maxTaskLanguageModel = maxTaskLanguageModel
-	agentKernel.xHighTaskLanguageModel = xHighTaskLanguageModel
-	agentKernel.highTaskLanguageModel = highTaskLanguageModel
-	agentKernel.mediumTaskLanguageModel = mediumTaskLanguageModel
-	agentKernel.xLowTaskLanguageModel = xLowTaskLanguageModel
-	agentKernel.codingTaskLanguageModel = codingTaskLanguageModel
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(taskTierLanguageModels agentharness.TaskTierLanguageModels) {
+	agentKernel.maxTaskLanguageModel = taskTierLanguageModels.Max
+	agentKernel.xHighTaskLanguageModel = taskTierLanguageModels.XHigh
+	agentKernel.highTaskLanguageModel = taskTierLanguageModels.High
+	agentKernel.mediumTaskLanguageModel = taskTierLanguageModels.Medium
+	agentKernel.lowTaskLanguageModel = taskTierLanguageModels.Low
+	agentKernel.xLowTaskLanguageModel = taskTierLanguageModels.XLow
+	agentKernel.codingTaskLanguageModel = taskTierLanguageModels.Coding
 }
 
 func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService taskstate.TaskArtifactStore) {
@@ -919,6 +922,10 @@ func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) m
 	case TaskLevelMedium:
 		if agentKernel.mediumTaskLanguageModel != nil {
 			return agentKernel.mediumTaskLanguageModel
+		}
+	case TaskLevelLow:
+		if agentKernel.lowTaskLanguageModel != nil {
+			return agentKernel.lowTaskLanguageModel
 		}
 	case TaskLevelXLow:
 		if agentKernel.xLowTaskLanguageModel != nil {

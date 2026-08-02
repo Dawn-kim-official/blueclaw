@@ -158,11 +158,12 @@ func TestTaskLevelProfilesOwnWorkDuration(t *testing.T) {
 
 func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 	kernel := &AgentKernel{
-		languageModel:           labeledLanguageModel{label: "low"},
+		languageModel:           labeledLanguageModel{label: "default"},
 		maxTaskLanguageModel:    labeledLanguageModel{label: "max"},
 		xHighTaskLanguageModel:  labeledLanguageModel{label: "xhigh"},
 		highTaskLanguageModel:   labeledLanguageModel{label: "high"},
 		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
+		lowTaskLanguageModel:    labeledLanguageModel{label: "low"},
 		xLowTaskLanguageModel:   labeledLanguageModel{label: "xlow"},
 		codingTaskLanguageModel: labeledLanguageModel{label: "coding"},
 	}
@@ -184,11 +185,11 @@ func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 }
 
 func TestTaskLanguageModelForLevelFallsBackToBaseWhenUnset(t *testing.T) {
-	kernel := &AgentKernel{languageModel: labeledLanguageModel{label: "low"}}
-	for _, taskLevel := range []TaskLevel{TaskLevelMedium, TaskLevelHigh, TaskLevelXHigh, TaskLevelMax} {
+	kernel := &AgentKernel{languageModel: labeledLanguageModel{label: "default"}}
+	for _, taskLevel := range []TaskLevel{TaskLevelXLow, TaskLevelLow, TaskLevelMedium, TaskLevelHigh, TaskLevelXHigh, TaskLevelMax} {
 		selected := kernel.taskLanguageModelForLevel(taskLevel)
 		response, _ := selected.GenerateResponse(context.Background(), "")
-		if response != "low" {
+		if response != "default" {
 			t.Fatalf("task level %q: expected base client fallback, got %q", taskLevel, response)
 		}
 	}
