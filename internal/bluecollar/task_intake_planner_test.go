@@ -2061,6 +2061,10 @@ type countingSkillRetriever struct {
 	requests    []AgentRequest
 }
 
+func (retriever *countingSkillRetriever) Available(_ AgentRequest, skillInstructions []SkillInstruction) []SkillInstruction {
+	return skillInstructions
+}
+
 func (retriever *countingSkillRetriever) Retrieve(_ context.Context, request AgentRequest, _ []SkillInstruction, _ int) SkillRetrievalResult {
 	retriever.searchCount++
 	retriever.requests = append(retriever.requests, request)

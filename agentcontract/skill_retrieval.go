@@ -3,6 +3,7 @@ package agentcontract
 import "context"
 
 type SkillRetriever interface {
+	Available(AgentRequest, []SkillInstruction) []SkillInstruction
 	Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult
 	Search(context.Context, AgentRequest, []SkillInstruction, SkillSearchQuerySet, int) SkillRetrievalResult
 	Refresh(context.Context, []SkillInstruction)

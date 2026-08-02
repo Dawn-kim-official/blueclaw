@@ -16,6 +16,26 @@ type recordingSkillSearchRetriever struct {
 	candidates   []agentcontract.SkillCandidate
 }
 
+func (retriever *recordingSkillSearchRetriever) Available(request agentcontract.AgentRequest, skillInstructions []agentcontract.SkillInstruction) []agentcontract.SkillInstruction {
+	availableInstructions := []agentcontract.SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		if !skillInstructionToolReferencesAreReachable(request, skillInstruction) {
+			continue
+		}
+		availableInstructions = append(availableInstructions, skillInstruction)
+	}
+	return availableInstructions
+}
+
+func skillInstructionToolReferencesAreReachable(request agentcontract.AgentRequest, skillInstruction agentcontract.SkillInstruction) bool {
+	for _, toolReference := range skillInstruction.ToolReferences {
+		if !request.ToolSet.IsAllowed(toolReference) && !request.ToolSet.CanExpose(toolReference) {
+			return false
+		}
+	}
+	return true
+}
+
 func (retriever *recordingSkillSearchRetriever) Retrieve(context.Context, agentcontract.AgentRequest, []agentcontract.SkillInstruction, int) agentcontract.SkillRetrievalResult {
 	return agentcontract.SkillRetrievalResult{}
 }

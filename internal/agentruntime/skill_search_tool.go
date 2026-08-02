@@ -6,8 +6,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 const (
@@ -148,7 +146,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet) (toolcontract.ToolResult, error) {
 	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
 	visibleInstructions := agentcontract.VisibleSkillInstructionsForRequester(instructionBundle.Skills, handlerContext.request.PersonAccess.Circles)
-	availableInstructions := availableSkillSearchInstructions(visibleInstructions, availableToolSet)
+	availableInstructions := toolCatalogBuilder.skillRetriever.Available(agentcontract.AgentRequest{ToolSet: availableToolSet}, visibleInstructions)
 	if strings.TrimSpace(input.Name) != "" {
 		return skillSearchNameResult(availableInstructions, input.Name), nil
 	}
@@ -158,19 +156,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 	retrievalResult := toolCatalogBuilder.searchSkillInstructions(toolContext, input, handlerContext, availableToolSet, availableInstructions)
 	retrievalResult = includeExactSkillNameMatches(availableInstructions, input.Queries, retrievalResult)
 	return successfulSkillSearchResult(searchSkillSearchResult(availableInstructions, retrievalResult, searchSkillResultLimit(input.Limit))), nil
-}
-
-func availableSkillSearchInstructions(skillInstructions []agentcontract.SkillInstruction, availableToolSet *toolcontract.ToolSet) []agentcontract.SkillInstruction {
-	request := agentcontract.AgentRequest{ToolSet: availableToolSet}
-	selector := bluecollar.SkillSelector{}
-	availableInstructions := make([]agentcontract.SkillInstruction, 0, len(skillInstructions))
-	for _, skillInstruction := range skillInstructions {
-		if !selector.IsAvailable(skillInstruction, request) {
-			continue
-		}
-		availableInstructions = append(availableInstructions, skillInstruction)
-	}
-	return availableInstructions
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchSkillInstructions(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *toolcontract.ToolSet, skillInstructions []agentcontract.SkillInstruction) agentcontract.SkillRetrievalResult {
