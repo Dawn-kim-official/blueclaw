@@ -17,13 +17,13 @@ var planStepStatuses = map[string]bool{
 }
 
 func NormalizePlan(goal string, steps []PlanStep) (string, []PlanStep) {
-	return TruncateText(CompactWhitespace(goal), 300), NormalizePlanSteps(steps)
+	return truncateText(compactWhitespace(goal), 300), NormalizePlanSteps(steps)
 }
 
 func NormalizePlanSteps(steps []PlanStep) []PlanStep {
 	normalizedSteps := []PlanStep{}
 	for _, step := range steps {
-		title := TruncateText(CompactWhitespace(step.Title), 200)
+		title := truncateText(compactWhitespace(step.Title), 200)
 		status := strings.TrimSpace(step.Status)
 		if title == "" {
 			continue

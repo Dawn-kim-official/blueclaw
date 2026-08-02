@@ -11,11 +11,11 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func CompactWhitespace(value string) string {
+func compactWhitespace(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func TruncateText(value string, limit int) string {
+func truncateText(value string, limit int) string {
 	if limit <= 0 || len(value) <= limit {
 		return value
 	}
