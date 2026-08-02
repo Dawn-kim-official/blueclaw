@@ -1,4 +1,4 @@
-package bluecollar
+package agentruntime
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
@@ -20,7 +21,7 @@ type artifactManifestCandidate struct {
 	producingSkill string
 }
 
-func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService taskstate.TaskRunStore, taskArtifactService taskstate.TaskArtifactStore) []ArtifactManifestEntry {
+func buildConversationArtifactManifest(request agentcontract.AgentTurnRequest, taskRunService taskstate.TaskRunStore, taskArtifactService taskstate.TaskArtifactStore) []agentcontract.ArtifactManifestEntry {
 	if taskRunService == nil || strings.TrimSpace(request.ConversationID) == "" {
 		return nil
 	}
@@ -37,7 +38,7 @@ func buildConversationArtifactManifest(request AgentTurnRequest, taskRunService 
 	return boundedArtifactManifestEntries(request, candidates)
 }
 
-func conversationArtifactTaskRuns(request AgentTurnRequest, taskRuns []taskstate.TaskRun) []taskstate.TaskRun {
+func conversationArtifactTaskRuns(request agentcontract.AgentTurnRequest, taskRuns []taskstate.TaskRun) []taskstate.TaskRun {
 	trimmedConversationID := strings.TrimSpace(request.ConversationID)
 	currentTaskRunID := strings.TrimSpace(request.ExistingTaskRunID)
 	matchingTaskRuns := []taskstate.TaskRun{}
@@ -173,8 +174,8 @@ func isArtifactManifestPath(path string) bool {
 		strings.HasPrefix(normalizedPath, "shared/public/")
 }
 
-func boundedArtifactManifestEntries(request AgentTurnRequest, candidates []artifactManifestCandidate) []ArtifactManifestEntry {
-	entriesByPath := map[string]ArtifactManifestEntry{}
+func boundedArtifactManifestEntries(request agentcontract.AgentTurnRequest, candidates []artifactManifestCandidate) []agentcontract.ArtifactManifestEntry {
+	entriesByPath := map[string]agentcontract.ArtifactManifestEntry{}
 	for _, candidate := range candidates {
 		entry, isValid := artifactManifestEntryForCandidate(request, candidate)
 		if !isValid {
@@ -185,7 +186,7 @@ func boundedArtifactManifestEntries(request AgentTurnRequest, candidates []artif
 			entriesByPath[entry.RelativePath] = entry
 		}
 	}
-	entries := make([]ArtifactManifestEntry, 0, len(entriesByPath))
+	entries := make([]agentcontract.ArtifactManifestEntry, 0, len(entriesByPath))
 	for _, entry := range entriesByPath {
 		entries = append(entries, entry)
 	}
@@ -201,17 +202,17 @@ func boundedArtifactManifestEntries(request AgentTurnRequest, candidates []artif
 	return entries
 }
 
-func artifactManifestEntryForCandidate(request AgentTurnRequest, candidate artifactManifestCandidate) (ArtifactManifestEntry, bool) {
+func artifactManifestEntryForCandidate(request agentcontract.AgentTurnRequest, candidate artifactManifestCandidate) (agentcontract.ArtifactManifestEntry, bool) {
 	concretePath := concreteArtifactManifestPath(request, candidate.path)
 	if concretePath == "" {
-		return ArtifactManifestEntry{}, false
+		return agentcontract.ArtifactManifestEntry{}, false
 	}
 	fileInformation, errorValue := os.Stat(concretePath)
 	if errorValue != nil || fileInformation.IsDir() {
-		return ArtifactManifestEntry{}, false
+		return agentcontract.ArtifactManifestEntry{}, false
 	}
 	relativePath := relativeWorkspacePath(request.WorkspaceRootPath, concretePath)
-	return ArtifactManifestEntry{
+	return agentcontract.ArtifactManifestEntry{
 		FileHint:       artifactFileHint(candidate.taskRunID, relativePath),
 		TaskRunID:      candidate.taskRunID,
 		RelativePath:   filepath.ToSlash(relativePath),
@@ -225,11 +226,7 @@ func artifactFileHint(taskRunID string, relativePath string) string {
 	return "artifact:" + url.PathEscape(strings.TrimSpace(taskRunID)) + ":" + url.QueryEscape(filepath.ToSlash(strings.TrimSpace(relativePath)))
 }
 
-func BuildConversationArtifactManifest(request AgentTurnRequest, taskRunService taskstate.TaskRunStore, taskArtifactService taskstate.TaskArtifactStore) []ArtifactManifestEntry {
-	return buildConversationArtifactManifest(request, taskRunService, taskArtifactService)
-}
-
-func concreteArtifactManifestPath(request AgentTurnRequest, path string) string {
+func concreteArtifactManifestPath(request agentcontract.AgentTurnRequest, path string) string {
 	normalizedPath := strings.TrimPrefix(strings.TrimSpace(filepath.ToSlash(path)), "/workspace/")
 	if filepath.IsAbs(path) && pathIsInsideDirectory(request.WorkspaceRootPath, path) {
 		return path
@@ -262,7 +259,7 @@ func selectedSkillNameFromTaskEvents(taskEvents []taskstate.TaskEvent) string {
 
 func selectedSkillNameFromInstructionEvent(body string) string {
 	var document struct {
-		SkillDecisions []SkillSelectionDecision `json:"skillDecisions"`
+		SkillDecisions []agentcontract.SkillSelectionDecision `json:"skillDecisions"`
 	}
 	if json.Unmarshal([]byte(strings.TrimSpace(body)), &document) != nil {
 		return ""
@@ -273,4 +270,12 @@ func selectedSkillNameFromInstructionEvent(body string) string {
 		}
 	}
 	return ""
+}
+
+func relativeWorkspacePath(workspaceRootPath string, path string) string {
+	relativePath, errorValue := filepath.Rel(workspaceRootPath, path)
+	if errorValue != nil || strings.HasPrefix(relativePath, "..") {
+		return filepath.Base(path)
+	}
+	return relativePath
 }

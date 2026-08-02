@@ -3,6 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -62,10 +63,15 @@ func decodeTurnEvent(rawTurnEvent taskstate.RawTurnEvent) (TurnEvent, bool) {
 		checkpointBody := decodeCheckpointEventBody(rawTurnEvent.Body)
 		return TurnEvent{Kind: TurnEventReply, Message: checkpointBody.Message, ToolName: checkpointBody.ToolName}, true
 	}
-	if artifactManifestToolNameFromEvent(rawTurnEvent.Name) != "" {
+	if isToolResultEventName(rawTurnEvent.Name) {
 		return TurnEvent{Kind: TurnEventTool, ToolName: toolResultEventToolName(rawTurnEvent.Body), Body: rawTurnEvent.Body}, true
 	}
 	return TurnEvent{}, false
+}
+
+func isToolResultEventName(name string) bool {
+	trimmedName := strings.TrimSpace(name)
+	return strings.HasPrefix(trimmedName, "tool.") && strings.HasSuffix(trimmedName, ".result")
 }
 
 func toolResultEventToolName(body string) string {
