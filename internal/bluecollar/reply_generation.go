@@ -1,72 +1,8 @@
 package bluecollar
 
 import (
-	"context"
-	"errors"
 	"strings"
-
-	"github.com/Dawn-kim-official/blueclaw/model"
 )
-
-func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
-	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
-}
-
-func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []MemoryFact) (string, error) {
-	return agentKernel.GenerateReplyWithContext(responseContext, prompt, VisibleContext{}, memoryFacts)
-}
-
-func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context.Context, prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) (string, error) {
-	if agentKernel.languageModel == nil {
-		return "", errors.New("language model provider is not configured")
-	}
-	instructionBundle := agentKernel.currentInstructionBundle()
-	messages := buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt)
-	chatCompleter, isAvailable := model.ResolveTextChatCompleter(agentKernel.languageModel)
-	if !isAvailable {
-		return "", errors.New("language model provider does not support chat completion")
-	}
-	return generateChatReply(responseContext, chatCompleter, messages)
-}
-
-func generateChatReply(responseContext context.Context, chatCompleter model.ChatCompleter, messages []model.Message) (string, error) {
-	response, errorValue := chatCompleter.GenerateChatCompletion(responseContext, model.ChatCompletionRequest{
-		SchemaName: "blueclaw_reply",
-		Messages:   chatMessages(messages),
-	})
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	reply := strings.TrimSpace(response.Message.Content)
-	if reply == "" {
-		return "", errors.New("language model reply is empty")
-	}
-	return reply, nil
-}
-
-func chatMessages(messages []model.Message) []model.ChatCompletionMessage {
-	chatMessages := make([]model.ChatCompletionMessage, 0, len(messages))
-	for _, message := range messages {
-		chatMessages = append(chatMessages, model.ChatCompletionMessage{
-			Role:    message.Role,
-			Content: message.Content,
-		})
-	}
-	return chatMessages
-}
-
-func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []model.Message {
-	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.currentInstructionBundle().Prompt)
-}
-
-func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact) []model.Message {
-	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, "")
-}
-
-func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []MemoryFact, instructionPrompt string) []model.Message {
-	return (PromptAssembler{}).BuildReplyMessages(prompt, visibleContext, buildMemoryContext(memoryFacts), instructionPrompt)
-}
 
 func buildSenderAddressingDescription(request AgentTurnRequest) string {
 	callingName := strings.TrimSpace(request.RequesterCallingName)
