@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/coder/acp-go-sdk v0.13.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
