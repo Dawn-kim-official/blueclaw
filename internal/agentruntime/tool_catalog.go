@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ type ToolCatalogBuilder struct {
 	taskWaitTokenRepository      task.TaskWaitTokenRepository
 	workspaceRootPath            string
 	skillChangeHandler           func(context.Context)
-	skillRetriever               bluecollar.SkillRetriever
+	skillRetriever               agentcontract.SkillRetriever
 	instructionBundleLoader      func() bluecollar.InstructionBundle
 	mcpQuarantineReporter        func(toolcontract.QuarantinedToolProvider)
 	capabilityQuarantineReporter func(toolcontract.QuarantinedToolProvider)
@@ -234,7 +235,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillChangeHandler(skillChangeH
 	toolCatalogBuilder.skillChangeHandler = skillChangeHandler
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillSearch(skillRetriever bluecollar.SkillRetriever, instructionBundleLoader func() bluecollar.InstructionBundle) {
+func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillSearch(skillRetriever agentcontract.SkillRetriever, instructionBundleLoader func() bluecollar.InstructionBundle) {
 	toolCatalogBuilder.skillRetriever = skillRetriever
 	toolCatalogBuilder.instructionBundleLoader = instructionBundleLoader
 }

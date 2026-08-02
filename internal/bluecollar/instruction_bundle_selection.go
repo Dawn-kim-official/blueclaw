@@ -269,10 +269,6 @@ func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction)
 	return result
 }
 
-func VisibleSkillInstructionsForRequester(skillInstructions []SkillInstruction, requesterCircles []string) []SkillInstruction {
-	return append([]SkillInstruction{}, skillInstructions...)
-}
-
 func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
 	return append([]SkillInstruction{}, skillInstructions...)
 }
