@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -22,7 +22,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 type IngressGate interface {

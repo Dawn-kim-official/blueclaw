@@ -2,7 +2,7 @@ package bluecollar
 
 import (
 	"context"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 	"testing"
 

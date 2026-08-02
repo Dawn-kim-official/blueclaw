@@ -1,7 +1,7 @@
 package bluecollar
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"regexp"
 	"strings"
 )

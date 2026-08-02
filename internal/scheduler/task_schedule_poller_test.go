@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"log/slog"
 	"strings"
 	"testing"

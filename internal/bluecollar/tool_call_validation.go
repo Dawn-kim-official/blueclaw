@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {

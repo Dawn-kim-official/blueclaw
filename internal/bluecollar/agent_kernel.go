@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 type AgentKernel struct {

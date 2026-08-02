@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 func TestCompletionStateWaitsForModelWordingBeforeCompleting(t *testing.T) {

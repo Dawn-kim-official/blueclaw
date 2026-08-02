@@ -3,7 +3,7 @@ package bluecollar
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"os"
 	"strings"
 	"testing"

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 type AgentRequest struct {

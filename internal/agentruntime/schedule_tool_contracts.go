@@ -2,7 +2,7 @@ package agentruntime
 
 import (
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 var scheduleListInputSchema = json.RawMessage(`{

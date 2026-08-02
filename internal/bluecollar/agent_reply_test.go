@@ -10,7 +10,7 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
-	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
 func TestAgentKernelRejectsProviderWithoutChatCompletion(t *testing.T) {
