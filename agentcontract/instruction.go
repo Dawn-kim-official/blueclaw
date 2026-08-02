@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 type InstructionSource struct {
 	Path      string `json:"path"`

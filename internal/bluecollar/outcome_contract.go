@@ -945,23 +945,6 @@ func attachmentSuffixesForRequestedOutputFormats(formats []string) []string {
 	return suffixes
 }
 
-func appendUniqueStrings(values []string, candidates ...string) []string {
-	nextValues := append([]string{}, values...)
-	seenValue := map[string]bool{}
-	for _, value := range nextValues {
-		seenValue[value] = true
-	}
-	for _, candidate := range candidates {
-		trimmedCandidate := strings.TrimSpace(candidate)
-		if trimmedCandidate == "" || seenValue[trimmedCandidate] {
-			continue
-		}
-		seenValue[trimmedCandidate] = true
-		nextValues = append(nextValues, trimmedCandidate)
-	}
-	return nextValues
-}
-
 func expectedResultIncludesType(outcomeContract OutcomeContract, resultType string) bool {
 	for _, expectedResult := range outcomeContract.ExpectedResults {
 		if strings.TrimSpace(expectedResult.Type) == resultType {

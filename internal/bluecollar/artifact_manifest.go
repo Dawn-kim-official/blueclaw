@@ -7,21 +7,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 const artifactManifestEntryLimit = 10
-
-type ArtifactManifestEntry struct {
-	FileHint       string    `json:"fileHint"`
-	TaskRunID      string    `json:"taskRunID"`
-	RelativePath   string    `json:"relativePath"`
-	ProducingTool  string    `json:"producingTool,omitempty"`
-	ProducingSkill string    `json:"producingSkill,omitempty"`
-	ModifiedAt     time.Time `json:"modifiedAt"`
-}
 
 type artifactManifestCandidate struct {
 	taskRunID      string

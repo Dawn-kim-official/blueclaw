@@ -43,19 +43,6 @@ type LLMContextInput struct {
 	ExtraSections         []string
 }
 
-type CompanyContext struct {
-	Name           string
-	BrandName      string
-	Slogan         string
-	Description    string
-	Representative string
-	Website        string
-}
-
-func (company CompanyContext) IsEmpty() bool {
-	return company.Name == "" && company.BrandName == "" && company.Description == ""
-}
-
 type WorkspaceContext struct {
 	RootPath            string
 	DefaultPath         string

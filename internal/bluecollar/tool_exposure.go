@@ -13,23 +13,6 @@ type toolExposureGroup struct {
 	ToolIDs []string
 }
 
-type droppedToolGroup struct {
-	Name      string   `json:"name"`
-	ToolIDs   []string `json:"toolIDs"`
-	IsPartial bool     `json:"isPartial"`
-}
-
-type ToolExposureEvent struct {
-	ValidSelectedToolIDs []string           `json:"validSelectedToolIDs,omitempty"`
-	SelectionReason      string             `json:"selectionReason,omitempty"`
-	SelectionSource      string             `json:"selectionSource,omitempty"`
-	UsedFallbackGroups   bool               `json:"usedFallbackGroups"`
-	ExposedToolIDs       []string           `json:"exposedToolIDs"`
-	SelectedSkillToolIDs []string           `json:"selectedSkillToolIDs,omitempty"`
-	PinnedGroupToolIDs   []string           `json:"pinnedGroupToolIDs,omitempty"`
-	DroppedGroups        []droppedToolGroup `json:"droppedGroups,omitempty"`
-}
-
 func toolSetForAgentTurnWithExposure(toolSet *toolcontract.ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*toolcontract.ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent

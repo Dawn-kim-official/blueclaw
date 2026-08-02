@@ -33,14 +33,6 @@ type FailureReport struct {
 	DiagnosticEventID   string   `json:"diagnosticEventID,omitempty"`
 }
 
-type FailureNotice struct {
-	Message           string `json:"message,omitempty"`
-	Source            string `json:"source,omitempty"`
-	Language          string `json:"language,omitempty"`
-	DiagnosticEventID string `json:"diagnosticEventID,omitempty"`
-	IsSendable        bool   `json:"isSendable,omitempty"`
-}
-
 type FailureNoticeGenerationStatus struct {
 	Source             string `json:"source"`
 	FirstInvalid       bool   `json:"firstInvalid"`
@@ -63,13 +55,6 @@ type IntakeReport struct {
 	OriginalRequest   string               `json:"originalRequest,omitempty"`
 	ResponseLanguage  string               `json:"responseLanguage,omitempty"`
 	DiagnosticEventID string               `json:"diagnosticEventID,omitempty"`
-}
-
-func (notice FailureNotice) SendableMessage() string {
-	if !notice.IsSendable {
-		return ""
-	}
-	return strings.TrimSpace(notice.Message)
 }
 
 func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string, stopReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, decision recoveryDecision) FailureReport {
