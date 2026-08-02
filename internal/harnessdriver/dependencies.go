@@ -1,4 +1,4 @@
-package agentharness
+package harnessdriver
 
 import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"

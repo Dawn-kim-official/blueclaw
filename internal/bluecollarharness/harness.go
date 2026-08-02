@@ -2,13 +2,13 @@ package bluecollarharness
 
 import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 )
 
-func New(dependencies agentharness.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
+func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 	agentKernel := bluecollar.NewAgentKernel(dependencies.TaskRunStore, dependencies.TaskStepStore)
 	agentKernel.UseTaskArtifactService(dependencies.TaskArtifactStore)
 	agentKernel.UseTurnOptions(deriveTurnOptions(dependencies.RuntimeConfiguration))
