@@ -55,8 +55,11 @@ const (
 	DefaultReactionEmojiName = "white_check_mark"
 
 	ApprovalSignalApprove ApprovalSignal = "approve"
-	ApprovalSignalReject  ApprovalSignal = "reject"
-	ApprovalSignalUnclear ApprovalSignal = "unclear"
+	// approve_task approves the whole family of work for the rest of this task, so
+	// the person is asked once instead of at every step of the same job.
+	ApprovalSignalApproveTask ApprovalSignal = "approve_task"
+	ApprovalSignalReject      ApprovalSignal = "reject"
+	ApprovalSignalUnclear     ApprovalSignal = "unclear"
 )
 
 var allowedReactionEmojiNames = reactionEmojiNames
@@ -493,7 +496,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	}
 	hasPendingConfirmation := strings.TrimSpace(request.PendingConfirmation.TaskRunID) != ""
 	decision.Approval = normalizeApprovalSignal(decision.Approval, hasPendingConfirmation)
-	if hasPendingConfirmation && decision.Approval != nil && *decision.Approval == ApprovalSignalApprove {
+	if hasPendingConfirmation && decision.Approval != nil && IsApprovingSignal(*decision.Approval) {
 		decision.Route = TurnRouteContinueTask
 	}
 	decision.Choices = normalizeChoiceSelections(decision.Choices, pendingChoiceContext(request))
@@ -744,7 +747,7 @@ func turnRouterSchema(request AgentRequest) string {
 	}
 	requiredProperties := []string{"route", "classification", "taskShape", "level", "estimatedMinutes", "requestedOutputFormats", "deliverableKind", "responseLanguage", "reason", "userFacingReply", "priorTaskReference"}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
-		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
+		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalApproveTask), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
 		requiredProperties = append(requiredProperties, "approval")
 	}
 	if pendingChoice := pendingChoiceContext(request); strings.TrimSpace(pendingChoice.TaskRunID) != "" {
@@ -992,7 +995,7 @@ func normalizeApprovalSignal(signal *ApprovalSignal, hasPendingConfirmation bool
 	}
 	normalizedSignal := ApprovalSignal(strings.TrimSpace(string(*signal)))
 	switch normalizedSignal {
-	case ApprovalSignalApprove, ApprovalSignalReject, ApprovalSignalUnclear:
+	case ApprovalSignalApprove, ApprovalSignalApproveTask, ApprovalSignalReject, ApprovalSignalUnclear:
 		return &normalizedSignal
 	default:
 		unclear := ApprovalSignalUnclear
@@ -1134,4 +1137,8 @@ func (intakeDecision IntakeDecision) Validate() error {
 		return errors.New("intake task level is invalid")
 	}
 	return nil
+}
+
+func IsApprovingSignal(signal ApprovalSignal) bool {
+	return signal == ApprovalSignalApprove || signal == ApprovalSignalApproveTask
 }

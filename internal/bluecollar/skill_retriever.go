@@ -15,7 +15,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
-const defaultEmbeddingModelName = "embedding.create"
+const defaultEmbeddingModelName = "embedding_create"
 const skillEmbeddingSearchTimeout = 15 * time.Second
 const skillSearchDocumentVersion = "skill-description-v2"
 const maxGeneratedSkillSearchQueries = 5

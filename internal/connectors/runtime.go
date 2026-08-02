@@ -22,6 +22,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/taskstate"
 )
 
 type IngressGate interface {
@@ -941,7 +942,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && *turnDecision.Approval == bluecollar.ApprovalSignalApprove
+	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && bluecollar.IsApprovingSignal(*turnDecision.Approval)
 	if hasPendingConfirmation {
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
 		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
@@ -1225,6 +1226,11 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	}
 	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
 		switch strings.TrimSpace(action) {
+		case "confirm_task":
+			approvalSignal := bluecollar.ApprovalSignalApproveTask
+			decision := bluecollar.TurnDecision{Route: bluecollar.TurnRouteContinueTask, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationBoundedTask, TaskShape: bluecollar.TaskShapeMaintenanceTask, TaskLevel: bluecollar.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm_task"}
+			connectorRuntime.grantApprovalScopeForTask(approval.TaskRun.TaskRunID)
+			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
 		case "confirm":
 			approvalSignal := bluecollar.ApprovalSignalApprove
 			decision := bluecollar.TurnDecision{Route: bluecollar.TurnRouteContinueTask, Approval: &approvalSignal, Classification: bluecollar.IntakeClassificationBoundedTask, TaskShape: bluecollar.TaskShapeMaintenanceTask, TaskLevel: bluecollar.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
@@ -1257,8 +1263,11 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		"reason":      decision.Reason,
 		"replyPrompt": strings.TrimSpace(event.Prompt),
 	}))
-	if decision.Approval != nil && *decision.Approval == bluecollar.ApprovalSignalApprove {
+	if decision.Approval != nil && bluecollar.IsApprovingSignal(*decision.Approval) {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
+	}
+	if decision.Approval != nil && *decision.Approval == bluecollar.ApprovalSignalApproveTask {
+		connectorRuntime.grantApprovalScopeForTask(approval.TaskRun.TaskRunID)
 	}
 	return approval, decision, true, nil
 }
@@ -3667,4 +3676,30 @@ func stringField(fields map[string]interface{}, name string) string {
 		return ""
 	}
 	return strings.TrimSpace(stringValue)
+}
+
+// The person chose to approve the whole family for this task, so the scope the
+// pending question named is recorded once and the agent stops asking for it.
+func (connectorRuntime *ConnectorRuntime) grantApprovalScopeForTask(taskRunID string) {
+	scope := pendingApprovalScope(connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
+	if scope == "" {
+		return
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "approval.scope_granted", marshalConnectorEventBody(map[string]string{"scope": scope}))
+}
+
+func pendingApprovalScope(taskEvents []taskstate.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		if taskEvents[index].Name != "ask.requested" {
+			continue
+		}
+		var body struct {
+			ApprovalScope string `json:"approvalScope"`
+		}
+		if json.Unmarshal([]byte(taskEvents[index].Body), &body) != nil {
+			continue
+		}
+		return strings.TrimSpace(body.ApprovalScope)
+	}
+	return ""
 }

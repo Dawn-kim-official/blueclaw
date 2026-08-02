@@ -65,6 +65,7 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 	if scope := approvalScopeForTool(request.ToolSet, heldCall.ToolName); scope != "" {
 		askBody["approvalScope"] = scope
 		askBody["sessionApprovable"] = true
+		askBody["actions"] = []string{"confirm", "confirm_task", "cancel"}
 	}
 	agentTurnRunner.appendEvent(taskRunID, "ask.requested", marshalEventBody(askBody))
 	agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusWaitingApproval, "approval "+heldCall.ToolName, confirmation)
@@ -98,9 +99,6 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	observation := agentTurnRunner.invokeTool(ctx, executionToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
-	if scope := approvalScopeForTool(request.ToolSet, heldCall.ToolName); scope != "" {
-		agentTurnRunner.appendEvent(taskRunID, "approval.scope_granted", marshalEventBody(map[string]string{"scope": scope}))
-	}
 	request.ApprovedHeldCallKey = ""
 	state.Request = request
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
