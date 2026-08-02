@@ -29,6 +29,7 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/agenttest"
+	"github.com/Dawn-kim-official/blueclaw/internal/agentharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
@@ -745,6 +746,12 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 	}
 }
 
+var virtualSessionAgentHarnessFactory agentharness.VirtualSessionFactory
+
+func UseAgentHarnessFactory(factory agentharness.VirtualSessionFactory) {
+	virtualSessionAgentHarnessFactory = factory
+}
+
 func RunVirtualSession(ctx context.Context, scenario VirtualSessionScenario) (VirtualSessionResult, error) {
 	harness, errorValue := NewVirtualSessionHarness(scenario)
 	if errorValue != nil {
@@ -754,6 +761,9 @@ func RunVirtualSession(ctx context.Context, scenario VirtualSessionScenario) (Vi
 }
 
 func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionHarness, error) {
+	if virtualSessionAgentHarnessFactory == nil {
+		return nil, errors.New("virtual session requires a registered agent harness factory")
+	}
 	if strings.TrimSpace(scenario.Name) == "" {
 		return nil, errors.New("scenario name is required")
 	}
@@ -796,28 +806,41 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	maxLanguageModel := observedVirtualLanguageModelOrDefault(scenario.MaxLanguageModel, languageModel, observationStore)
 	codingLanguageModel := observedVirtualLanguageModelOrDefault(scenario.CodingLanguageModel, languageModel, observationStore)
 	intakeLanguageModel := observedVirtualLanguageModelOrDefault(scenario.IntakeLanguageModel, languageModel, observationStore)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
-	agentKernel.UseTaskArtifactService(taskArtifactService)
-	agentKernel.UseLanguageModelProvider(lowLanguageModel)
-	agentKernel.UseTaskTierLanguageModels(maxLanguageModel, xHighLanguageModel, highLanguageModel, mediumLanguageModel, xLowLanguageModel, codingLanguageModel)
 	if scenario.CodingTierVisionFallback && scenario.CodingLanguageModel == nil {
-		codingTaskLanguageModel := llm.VisionFallbackProvider{
+		codingLanguageModel = llm.VisionFallbackProvider{
 			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
 			VisionModel:   languageModel,
 		}
-		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, codingTaskLanguageModel)
+		xLowLanguageModel = languageModel
+		mediumLanguageModel = languageModel
+		highLanguageModel = languageModel
+		xHighLanguageModel = languageModel
+		maxLanguageModel = languageModel
 	}
-	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
-	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(scenario.EmbeddingProvider, "")
-	skillRetriever.EmbeddingModel = scenario.EmbeddingModel
-	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
-	agentKernel.UseSkillRetriever(skillRetriever)
+	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(agentharness.VirtualSessionDependencies{
+		TaskRunStore:      taskRunService,
+		TaskStepStore:     taskStepService,
+		TaskArtifactStore: taskArtifactService,
+		TaskTierLanguageModels: agentharness.TaskTierLanguageModels{
+			Low:    lowLanguageModel,
+			XLow:   xLowLanguageModel,
+			Medium: mediumLanguageModel,
+			High:   highLanguageModel,
+			XHigh:  xHighLanguageModel,
+			Max:    maxLanguageModel,
+			Coding: codingLanguageModel,
+		},
+		IntakeLanguageModelProvider: intakeLanguageModel,
+		IntakeOptions:               agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow},
+		ScenarioTurnOptions:         scenario.TurnOptions,
+		InstructionBundleLoader:     instructionBundleLoader,
+		EmbeddingProvider:           scenario.EmbeddingProvider,
+		EmbeddingModelName:          scenario.EmbeddingModel,
+	})
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
-	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	runtime := connectors.NewConnectorRuntime(identityService, agentHarness, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	adapter := &virtualAdapter{workspacePath: workspacePath}
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")
@@ -857,9 +880,9 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		capabilityClient,
 		skillRetriever,
 		instructionBundleLoader,
-		agentKernel,
+		agentHarness,
 	)
-	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentHarness, taskRunService, toolCatalogBuilder)
 	virtualTaskLauncher.UseRequesterEmailResolver(identityService)
 	runtime.UseTaskLauncher(virtualTaskLauncher)
 
@@ -885,32 +908,6 @@ func observedVirtualLanguageModelOrDefault(provider llm.LanguageModelProvider, d
 		return defaultProvider
 	}
 	return newVirtualObservedLanguageModelWithStore(provider, store)
-}
-
-func virtualTurnOptions(scenarioOptions agentcontract.TurnOptions) agentcontract.TurnOptions {
-	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(scenarioOptions.TaskLevel)
-	turnOptions := agentcontract.TurnOptions{
-		TaskLevel:         taskLevelProfile.TaskLevel,
-		MaxIterationCount: taskLevelProfile.MaxIterationCount,
-		MaxToolCallCount:  taskLevelProfile.MaxToolCallCount,
-		MaxElapsedSecond:  int(taskLevelProfile.Duration.Seconds()),
-	}
-	if scenarioOptions.MaxIterationCount > 0 {
-		turnOptions.MaxIterationCount = scenarioOptions.MaxIterationCount
-	}
-	if scenarioOptions.MaxToolCallCount > 0 {
-		turnOptions.MaxToolCallCount = scenarioOptions.MaxToolCallCount
-	}
-	if scenarioOptions.MaxElapsedSecond > 0 {
-		turnOptions.MaxElapsedSecond = scenarioOptions.MaxElapsedSecond
-	}
-	if scenarioOptions.RecoveryAttemptLimit != 0 {
-		turnOptions.RecoveryAttemptLimit = scenarioOptions.RecoveryAttemptLimit
-	}
-	if scenarioOptions.RecoveryBudget != (agentcontract.RecoveryBudget{}) {
-		turnOptions.RecoveryBudget = scenarioOptions.RecoveryBudget
-	}
-	return turnOptions
 }
 
 func virtualInstructionBundleLoader(baseSkillInstructions []agentcontract.SkillInstruction, workspacePath string) func() agentcontract.InstructionBundle {
@@ -951,7 +948,7 @@ func virtualToolCatalogBuilder(
 	capabilityClient capability.Client,
 	skillRetriever agentcontract.SkillRetriever,
 	instructionBundleLoader func() agentcontract.InstructionBundle,
-	agentKernel *bluecollar.AgentKernel,
+	agentHarness agentcontract.Harness,
 ) *agentruntime.ToolCatalogBuilder {
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, allowedToolsOrDefault(scenario.AllowedTools))
@@ -964,7 +961,7 @@ func virtualToolCatalogBuilder(
 	toolCatalogBuilder.UseMemoryUpdateQueue(virtualMemoryUpdateQueue{memoryService: memoryService})
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseSkillChangeHandler(func(contextValue context.Context) {
-		agentKernel.RefreshSkillIndex(contextValue, instructionBundleLoader())
+		agentHarness.RefreshSkillIndex(contextValue, instructionBundleLoader())
 	})
 	if len(scenario.CapabilityToolNames) > 0 || len(scenario.CapabilityToolDescriptors) > 0 {
 		toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, virtualCapabilityToolDescriptors(scenario))

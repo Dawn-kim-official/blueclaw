@@ -32,3 +32,18 @@ type Dependencies struct {
 }
 
 type Factory func(Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever)
+
+type VirtualSessionDependencies struct {
+	TaskRunStore                taskstate.TaskRunStore
+	TaskStepStore               taskstate.TaskStepStore
+	TaskArtifactStore           taskstate.TaskArtifactStore
+	TaskTierLanguageModels      TaskTierLanguageModels
+	IntakeLanguageModelProvider model.LanguageModelProvider
+	IntakeOptions               agentcontract.IntakeOptions
+	ScenarioTurnOptions         agentcontract.TurnOptions
+	InstructionBundleLoader     func() agentcontract.InstructionBundle
+	EmbeddingProvider           model.EmbeddingProvider
+	EmbeddingModelName          string
+}
+
+type VirtualSessionFactory func(VirtualSessionDependencies) (agentcontract.Harness, agentcontract.SkillRetriever)

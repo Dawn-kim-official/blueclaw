@@ -17,9 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
@@ -76,24 +74,6 @@ func TestExpectedEventCountRejectsRepeatedReadResults(t *testing.T) {
 	assertions := informationalAssertionResults(virtualTurn, turnResult)
 	if len(assertions) != 1 || assertions[0].Satisfied {
 		t.Fatalf("expected the duplicate read to remain an informational efficiency mismatch: %+v", assertions)
-	}
-}
-
-func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
-	defaultOptions := virtualTurnOptions(agentcontract.TurnOptions{})
-	lowProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelLow)
-	if defaultOptions.TaskLevel != lowProfile.TaskLevel ||
-		defaultOptions.MaxIterationCount != lowProfile.MaxIterationCount ||
-		defaultOptions.MaxToolCallCount != lowProfile.MaxToolCallCount ||
-		defaultOptions.MaxElapsedSecond != int(lowProfile.Duration.Seconds()) {
-		t.Fatalf("expected production low defaults, got %+v", defaultOptions)
-	}
-
-	xHighOptions := virtualTurnOptions(agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
-	xHighProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
-	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
-		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
-		t.Fatalf("expected xhigh task budget, got %+v", xHighOptions)
 	}
 }
 
