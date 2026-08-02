@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
@@ -83,6 +82,7 @@ type TaskLaunchRequest struct {
 	MemoryNamespaces           []memory.MemoryNamespace
 	AccessibleConversationIDs  []string
 	CheckpointSender           agentcontract.AgentCheckpointSender
+	ArtifactManifest           []agentcontract.ArtifactManifestEntry
 }
 
 type TaskLaunchResult struct {
@@ -171,7 +171,8 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	})
 	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
 	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
-	request.VisibleContext = taskLauncher.visibleContextWithArtifactManifest(request, normalizedProfileName)
+	request.ArtifactManifest = taskLauncher.conversationArtifactManifest(request, normalizedProfileName)
+	request.VisibleContext = taskLauncher.visibleContextWithArtifactManifest(request.VisibleContext, request.ArtifactManifest)
 	execution := &taskLaunchExecution{
 		Launcher:              taskLauncher,
 		Request:               request,
@@ -386,6 +387,7 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 
 func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *toolcontract.ToolSet, conversationScope ConversationResourceScope) agentcontract.AgentTurnRequest {
 	return agentcontract.AgentTurnRequest{
+		ArtifactManifest:           request.ArtifactManifest,
 		RequesterPersonID:          request.RequesterPersonID,
 		RequesterEmail:             request.RequesterEmail,
 		RequesterName:              request.RequesterName,
@@ -433,26 +435,29 @@ func conversationArtifactStore(taskArtifactService *task.TaskArtifactService) ta
 	return taskArtifactService
 }
 
-func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(request TaskLaunchRequest, profileName string) agentcontract.VisibleContext {
+func (taskLauncher *TaskLauncher) conversationArtifactManifest(request TaskLaunchRequest, profileName string) []agentcontract.ArtifactManifestEntry {
 	if taskLauncher.toolCatalogBuilder.taskRunService == nil {
-		return request.VisibleContext
+		return nil
 	}
 	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), taskLauncher.toolCatalogRequestForLaunch(request, profileName))
-	manifest := bluecollar.BuildConversationArtifactManifest(agentcontract.AgentTurnRequest{
+	return buildConversationArtifactManifest(agentcontract.AgentTurnRequest{
 		ConversationID:       request.ConversationID,
 		ExistingTaskRunID:    request.ExistingTaskRunID,
 		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath: conversationScope.DefaultDirectoryPath,
 	}, taskLauncher.toolCatalogBuilder.taskRunService, conversationArtifactStore(taskLauncher.toolCatalogBuilder.taskArtifactService))
+}
+
+func (taskLauncher *TaskLauncher) visibleContextWithArtifactManifest(visibleContext agentcontract.VisibleContext, manifest []agentcontract.ArtifactManifestEntry) agentcontract.VisibleContext {
 	for _, artifact := range manifest {
-		request.VisibleContext.Materials = append(request.VisibleContext.Materials, agentcontract.VisibleContextMaterial{
+		visibleContext.Materials = append(visibleContext.Materials, agentcontract.VisibleContextMaterial{
 			FileHint:    artifact.FileHint,
 			Filename:    filepath.Base(artifact.RelativePath),
 			Path:        filepath.ToSlash(filepath.Join(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), artifact.RelativePath)),
 			IsAvailable: true,
 		})
 	}
-	return request.VisibleContext
+	return visibleContext
 }
 
 func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string, request TaskLaunchRequest) {

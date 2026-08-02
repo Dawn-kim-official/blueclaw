@@ -1,4 +1,4 @@
-package bluecollar
+package agentruntime
 
 import (
 	"os"
@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
@@ -28,7 +29,7 @@ func TestArtifactManifestBoundsNewestFirstAndFiltersConversation(t *testing.T) {
 	otherTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-2", "make other deck")
 	taskRunService.AppendTaskEvent(otherTaskRun.TaskRunID, "tool.file.promote.result", `{"path":"artifacts/other/other.pptx"}`)
 
-	manifest := buildConversationArtifactManifest(AgentTurnRequest{
+	manifest := buildConversationArtifactManifest(agentcontract.AgentTurnRequest{
 		ConversationID:       "conversation-1",
 		WorkspaceRootPath:    workspaceRootPath,
 		WorkspaceDefaultPath: workspaceDefaultPath,
@@ -63,7 +64,7 @@ func TestArtifactManifestIncludesTaskArtifactLedgerPath(t *testing.T) {
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "make deck")
 	taskArtifactService.AddTaskArtifactBody(taskRun.TaskRunID, "tool.file.promote.result", `{"path":"artifacts/ledger/ledger.pptx"}`)
 
-	manifest := buildConversationArtifactManifest(AgentTurnRequest{
+	manifest := buildConversationArtifactManifest(agentcontract.AgentTurnRequest{
 		ConversationID:       "conversation-1",
 		WorkspaceRootPath:    workspaceRootPath,
 		WorkspaceDefaultPath: workspaceDefaultPath,
@@ -77,22 +78,6 @@ func TestArtifactManifestIncludesTaskArtifactLedgerPath(t *testing.T) {
 	}
 }
 
-func TestPromptAssemblerIncludesArtifactManifest(t *testing.T) {
-	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
-		Prompt: "change the title",
-		ArtifactManifest: []ArtifactManifestEntry{{
-			RelativePath:  "private/people/person-1/artifacts/deck/deck.pptx",
-			ProducingTool: "file_deliver",
-			ModifiedAt:    time.Date(2026, time.June, 12, 3, 0, 0, 0, time.UTC),
-		}},
-	}, nil, "base", "")
-	body := joinMessageContent(messages)
-
-	if !strings.Contains(body, "Previously delivered artifacts in this conversation") || !strings.Contains(body, "private/people/person-1/artifacts/deck/deck.pptx") {
-		t.Fatalf("expected artifact manifest context, got %s", body)
-	}
-}
-
 func createManifestTestArtifact(t *testing.T, workspaceDefaultPath string, slug string, modifiedAt time.Time) string {
 	t.Helper()
 	artifactDirectoryPath := filepath.Join(workspaceDefaultPath, "artifacts", slug)
@@ -100,7 +85,9 @@ func createManifestTestArtifact(t *testing.T, workspaceDefaultPath string, slug 
 		t.Fatalf("failed to create artifact directory: %v", errorValue)
 	}
 	artifactPath := filepath.Join(artifactDirectoryPath, slug+".pptx")
-	writeAgentTestFile(t, artifactPath, "pptx")
+	if errorValue := os.WriteFile(artifactPath, []byte("pptx"), 0600); errorValue != nil {
+		t.Fatalf("failed to write artifact: %v", errorValue)
+	}
 	if errorValue := os.Chtimes(artifactPath, modifiedAt, modifiedAt); errorValue != nil {
 		t.Fatalf("failed to change artifact time: %v", errorValue)
 	}

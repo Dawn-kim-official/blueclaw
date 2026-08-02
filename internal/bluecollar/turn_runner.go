@@ -1131,9 +1131,6 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) []model.Message {
-	if len(request.ArtifactManifest) == 0 {
-		request.ArtifactManifest = buildConversationArtifactManifest(request, agentTurnRunner.taskRunService, agentTurnRunner.taskArtifactService)
-	}
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
 		observations,
