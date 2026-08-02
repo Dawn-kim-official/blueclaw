@@ -8,6 +8,7 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessstub"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -16,15 +17,13 @@ import (
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
-	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
+	harness := harnessstub.New(taskRunService)
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
 	}, nil)
 	provisioner := &recordingRequesterWorkspaceProvisioner{}
-	taskLauncher := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseRequesterWorkspaceProvisioner(provisioner)
 	runAt := time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC)
 
