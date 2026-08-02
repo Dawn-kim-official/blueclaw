@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 
 const memorySummaryContentLimit = 240
 
-func buildMemoryContext(memoryFacts []MemoryFact) string {
+func BuildMemoryContext(memoryFacts []MemoryFact) string {
 	sections := []string{}
 	userMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeUser)
 	circleMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, MemoryScopeCircle)

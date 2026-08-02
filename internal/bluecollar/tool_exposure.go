@@ -309,18 +309,6 @@ func outcomeContractJSON(contract OutcomeContract) string {
 	return string(document)
 }
 
-func visibleContextMaterialLooksLikeImage(material VisibleContextMaterial) bool {
-	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
-	if strings.HasPrefix(contentType, "image/") {
-		return true
-	}
-	filename := strings.ToLower(strings.TrimSpace(material.Filename))
-	return strings.HasSuffix(filename, ".png") ||
-		strings.HasSuffix(filename, ".jpg") ||
-		strings.HasSuffix(filename, ".jpeg") ||
-		strings.HasSuffix(filename, ".gif") ||
-		strings.HasSuffix(filename, ".webp")
-}
 
 func firstPendingRequiredToolName(requiredNextToolNames []string, observations []turnObservation) string {
 	nextToolIndex := 0

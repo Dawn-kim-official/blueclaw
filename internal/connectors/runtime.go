@@ -353,6 +353,7 @@ type ConnectorRuntime struct {
 	identityService      *identity.IdentityService
 	harness              agentcontract.Harness
 	intakeClassifier     IntakeClassifier
+	replyGenerator       ReplyGenerator
 	taskRunService       *taskstate.TaskRunService
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
@@ -528,6 +529,15 @@ func connectorRuntimeDefaultAllowedToolNames() []string {
 
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string, defaultAllowedToolNames []string) {
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(allowedToolNamesByProfile, defaultAllowedToolNames)
+}
+
+type ReplyGenerator interface {
+	GenerateReply(context.Context, string) (string, error)
+	GenerateReplyWithContext(context.Context, string, agentcontract.VisibleContext, []agentcontract.MemoryFact) (string, error)
+}
+
+func (connectorRuntime *ConnectorRuntime) UseReplyGenerator(replyGenerator ReplyGenerator) {
+	connectorRuntime.replyGenerator = replyGenerator
 }
 
 type IntakeClassifier interface {
@@ -2228,7 +2238,7 @@ func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context
 		"messageID": event.MessageID,
 		"reason":    decision.Reason,
 	}))
-	reply, errorValue := connectorRuntime.harness.GenerateReply(ctx, rejectedConfirmationReplyPrompt(event.Prompt, approval.ResponseLanguage))
+	reply, errorValue := connectorRuntime.replyGenerator.GenerateReply(ctx, rejectedConfirmationReplyPrompt(event.Prompt, approval.ResponseLanguage))
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".confirmation.reject_reply_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_rejected"}, nil
@@ -2244,7 +2254,7 @@ func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context
 
 func (connectorRuntime *ConnectorRuntime) handlePendingConfirmationQuestion(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agentcontract.TurnDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
 	connectorRuntime.cancelPendingConfirmation(event, approval, decision)
-	reply, errorValue := connectorRuntime.harness.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), nil)
+	reply, errorValue := connectorRuntime.replyGenerator.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), nil)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".confirmation.question_reply_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_question"}, nil

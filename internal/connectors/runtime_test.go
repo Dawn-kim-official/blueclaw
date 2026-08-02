@@ -26,6 +26,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/reply"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -1188,6 +1189,7 @@ func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.
 	connectorRuntimeHarness := harnesstest.New(taskRunService)
 	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, nil)
 	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
+	connectorRuntime.UseReplyGenerator(connectorRuntimeHarness)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "Sender@Example.com"
 
@@ -1209,6 +1211,7 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 	connectorRuntimeHarness := harnesstest.New(taskRunService)
 	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, nil)
 	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
+	connectorRuntime.UseReplyGenerator(connectorRuntimeHarness)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "sender@example.com"
 
@@ -4148,7 +4151,7 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	t.Helper()
 
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), taskRunService)
+	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), taskRunService)
 }
 
 func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapter, *harnesstest.Harness) {
@@ -4156,15 +4159,16 @@ func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapt
 
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, taskRunService)
 	return connectorRuntime, adapter, harness
 }
 
-func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, intakeClassifier IntakeClassifier, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
+func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, intakeClassifier IntakeClassifier, replyGenerator ReplyGenerator, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
 	connectorRuntime := NewConnectorRuntime(testConnectorIdentityService(), harness, taskRunService, nil)
 	connectorRuntime.UseIntakeClassifier(intakeClassifier)
+	connectorRuntime.UseReplyGenerator(replyGenerator)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
@@ -4218,7 +4222,7 @@ func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.Language
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), taskRunService)
 	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
 	return connectorRuntime, adapter, taskRunService, taskWaitRepository
 }
@@ -4291,7 +4295,7 @@ func newStubbedRepositoryBackedTestConnectorRuntime(t *testing.T, taskRunReposit
 	taskRunService.UseRepository(taskRunRepository)
 
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, taskRunService)
 	return connectorRuntime, adapter, taskEventService, harness
 }
 
