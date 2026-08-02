@@ -18,7 +18,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, slog.Default())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, slog.Default())
 
 	var sentReply OutboundReply
 	sendReply := func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
@@ -49,6 +49,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 	connectorRuntime := NewConnectorRuntime(
 		identity.NewIdentityService(policy.PolicyProjection{}),
 		bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService()),
+		taskRunService,
 		slog.Default(),
 	)
 	message := "The failure details were read from file:///tmp/report.txt."

@@ -26,7 +26,8 @@ func (store staticGraphMemoryStore) SearchFacts(context.Context, memory.MemorySe
 
 func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
@@ -47,7 +48,7 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -74,7 +75,8 @@ func TestTaskLauncherInjectsGraphMemoryAtLaunch(t *testing.T) {
 
 func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The user prefers terse release notes."); errorValue != nil {
@@ -89,7 +91,7 @@ func TestTaskLauncherKeepsPinnedMemoryWhenGraphSearchFails(t *testing.T) {
 		"default": {"memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-2",
 		RequesterPersonID: "person-1",

@@ -696,7 +696,7 @@ func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCo
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask_confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder))
+	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder))
 }
 
 func waitingTaskSchedule(runAt time.Time) task.TaskSchedule {

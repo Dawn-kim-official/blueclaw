@@ -816,7 +816,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel.UseSkillRetriever(skillRetriever)
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
-	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	adapter := &virtualAdapter{workspacePath: workspacePath}
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")
@@ -858,7 +858,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		instructionBundleLoader,
 		agentKernel,
 	)
-	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
 	virtualTaskLauncher.UseRequesterEmailResolver(identityService)
 	runtime.UseTaskLauncher(virtualTaskLauncher)
 

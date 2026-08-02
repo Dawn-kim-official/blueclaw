@@ -22,9 +22,10 @@ func (languageModel integrationLanguageModel) GenerateStructuredResponse(context
 
 func newIntegrationConnectorRuntime(identityService *identity.IdentityService) *connectors.ConnectorRuntime {
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(integrationLanguageModel{})
 
-	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	return connectorRuntime
 }

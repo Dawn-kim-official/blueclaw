@@ -102,8 +102,8 @@ func TestConnectorRuntimeSuppressesStaleRetryWhileOriginalTaskIsRunning(t *testi
 	if duplicateResult.TaskRunID == "" {
 		t.Fatal("expected duplicate result to point at original task")
 	}
-	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
-		t.Fatalf("expected one task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	if len(connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected one task run, got %+v", connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1"))
 	}
 	if !connectorTaskEventsContain(connectorRuntime, duplicateResult.TaskRunID, "connector.duplicate_source_suppressed", event.MessageID) {
 		t.Fatal("expected duplicate suppression event")
@@ -308,8 +308,8 @@ func TestConnectorRuntimeReplyTargetWaitResolvesOlderWaitingTask(t *testing.T) {
 	if result.TaskRunID != olderTaskRun.TaskRunID {
 		t.Fatalf("expected older task run %s, got %+v", olderTaskRun.TaskRunID, result)
 	}
-	olderTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(olderTaskRun.TaskRunID)
-	newerTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(newerTaskRun.TaskRunID)
+	olderTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(olderTaskRun.TaskRunID)
+	newerTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(newerTaskRun.TaskRunID)
 	if olderTaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected older task completed, got %+v", olderTaskRun)
 	}
@@ -351,8 +351,8 @@ func TestConnectorRuntimeAmbiguousWaitDoesNotSelectNewest(t *testing.T) {
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].taskRunID != result.TaskRunID {
 		t.Fatalf("expected disambiguation reply, got %+v result=%+v", adapter.sentReplies, result)
 	}
-	olderTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(olderTaskRun.TaskRunID)
-	newerTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(newerTaskRun.TaskRunID)
+	olderTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(olderTaskRun.TaskRunID)
+	newerTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(newerTaskRun.TaskRunID)
 	if olderTaskRun.Status != task.TaskStatusWaitingUserInput || newerTaskRun.Status != task.TaskStatusWaitingUserInput {
 		t.Fatalf("ambiguous reply must not continue waits, older=%s newer=%s", olderTaskRun.Status, newerTaskRun.Status)
 	}
@@ -386,7 +386,7 @@ func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	if result.TaskRunID != waitingTaskRun.TaskRunID {
 		t.Fatalf("expected waiting task %s, got %+v", waitingTaskRun.TaskRunID, result)
 	}
-	waitingTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(waitingTaskRun.TaskRunID)
+	waitingTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(waitingTaskRun.TaskRunID)
 	if waitingTaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected waiting task completed, got %+v", waitingTaskRun)
 	}
@@ -461,7 +461,7 @@ func TestConnectorRuntimePendingInputStartTaskSupersedesWaitingTask(t *testing.T
 	if result.TaskRunID == "" || result.TaskRunID == waitingTaskRun.TaskRunID {
 		t.Fatalf("expected new task result, got %+v", result)
 	}
-	waitingTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(waitingTaskRun.TaskRunID)
+	waitingTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(waitingTaskRun.TaskRunID)
 	if waitingTaskRun.Status != task.TaskStatusCancelled || waitingTaskRun.FailureReason != "superseded_by_new_message" {
 		t.Fatalf("expected waiting task superseded, got %+v", waitingTaskRun)
 	}
@@ -558,7 +558,7 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 	if result.Reason != "task_control" {
 		t.Fatalf("reason = %q, want task_control", result.Reason)
 	}
-	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRun.TaskRunID)
+	cancelledTaskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
 		t.Fatalf("expected cancelled task run, got found=%v run=%+v", isFound, cancelledTaskRun)
 	}
@@ -607,9 +607,9 @@ func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) 
 	if result.Reason != "task_control" {
 		t.Fatalf("reason = %q, want task_control", result.Reason)
 	}
-	cancelledTaskRun, _ := connectorRuntime.agentKernel.FindTaskRun(threadTaskRun.TaskRunID)
-	topLevelTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(topLevelTaskRun.TaskRunID)
-	otherThreadTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(otherThreadTaskRun.TaskRunID)
+	cancelledTaskRun, _ := connectorRuntime.taskRunService.FindTaskRun(threadTaskRun.TaskRunID)
+	topLevelTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(topLevelTaskRun.TaskRunID)
+	otherThreadTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(otherThreadTaskRun.TaskRunID)
 	if cancelledTaskRun.Status != task.TaskStatusCancelled {
 		t.Fatalf("expected thread task cancelled, got %+v", cancelledTaskRun)
 	}
@@ -658,9 +658,9 @@ func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *
 	if result.Reason != "task_control" {
 		t.Fatalf("reason = %q, want task_control", result.Reason)
 	}
-	oldRootTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(oldRootTaskRun.TaskRunID)
-	latestRootTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(latestRootTaskRun.TaskRunID)
-	threadTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(threadTaskRun.TaskRunID)
+	oldRootTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(oldRootTaskRun.TaskRunID)
+	latestRootTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(latestRootTaskRun.TaskRunID)
+	threadTaskRun, _ = connectorRuntime.taskRunService.FindTaskRun(threadTaskRun.TaskRunID)
 	if latestRootTaskRun.Status != task.TaskStatusCancelled {
 		t.Fatalf("expected latest root task cancelled, got %+v", latestRootTaskRun)
 	}
@@ -701,8 +701,8 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	if result.Reason != "busy_status" || result.TaskRunID != activeTaskRun.TaskRunID {
 		t.Fatalf("expected busy status for active task, got %+v", result)
 	}
-	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
-		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	if len(connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1"))
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "지금 처리 중입니다." {
 		t.Fatalf("expected status reply, got %+v", adapter.sentReplies)
@@ -746,7 +746,7 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 	if result.TaskRunID == "" || result.TaskRunID == orphanedTaskRun.TaskRunID {
 		t.Fatalf("expected new task after inactive task interruption, got %+v", result)
 	}
-	interruptedTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(orphanedTaskRun.TaskRunID)
+	interruptedTaskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(orphanedTaskRun.TaskRunID)
 	if !isFound || interruptedTaskRun.Status != task.TaskStatusInterrupted {
 		t.Fatalf("expected inactive task interrupted, got found=%v task=%+v", isFound, interruptedTaskRun)
 	}
@@ -794,8 +794,8 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 	if result.Reason != "busy_steer" || result.TaskRunID != activeTaskRun.TaskRunID {
 		t.Fatalf("expected busy steer for active task, got %+v", result)
 	}
-	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
-		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	if len(connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1"))
 	}
 	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.steer.requested", "PDF 대신 HTML") {
 		t.Fatal("expected steer request event")
@@ -831,15 +831,15 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected busy cancel event to process: %v", errorValue)
 	}
-	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	cancelledTaskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(activeTaskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
 		t.Fatalf("expected active task cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
 	}
 	if result.Reason != "busy_cancel" || result.TaskRunID != activeTaskRun.TaskRunID {
 		t.Fatalf("expected busy cancel result, got %+v", result)
 	}
-	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
-		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	if len(connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1"))
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "진행 중인 작업을 중단했습니다." {
 		t.Fatalf("expected cancel reply, got %+v", adapter.sentReplies)
@@ -883,8 +883,8 @@ func TestConnectorRuntimeFollowUpReceivedBeforeTaskFinishedDoesNotCreateNewTask(
 	if result.Reason != "busy_finished_followup" || result.TaskRunID != finishedTaskRun.TaskRunID {
 		t.Fatalf("expected finished task follow-up result, got %+v", result)
 	}
-	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
-		t.Fatalf("expected no new task run to be created, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	if len(connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run to be created, got %+v", connectorRuntime.taskRunService.ListTaskRunByPersonID("person-1"))
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?" {
 		t.Fatalf("expected finished task follow-up reply, got %+v", adapter.sentReplies)
@@ -950,7 +950,7 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected busy replace event to process: %v", errorValue)
 	}
-	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	cancelledTaskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(activeTaskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
 		t.Fatalf("expected active task cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
 	}
@@ -990,7 +990,7 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 		t.Fatalf("expected independent question to process: %v", errorValue)
 	}
 
-	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	cancelledTaskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(activeTaskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled || cancelledTaskRun.FailureReason != "superseded_by_new_message" {
 		t.Fatalf("expected active task superseded, got found=%v task=%+v", isFound, cancelledTaskRun)
 	}
@@ -1277,8 +1277,9 @@ func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.
 		},
 	})
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "Sender@Example.com"
 
@@ -1297,8 +1298,9 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 		},
 	})
 	taskEventService := task.NewTaskEventService()
-	agentKernel := bluecollar.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	event := testInboundEvent("message-1")
 	event.Context.Sender.Email = "sender@example.com"
 
@@ -1734,7 +1736,7 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 
 func TestConnectorRuntimeSendsAskUserNoticeForTargetUser(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
-	connectorRuntime.agentKernel.AppendTaskEvent("task-1", "ask.requested", `{"kind":"input","question":"제목은 어떻게 할까요?"}`)
+	connectorRuntime.taskRunService.AppendTaskEvent("task-1", "ask.requested", `{"kind":"input","question":"제목은 어떻게 할까요?"}`)
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.SenderID = "requester-1"
@@ -2092,7 +2094,7 @@ func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testin
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2124,7 +2126,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 	if errorValue != nil {
@@ -3055,7 +3057,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 		t.Fatalf("expected first event to process: %v", errorValue)
 	}
 	if !connectorTaskEventsContain(connectorRuntime, firstResult.TaskRunID, "agent.intake", `"estimatedMinutes":7`) {
-		t.Fatalf("expected persisted intake with nonzero estimated minutes, events: %+v", connectorRuntime.agentKernel.ListTaskEvent(firstResult.TaskRunID))
+		t.Fatalf("expected persisted intake with nonzero estimated minutes, events: %+v", connectorRuntime.taskRunService.ListTaskEvent(firstResult.TaskRunID))
 	}
 
 	secondEvent := testInboundEvent("message-2")
@@ -4205,7 +4207,7 @@ func connectorContainsSchemaName(requests []llm.StructuredResponseRequest, schem
 }
 
 func connectorTaskEventsContain(connectorRuntime *ConnectorRuntime, taskRunID string, name string, bodyFragment string) bool {
-	for _, taskEvent := range connectorRuntime.agentKernel.ListTaskEvent(taskRunID) {
+	for _, taskEvent := range connectorRuntime.taskRunService.ListTaskEvent(taskRunID) {
 		if taskEvent.Name == name && strings.Contains(taskEvent.Body, bodyFragment) {
 			return true
 		}
@@ -4269,7 +4271,7 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
@@ -4293,7 +4295,7 @@ func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.Language
 	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
@@ -4378,7 +4380,7 @@ func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.Lan
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
 
-	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)

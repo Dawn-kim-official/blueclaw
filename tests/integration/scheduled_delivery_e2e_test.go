@@ -80,7 +80,7 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
-	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	connectorRuntime.RegisterAdapter(adapter)
 	connectorRuntime.UseEventRepository(repository)
 	return connectorRuntime
@@ -97,7 +97,7 @@ func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repos
 	return scheduler.TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     repository,
-		TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)),
+		TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)),
 		PersonAccessResolver:   scheduledDeliveryAccessResolver{},
 		WorkspaceID:            "workspace-1",
 		WorkerID:               "test-worker",

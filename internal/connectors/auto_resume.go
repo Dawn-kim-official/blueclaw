@@ -25,7 +25,7 @@ type interruptedTaskLaunchContext struct {
 }
 
 func (connectorRuntime *ConnectorRuntime) CanResumeInterruptedTaskRun(taskRun task.TaskRun) bool {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 	launchContext, isFound := interruptedTaskLaunchContextFromEvents(taskRun, taskEvents)
 	if !isFound {
 		return false
@@ -35,7 +35,7 @@ func (connectorRuntime *ConnectorRuntime) CanResumeInterruptedTaskRun(taskRun ta
 }
 
 func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.Context, taskRun task.TaskRun) (ConnectorRuntimeResult, error) {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 	launchContext, isFound := interruptedTaskLaunchContextFromEvents(taskRun, taskEvents)
 	if !isFound {
 		return ConnectorRuntimeResult{}, errors.New("interrupted task launch context is missing")
@@ -61,7 +61,7 @@ func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.C
 }
 
 func (connectorRuntime *ConnectorRuntime) FailUnresumedInterruptedTaskRun(ctx context.Context, taskRun task.TaskRun, reason string) bool {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 	launchContext, hasLaunchContext := interruptedTaskLaunchContextFromEvents(taskRun, taskEvents)
 	if !hasLaunchContext {
 		connectorRuntime.failUnresumedTaskWithoutReplyChannel(ctx, taskRun, reason, "launch_context_missing")
@@ -86,7 +86,7 @@ func (connectorRuntime *ConnectorRuntime) FailUnresumedInterruptedTaskRun(ctx co
 }
 
 func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(ctx context.Context, taskRun task.TaskRun, reason string, detail string) {
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_reply_unavailable", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_reply_unavailable", marshalConnectorEventBody(map[string]string{
 		"reason": reason,
 		"detail": detail,
 	}))
@@ -111,7 +111,7 @@ func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFai
 		Prompt:                 taskRun.Prompt,
 		ResponseLanguage:       event.Context.ResponseLanguage,
 		VisibleContext:         event.Context.ToAgentVisibleContext(),
-		ActiveGoal:             interruptedTaskActiveGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID), autoResumeTaskProfile(taskRun.TaskRunID).guidanceNote),
+		ActiveGoal:             interruptedTaskActiveGoal(taskRun, connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID), autoResumeTaskProfile(taskRun.TaskRunID).guidanceNote),
 	}, "launch", "auto_resume", errorValue)
 	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, turnResult, "", sendReply)
 }

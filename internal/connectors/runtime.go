@@ -352,6 +352,7 @@ const connectorReplyKindPermissionNotice = "permission_notice"
 type ConnectorRuntime struct {
 	identityService      *identity.IdentityService
 	agentKernel          *bluecollar.AgentKernel
+	taskRunService       *taskstate.TaskRunService
 	taskLauncher         *agentruntime.TaskLauncher
 	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
 	memoryService        *memory.MemoryService
@@ -406,7 +407,7 @@ type inboundTaskWaitResolution struct {
 	Reason             string
 }
 
-func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *bluecollar.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
+func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *bluecollar.AgentKernel, taskRunService *taskstate.TaskRunService, logger *slog.Logger) *ConnectorRuntime {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -416,6 +417,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 	return &ConnectorRuntime{
 		identityService:       identityService,
 		agentKernel:           agentKernel,
+		taskRunService:        taskRunService,
 		toolCatalogBuilder:    toolCatalogBuilder,
 		logger:                logger,
 		adapterByPlatform:     map[string]PlatformAdapter{},
@@ -944,7 +946,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	isApprovalContinuation := hasPendingConfirmation && turnDecision.Approval != nil && bluecollar.IsApprovingSignal(*turnDecision.Approval)
 	if hasPendingConfirmation {
-		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
+		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.taskRunService.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
 		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
 	}
 	if hasPendingConfirmation && !isApprovalContinuation && shouldStopAfterPendingConfirmation(turnDecision) {
@@ -1156,7 +1158,7 @@ func (connectorRuntime *ConnectorRuntime) addAddressingReaction(ctx context.Cont
 func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {
 	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
 	if !isSupported {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.skipped", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "connector.reaction.skipped", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"reason":    "reaction_adapter_unavailable",
 		}))
@@ -1170,7 +1172,7 @@ func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context
 		Reason:         "consume",
 	}
 	if errorValue := reactionAdapter.AddReaction(ctx, target); errorValue != nil {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.failed", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "connector.reaction.failed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"emojiName": target.EmojiName,
 			"error":     errorValue.Error(),
@@ -1178,7 +1180,7 @@ func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context
 		connectorRuntime.logger.Warn("connector."+platform+".reaction.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
 		return "consume_reaction_failed"
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.sent", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "connector.reaction.sent", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
 		"emojiName": target.EmojiName,
 		"reason":    target.Reason,
@@ -1198,7 +1200,7 @@ func (connectorRuntime *ConnectorRuntime) appendTaskExecutionDuration(taskRunID 
 	if strings.TrimSpace(taskRunID) == "" {
 		return
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "blueclaw.task.execution_duration", marshalConnectorEventBody(map[string]any{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "blueclaw.task.execution_duration", marshalConnectorEventBody(map[string]any{
 		"durationMs": duration.Milliseconds(),
 	}))
 }
@@ -1256,7 +1258,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	if errorValue != nil {
 		return pendingApproval{}, bluecollar.TurnDecision{}, false, errorValue
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
+	connectorRuntime.taskRunService.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
 		"route":       decision.Route,
 		"approval":    decision.Approval,
@@ -1311,7 +1313,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
 		})
-		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
+		connectorRuntime.taskRunService.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 			"messageID": event.MessageID,
 			"choices":   decision.Choices,
 			"route":     decision.Route,
@@ -1337,7 +1339,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 	if errorValue != nil {
 		return event, bluecollar.TurnDecision{}, false, errorValue
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
+	connectorRuntime.taskRunService.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID": event.MessageID,
 		"choices":   decision.Choices,
 		"route":     decision.Route,
@@ -1486,8 +1488,8 @@ func precomputedTurnDecisionForLaunch(confirmationDecision bluecollar.TurnDecisi
 }
 
 func (connectorRuntime *ConnectorRuntime) cancelPendingConfirmation(event PlatformInboundEvent, approval pendingApproval, decision bluecollar.TurnDecision) {
-	_, _ = connectorRuntime.agentKernel.CancelTask(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.replaced")
-	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.replaced", marshalConnectorEventBody(map[string]string{
+	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.replaced")
+	connectorRuntime.taskRunService.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.replaced", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
 		"route":     string(decision.Route),
 		"reason":    strings.TrimSpace(decision.Reason),
@@ -1532,12 +1534,12 @@ func askReplySupersedesInteraction(decision bluecollar.TurnDecision, hasDecision
 }
 
 func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event PlatformInboundEvent, interaction AskInteraction, decision bluecollar.TurnDecision) {
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(interaction.TaskRunID)
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(interaction.TaskRunID)
 	if isFound {
-		_, _ = connectorRuntime.agentKernel.CancelTask(taskRun.TaskRunID, taskRun.RequesterPersonID, "superseded_by_new_message")
+		_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(taskRun.TaskRunID, taskRun.RequesterPersonID, "superseded_by_new_message")
 		connectorRuntime.resolveOpenTaskWaitsForTaskRun(taskRun.RequesterPersonID, event.Platform, taskRun.OriginConversationID, taskRun.TaskRunID)
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.superseded_by_message", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(interaction.TaskRunID, "ask.superseded_by_message", marshalConnectorEventBody(map[string]string{
 		"interactionID":   strings.TrimSpace(interaction.InteractionID),
 		"messageID":       strings.TrimSpace(event.MessageID),
 		"route":           strings.TrimSpace(string(decision.Route)),
@@ -1547,7 +1549,7 @@ func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event P
 }
 
 func (connectorRuntime *ConnectorRuntime) appendAskResolvedEvent(interaction AskInteraction, event PlatformInboundEvent, decision bluecollar.TurnDecision) {
-	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.resolved", marshalConnectorEventBody(map[string]any{
+	connectorRuntime.taskRunService.AppendTaskEvent(interaction.TaskRunID, "ask.resolved", marshalConnectorEventBody(map[string]any{
 		"interactionID": strings.TrimSpace(interaction.InteractionID),
 		"kind":          strings.TrimSpace(interaction.Kind),
 		"messageID":     strings.TrimSpace(event.MessageID),
@@ -1576,7 +1578,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx conte
 	if !isSupported {
 		return
 	}
-	dispatchID := firstNonEmptyString(legacyString(event.LegacyFields, "postID"), latestAskPromptDispatchID(connectorRuntime.agentKernel.ListTaskEvent(taskRunID)))
+	dispatchID := firstNonEmptyString(legacyString(event.LegacyFields, "postID"), latestAskPromptDispatchID(connectorRuntime.taskRunService.ListTaskEvent(taskRunID)))
 	if dispatchID == "" {
 		return
 	}
@@ -1589,13 +1591,13 @@ func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx conte
 		InteractionID:  interaction.InteractionID,
 	}
 	if errorValue := resolver.ResolveInteraction(ctx, resolution); errorValue != nil {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "ask.interaction_resolve_failed", marshalConnectorEventBody(map[string]string{
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "ask.interaction_resolve_failed", marshalConnectorEventBody(map[string]string{
 			"dispatchID": dispatchID,
 			"error":      errorValue.Error(),
 		}))
 		return
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "ask.interaction_resolved", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "ask.interaction_resolved", marshalConnectorEventBody(map[string]string{
 		"dispatchID": dispatchID,
 	}))
 }
@@ -1796,7 +1798,7 @@ func (connectorRuntime *ConnectorRuntime) findPendingAskInteraction(personID str
 	if taskWaitResolution.HasTaskWaitToken {
 		return connectorRuntime.findPendingAskInteractionByTaskRunID(taskWaitResolution.TaskWaitToken.TaskRunID)
 	}
-	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	taskRuns := connectorRuntime.taskRunService.ListTaskRunByPersonID(personID)
 	var selectedInteraction AskInteraction
 	var selectedTaskRun task.TaskRun
 	isSelected := false
@@ -1807,7 +1809,7 @@ func (connectorRuntime *ConnectorRuntime) findPendingAskInteraction(personID str
 		if taskRun.OriginConversationID != event.ConversationID {
 			continue
 		}
-		interaction, isFound := latestAskInteraction(taskRun.TaskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID))
+		interaction, isFound := latestAskInteraction(taskRun.TaskRunID, connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 		if !isFound {
 			continue
 		}
@@ -1822,18 +1824,18 @@ func (connectorRuntime *ConnectorRuntime) findPendingAskInteraction(personID str
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingAskInteractionByTaskRunID(taskRunID string) (AskInteraction, bool) {
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRunID)
 	if !isFound || taskRun.Status != task.TaskStatusWaitingUserInput {
 		return AskInteraction{}, false
 	}
-	return latestAskInteraction(taskRun.TaskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID))
+	return latestAskInteraction(taskRun.TaskRunID, connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, _ string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (pendingApproval, bool) {
 	if taskWaitResolution.HasTaskWaitToken {
 		return connectorRuntime.findPendingApprovalByTaskRunID(taskWaitResolution.TaskWaitToken.TaskRunID)
 	}
-	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	taskRuns := connectorRuntime.taskRunService.ListTaskRunByPersonID(personID)
 	var selectedTaskRun task.TaskRun
 	isSelected := false
 	for _, taskRun := range taskRuns {
@@ -1859,7 +1861,7 @@ func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, _
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingApprovalByTaskRunID(taskRunID string) (pendingApproval, bool) {
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRunID)
 	if !isFound || taskRun.Status != task.TaskStatusWaitingApproval {
 		return pendingApproval{}, false
 	}
@@ -1867,7 +1869,7 @@ func (connectorRuntime *ConnectorRuntime) findPendingApprovalByTaskRunID(taskRun
 }
 
 func (connectorRuntime *ConnectorRuntime) pendingApprovalForTaskRun(selectedTaskRun task.TaskRun) pendingApproval {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(selectedTaskRun.TaskRunID)
 	approvalQuestion := latestApprovalQuestion(taskEvents)
 	responseLanguage := latestApprovalResponseLanguage(taskEvents)
 	continuationInstruction := latestConfirmationContinuationInstruction(taskEvents)
@@ -1886,11 +1888,11 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ stri
 	if taskWaitResolution.HasTaskWaitToken {
 		return connectorRuntime.findActiveGoalByTaskRunID(taskWaitResolution.TaskWaitToken.TaskRunID)
 	}
-	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	taskRuns := connectorRuntime.taskRunService.ListTaskRunByPersonID(personID)
 	var selectedTaskRun task.TaskRun
 	isSelected := false
 	for _, taskRun := range taskRuns {
-		taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+		taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 		if !taskRunCanContinueGoal(taskRun, taskEvents) {
 			continue
 		}
@@ -1913,11 +1915,11 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ stri
 }
 
 func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID string) (bluecollar.ActiveGoal, bool) {
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRunID)
 	if !isFound {
 		return bluecollar.ActiveGoal{}, false
 	}
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 	if !taskRunCanContinueGoal(taskRun, taskEvents) {
 		return bluecollar.ActiveGoal{}, false
 	}
@@ -1925,7 +1927,7 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID st
 }
 
 func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, event PlatformInboundEvent) (bluecollar.PriorTaskContext, bool) {
-	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	taskRuns := connectorRuntime.taskRunService.ListTaskRunByPersonID(personID)
 	var selectedTaskRun task.TaskRun
 	var selectedContext bluecollar.PriorTaskContext
 	isSelected := false
@@ -1942,7 +1944,7 @@ func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, 
 		if time.Since(taskRun.UpdatedAt) > 72*time.Hour {
 			continue
 		}
-		taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+		taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID)
 		context := priorTaskContextForTaskRun(taskRun, taskEvents)
 		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
 			continue
@@ -1955,7 +1957,7 @@ func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, 
 }
 
 func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun task.TaskRun) bluecollar.ActiveGoal {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(selectedTaskRun.TaskRunID)
 	activeGoal := latestActiveGoal(taskEvents)
 	if strings.TrimSpace(activeGoal.TaskRunID) == "" {
 		activeGoal.TaskRunID = selectedTaskRun.TaskRunID
@@ -2022,7 +2024,7 @@ func (connectorRuntime *ConnectorRuntime) withPersistedIntakeState(taskRunID str
 	if decision.Route != bluecollar.TurnRouteContinueTask {
 		return decision
 	}
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(taskRunID)
 	return decision.WithRestoredIntakeState(latestIntakeDecision(taskEvents))
 }
 
@@ -2211,8 +2213,8 @@ func existingGoalTaskRunID(approval pendingApproval, isApprovalContinuation bool
 }
 
 func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision bluecollar.ConfirmationReplyDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
-	_, _ = connectorRuntime.agentKernel.CancelTask(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.rejected")
-	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.rejected", marshalConnectorEventBody(map[string]string{
+	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.rejected")
+	connectorRuntime.taskRunService.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.rejected", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
 		"reason":    decision.Reason,
 	}))
@@ -2460,11 +2462,11 @@ func (connectorRuntime *ConnectorRuntime) completeApprovedPendingTask(pendingTas
 	if result == "" {
 		result = "Approved and continued in task " + continuationTaskRunID + "."
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(pendingTaskRun.TaskRunID, "approval.continued", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(pendingTaskRun.TaskRunID, "approval.continued", marshalConnectorEventBody(map[string]string{
 		"continuationTaskRunID": continuationTaskRunID,
 		"result":                result,
 	}))
-	_, _ = connectorRuntime.agentKernel.CompleteTask(pendingTaskRun.TaskRunID, result)
+	_, _ = connectorRuntime.taskRunService.CompleteTaskRun(pendingTaskRun.TaskRunID, result)
 }
 
 func marshalConnectorEventBody(value any) string {
@@ -2494,8 +2496,8 @@ func (connectorRuntime *ConnectorRuntime) recordTaskWaitTokenForReply(platform s
 	if taskRunID == "" || reply.ReplyKind != connectorReplyKindUserNotice {
 		return
 	}
-	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
-	if !isFound || !taskRunCanContinueGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRunID)) {
+	taskRun, isFound := connectorRuntime.taskRunService.FindTaskRun(taskRunID)
+	if !isFound || !taskRunCanContinueGoal(taskRun, connectorRuntime.taskRunService.ListTaskEvent(taskRunID)) {
 		return
 	}
 	taskWaitToken := connectorRuntime.taskWaitTokenForReply(platform, event, replyTarget, reply, dispatchID, taskRun)
@@ -2510,7 +2512,7 @@ func (connectorRuntime *ConnectorRuntime) recordTaskWaitTokenForReply(platform s
 
 func (connectorRuntime *ConnectorRuntime) taskWaitTokenForReply(platform string, event PlatformInboundEvent, replyTarget ReplyTarget, reply OutboundReply, dispatchID string, taskRun task.TaskRun) task.TaskWaitToken {
 	now := time.Now().UTC()
-	interactionID := replyInteractionID(reply, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID))
+	interactionID := replyInteractionID(reply, connectorRuntime.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 	return task.TaskWaitToken{
 		WaitID:         taskWaitID(taskRun.TaskRunID, interactionID, dispatchID),
 		TaskRunID:      taskRun.TaskRunID,
@@ -2568,7 +2570,7 @@ func (connectorRuntime *ConnectorRuntime) appendConnectorReplyEvent(taskRunID st
 	if strings.TrimSpace(taskRunID) == "" {
 		return
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, name, marshalConnectorEventBody(body))
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, name, marshalConnectorEventBody(body))
 }
 
 func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint bluecollar.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
@@ -2613,7 +2615,7 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
 		FailureNotice:   failureNotice,
 	}
-	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
+	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.taskRunService.ListTaskEvent(taskRunID))
 	reply.Interaction = optionalAskInteraction(interaction, event.SenderID)
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
@@ -3247,7 +3249,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 	if connectorRuntime.taskLauncher != nil {
 		return connectorRuntime.taskLauncher
 	}
-	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
 	return taskLauncher
 }
@@ -3507,7 +3509,7 @@ func (connectorRuntime *ConnectorRuntime) suppressDuplicateSourceTaskIfNeeded(pl
 	if !isFound {
 		return ConnectorRuntimeResult{}, false
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "connector.duplicate_source_suppressed", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "connector.duplicate_source_suppressed", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"sourceReference": sourceReference,
 	}))
@@ -3522,7 +3524,7 @@ func (connectorRuntime *ConnectorRuntime) findTaskRunBySourceReference(personID 
 	}
 	var selectedTaskRun task.TaskRun
 	isFound := false
-	for _, taskRun := range connectorRuntime.agentKernel.ListTaskRunByPersonID(personID) {
+	for _, taskRun := range connectorRuntime.taskRunService.ListTaskRunByPersonID(personID) {
 		if !connectorRuntime.taskRunHasSourceReference(taskRun.TaskRunID, trimmedSourceReference) {
 			continue
 		}
@@ -3536,7 +3538,7 @@ func (connectorRuntime *ConnectorRuntime) findTaskRunBySourceReference(personID 
 }
 
 func (connectorRuntime *ConnectorRuntime) taskRunHasSourceReference(taskRunID string, sourceReference string) bool {
-	for _, taskEvent := range connectorRuntime.agentKernel.ListTaskEvent(taskRunID) {
+	for _, taskEvent := range connectorRuntime.taskRunService.ListTaskEvent(taskRunID) {
 		if taskEvent.Name != "agent.task_source" && taskEvent.Name != "agent.task_launched" {
 			continue
 		}
@@ -3681,11 +3683,11 @@ func stringField(fields map[string]interface{}, name string) string {
 // The person chose to approve the whole family for this task, so the scope the
 // pending question named is recorded once and the agent stops asking for it.
 func (connectorRuntime *ConnectorRuntime) grantApprovalScopeForTask(taskRunID string) {
-	scope := pendingApprovalScope(connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
+	scope := pendingApprovalScope(connectorRuntime.taskRunService.ListTaskEvent(taskRunID))
 	if scope == "" {
 		return
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "approval.scope_granted", marshalConnectorEventBody(map[string]string{"scope": scope}))
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "approval.scope_granted", marshalConnectorEventBody(map[string]string{"scope": scope}))
 }
 
 func pendingApprovalScope(taskEvents []taskstate.TaskEvent) string {

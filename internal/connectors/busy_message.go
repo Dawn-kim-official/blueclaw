@@ -40,7 +40,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.busy_message.routed", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.busy_message.routed", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"busyRoute":       string(decision.BusyRoute),
 		"reason":          strings.TrimSpace(decision.Reason),
@@ -75,8 +75,8 @@ func (connectorRuntime *ConnectorRuntime) handleBusyCancelMessage(
 	decision bluecollar.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
-	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task cancelled by newer user instruction")
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.cancel.requested", marshalConnectorEventBody(map[string]string{
+	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task cancelled by newer user instruction")
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.cancel.requested", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"reason":          strings.TrimSpace(decision.Reason),
 		"latestUserInput": strings.TrimSpace(event.Prompt),
@@ -101,7 +101,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyStatusMessage(
 	decision bluecollar.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.status.requested", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.status.requested", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
 		"reason":    strings.TrimSpace(decision.Reason),
 	}))
@@ -126,7 +126,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	instruction := firstNonEmptyString(strings.TrimSpace(decision.BusyInstruction), strings.TrimSpace(event.Prompt))
-	if !connectorRuntime.agentKernel.IsTaskRunActuallyRunning(activeTaskRun) {
+	if !connectorRuntime.taskRunService.IsTaskRunActuallyRunning(activeTaskRun) {
 		return connectorRuntime.resumePausedTaskForSteer(ctx, platform, event, replyTarget, activeTaskRun, instruction, decision, sendReply)
 	}
 	connectorRuntime.appendSteerRequestedEvent(activeTaskRun.TaskRunID, event, instruction, decision)
@@ -142,7 +142,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 }
 
 func (connectorRuntime *ConnectorRuntime) appendSteerRequestedEvent(taskRunID string, event PlatformInboundEvent, instruction string, decision bluecollar.TurnDecision) {
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.steer.requested", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "task.steer.requested", marshalConnectorEventBody(map[string]string{
 		"messageID":   event.MessageID,
 		"instruction": instruction,
 		"reason":      strings.TrimSpace(decision.Reason),
@@ -159,7 +159,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	decision bluecollar.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
-	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(activeTaskRun.TaskRunID)
+	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(activeTaskRun.TaskRunID)
 	launchContext, isFound := interruptedTaskLaunchContextFromEvents(activeTaskRun, taskEvents)
 	adapter, adapterError := connectorRuntime.findAdapter(firstNonEmptyString(platform, launchContext.Platform))
 	if !isFound || adapterError != nil {
@@ -199,7 +199,7 @@ func (connectorRuntime *ConnectorRuntime) replySteerResumeUnavailable(
 	decision bluecollar.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.steer.resume_unavailable", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.steer.resume_unavailable", marshalConnectorEventBody(map[string]string{
 		"messageID": event.MessageID,
 		"reason":    strings.TrimSpace(decision.Reason),
 	}))
@@ -215,8 +215,8 @@ func (connectorRuntime *ConnectorRuntime) replySteerResumeUnavailable(
 }
 
 func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundEvent, activeTaskRun task.TaskRun, decision bluecollar.TurnDecision) {
-	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task replaced by newer user instruction")
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.replaced", marshalConnectorEventBody(map[string]string{
+	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task replaced by newer user instruction")
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.replaced", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"reason":          strings.TrimSpace(decision.Reason),
 		"latestUserInput": strings.TrimSpace(event.Prompt),
@@ -224,9 +224,9 @@ func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundE
 }
 
 func (connectorRuntime *ConnectorRuntime) supersedeBusyTask(event PlatformInboundEvent, platform string, activeTaskRun task.TaskRun, decision bluecollar.TurnDecision) {
-	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "superseded_by_new_message")
+	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "superseded_by_new_message")
 	connectorRuntime.resolveOpenTaskWaitsForTaskRun(activeTaskRun.RequesterPersonID, platform, activeTaskRun.OriginConversationID, activeTaskRun.TaskRunID)
-	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.superseded_by_message", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.superseded_by_message", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"reason":          strings.TrimSpace(decision.Reason),
 		"latestUserInput": strings.TrimSpace(event.Prompt),
@@ -283,7 +283,7 @@ func (connectorRuntime *ConnectorRuntime) handlePossibleFinishedTaskFollowUp(
 	if errorValue != nil || !isRelated {
 		return busyMessageResult{}, nil
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(finishedTaskRun.TaskRunID, "task.busy_message.after_finish", marshalConnectorEventBody(map[string]string{
+	connectorRuntime.taskRunService.AppendTaskEvent(finishedTaskRun.TaskRunID, "task.busy_message.after_finish", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"latestUserInput": strings.TrimSpace(event.Prompt),
 	}))
@@ -314,7 +314,7 @@ func (connectorRuntime *ConnectorRuntime) latestRecentlyFinishedConversationTask
 	var latestTaskRun task.TaskRun
 	isFound := false
 	cutoff := time.Now().Add(-recentlyFinishedTaskFollowUpWindow)
-	for _, taskRun := range connectorRuntime.agentKernel.ListTaskRunByPersonID(personID) {
+	for _, taskRun := range connectorRuntime.taskRunService.ListTaskRunByPersonID(personID) {
 		if taskRun.OriginConversationID != conversationID {
 			continue
 		}
@@ -357,7 +357,7 @@ func (connectorRuntime *ConnectorRuntime) activeTaskContext(taskRun task.TaskRun
 }
 
 func (connectorRuntime *ConnectorRuntime) activeTaskEventSummary(taskRunID string) string {
-	events := connectorRuntime.agentKernel.ListTaskEvent(taskRunID)
+	events := connectorRuntime.taskRunService.ListTaskEvent(taskRunID)
 	summaries := []string{}
 	for index := len(events) - 1; index >= 0 && len(summaries) < 6; index-- {
 		event := events[index]
