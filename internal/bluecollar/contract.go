@@ -250,3 +250,18 @@ var (
 	normalizeFailureReport                 = agentcontract.NormalizeFailureReport
 	buildFailureNotice                     = agentcontract.BuildFailureNotice
 )
+
+var (
+	activeGoalDescription = agentcontract.ActiveGoalDescription
+)
+
+var ()
+
+var (
+	normalizeIntakeOptions          = agentcontract.NormalizeIntakeOptions
+	NormalizeReactionEmojiName      = agentcontract.NormalizeReactionEmojiName
+	normalizeRequestedOutputFormats = agentcontract.NormalizeRequestedOutputFormats
+	registeredToolNamesOnly         = agentcontract.RegisteredToolNamesOnly
+	hasAllTools                     = agentcontract.HasAllTools
+	hasTool                         = agentcontract.HasTool
+)

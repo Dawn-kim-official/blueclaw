@@ -263,7 +263,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
+	turnRouter := intake.NewTurnRouter(turnRouterLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider), deriveIntakeOptions(runtimeConfiguration))
 	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseTurnRouter(turnRouter)
 	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModelProvider))
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
@@ -300,6 +302,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	launchFailureCompleter := launchfailure.NewCompleter(taskRunService, languageModelProvider)
 	connectorRuntime.UseLaunchFailureCompleter(launchFailureCompleter)
 	connectorRuntime.UseReplyGenerator(reply.NewGenerator(languageModelProvider, instructionBundleLoader))
+	connectorRuntime.UseTurnRouter(turnRouter)
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
@@ -1544,4 +1547,19 @@ func classificationLanguageModelProvider(taskTierLanguageModels harnessdriver.Ta
 		return intakeLanguageModelProvider
 	}
 	return taskTierLanguageModels.High
+}
+
+func turnRouterLanguageModelProvider(taskTierLanguageModels harnessdriver.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
+	if intakeLanguageModelProvider != nil {
+		return intakeLanguageModelProvider
+	}
+	return taskTierLanguageModels.High
+}
+
+func deriveIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.IntakeOptions {
+	return agentcontract.IntakeOptions{
+		IsEnabled:           runtimeConfiguration.Agent.Intake.Enabled,
+		DefaultTaskLevel:    agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
+		SkillTaskLevelFloor: agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
+	}
 }

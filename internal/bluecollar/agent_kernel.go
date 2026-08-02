@@ -193,11 +193,6 @@ func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest
 	}, request.Prompt)
 }
 
-func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) (TurnDecision, error) {
-	request.ActiveGoal = normalizePersistedActiveGoal(request.ActiveGoal)
-	return NewTurnRouter(agentKernel.turnRouterLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
-}
-
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	requestReceivedAt := time.Now()
 	routerCallLedger := &turnRouterCallLedger{}
@@ -214,18 +209,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
-	routerLanguageModel := routerCallLedger.languageModel(agentKernel.turnRouterLanguageModel())
-	turnRouter := NewTurnRouter(routerLanguageModel, agentKernel.intakeOptions)
-	preflightOptions := normalizeTurnOptions(agentKernel.turnOptions)
-	preflightBudget := newTurnBudgetContext(responseContext, request.TurnStartedAt, request.IsRuntimeRestartResume, requestReceivedAt, preflightOptions)
-	turnDecision, errorValue := turnRouter.Plan(preflightBudget.workContext, intakeRequest)
-	didPreflightExpire := request.PrecomputedTurnDecision == nil && preflightBudget.didWorkExpire()
-	if didPreflightExpire {
-		result := agentKernel.completeIntakeElapsed(preflightBudget, intakeRequest, IntakeDecision{}, routerCallLedger.records)
-		preflightBudget.cancel()
-		return result, nil
-	}
-	preflightBudget.cancel()
+	turnDecision, errorValue := routedTurnDecision(intakeRequest)
 	if errorValue != nil {
 		result := agentKernel.completeTurnRouterFailure(responseContext, intakeRequest, errorValue, routerCallLedger.records)
 		return result, nil
@@ -1003,4 +987,11 @@ func highestEscalatedTaskLevel(taskEvents []taskstate.TaskEvent) TaskLevel {
 		highestTaskLevel = LargerTaskLevel(highestTaskLevel, normalizedTaskLevel)
 	}
 	return highestTaskLevel
+}
+
+func routedTurnDecision(request AgentRequest) (TurnDecision, error) {
+	if request.PrecomputedTurnDecision == nil {
+		return TurnDecision{}, errors.New("turn request carries no routing decision; the host routes before handing a turn to the harness")
+	}
+	return *request.PrecomputedTurnDecision, nil
 }
