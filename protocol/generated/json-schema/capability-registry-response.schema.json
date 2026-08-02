@@ -130,6 +130,9 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "approvalScope": {
+            "type": "string"
+          },
           "availability": {
             "additionalProperties": false,
             "properties": {
@@ -252,6 +255,12 @@
             "type": "string"
           },
           "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresCompanionBrowser": {
+            "type": "boolean"
+          },
+          "requiresRequesterDevice": {
             "type": "boolean"
           },
           "requiresUserPresence": {
@@ -411,6 +420,9 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "approvalScope": {
+            "type": "string"
+          },
           "availability": {
             "additionalProperties": false,
             "properties": {
@@ -533,6 +545,12 @@
             "type": "string"
           },
           "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresCompanionBrowser": {
+            "type": "boolean"
+          },
+          "requiresRequesterDevice": {
             "type": "boolean"
           },
           "requiresUserPresence": {
@@ -695,6 +713,9 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "approvalScope": {
+            "type": "string"
+          },
           "availability": {
             "additionalProperties": false,
             "properties": {
@@ -817,6 +838,12 @@
             "type": "string"
           },
           "requiresApproval": {
+            "type": "boolean"
+          },
+          "requiresCompanionBrowser": {
+            "type": "boolean"
+          },
+          "requiresRequesterDevice": {
             "type": "boolean"
           },
           "requiresUserPresence": {

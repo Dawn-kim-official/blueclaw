@@ -16,10 +16,11 @@ func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *tes
 			ToolInputKey:  "site_serve\x00{\"siteReference\":\"site-1\"}",
 		},
 		{
-			ObservationID: "obs-002",
-			Action:        "continue",
-			Tool:          "site_list",
-			Output:        toolcontract.ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
+			ObservationID:  "obs-002",
+			Action:         "continue",
+			Tool:           "site_list",
+			ToolIsReadOnly: true,
+			Output:         toolcontract.ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
 		},
 	})
 

@@ -1806,8 +1806,8 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	if primaryCallCount != 1 || backupCallCount != 1 {
 		t.Fatalf("expected one primary failure and one backup recovery, got primary=%d backup=%d", primaryCallCount, backupCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "adjacent_tool") {
-		t.Fatal("expected adjacent recovery event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "inspection") {
+		t.Fatal("expected the read-only backup lookup to be recorded as an inspection recovery")
 	}
 }
 

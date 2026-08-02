@@ -116,7 +116,7 @@ func TestBuildToolRegistryAuditServesCachedSnapshotWhenLiveFetchFails(t *testing
 func TestReachableCapabilityToolDefinitionsGateBrowserOnCompanionStatus(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{
-		{Name: "browser_open", Namespace: "browser"},
+		{Name: "browser_open", Namespace: "browser", RequiresCompanionBrowser: true},
 		{Name: "message_send", Namespace: "message"},
 	})
 

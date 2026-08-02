@@ -1,5 +1,5 @@
 {
-  "aggregateHash": "cbe08983acd56a9098505c5f2e99f77a73d7257fac01258ef00846e7f83cf998",
+  "aggregateHash": "fccec45c4b3fc539159b3a293d61275ed2fc4ae738f371ec9122c1546b32a42f",
   "capabilityToolCatalog": {
     "fileName": "capability-tools.json",
     "hash": "bc59e16c8b5a87b9c4166da2e2da673db4f3bb302cb28afc38c1de1f894358b5"
@@ -18,12 +18,12 @@
     },
     {
       "fileName": "capability-descriptor.schema.json",
-      "hash": "7d24b470e938c15a481a31c2828c08a0c2cfebc7abd66f3c667af966f5a92fc4",
+      "hash": "8c4dbbf558552307eb5ad9330e2026a236c672597c50e7a0d3add18f9887583d",
       "name": "capability-descriptor"
     },
     {
       "fileName": "capability-registry-response.schema.json",
-      "hash": "ae8ca65ecfc698214be38cf574c810e227edf096ad3b9ea907e87b7dd510ad80",
+      "hash": "a310809ce6ed60e7af0a9e1397d93b98d4e617c3a73b0437b24685709324d7eb",
       "name": "capability-registry-response"
     },
     {

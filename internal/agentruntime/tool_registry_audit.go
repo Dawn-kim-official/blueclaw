@@ -310,12 +310,10 @@ func containsBrowserDescriptor(descriptors []CapabilityToolDescriptor) bool {
 	return false
 }
 
-// The namespace is what makes a tool a browser tool. Matching its name would
-// break the moment a tool is renamed or a browser tool stops starting with it.
-const browserCapabilityNamespace = "browser"
-
+// The descriptor says whether a tool needs the browser on the requester's own
+// machine. Neither its name nor its namespace can answer that question.
 func descriptorIsBrowserCapability(descriptor CapabilityToolDescriptor) bool {
-	return strings.TrimSpace(descriptor.Namespace) == browserCapabilityNamespace
+	return descriptor.RequiresCompanionBrowser
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) companionBrowserAvailable() bool {

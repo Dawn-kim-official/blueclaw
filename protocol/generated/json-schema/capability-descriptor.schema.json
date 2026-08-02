@@ -122,6 +122,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "approvalScope": {
+      "type": "string"
+    },
     "availability": {
       "additionalProperties": false,
       "properties": {
@@ -244,6 +247,12 @@
       "type": "string"
     },
     "requiresApproval": {
+      "type": "boolean"
+    },
+    "requiresCompanionBrowser": {
+      "type": "boolean"
+    },
+    "requiresRequesterDevice": {
       "type": "boolean"
     },
     "requiresUserPresence": {

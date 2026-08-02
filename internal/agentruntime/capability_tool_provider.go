@@ -104,6 +104,7 @@ func (provider capabilityToolProvider) boundTool(descriptor CapabilityToolDescri
 			Description:          strings.TrimSpace(descriptor.Description),
 			PrivacyClass:         strings.TrimSpace(descriptor.PrivacyClass),
 			RequiresUserPresence: descriptor.RequiresUserPresence,
+			RequiresCompanionBrowser: descriptor.RequiresCompanionBrowser,
 			WorksOffline:         descriptor.WorksOffline,
 			InputSchema:          descriptor.InputSchema,
 			InputIntentSchema:    descriptor.InputIntentSchema,

@@ -92,26 +92,27 @@ type ToolCatalogRequest struct {
 }
 
 type CapabilityToolDescriptor struct {
-	Name                 string
-	CanonicalName        string
-	Namespace            string
-	ModelName            string
-	ModelVisibility      string
-	Description          string
-	PrivacyClass         string
-	RequiresUserPresence bool
-	WorksOffline         bool
-	InputSchema          json.RawMessage
-	InputIntentSchema    json.RawMessage
-	OutputSchema         json.RawMessage
-	ResultContract       *CapabilityToolResultContract
-	PolicyResource       string
-	SideEffectClass      string
-	RequiresApproval     bool
-	ApprovalScope        string
-	CompletionEvidence   *CapabilityCompletionEvidence
-	Availability         CapabilityAvailability
-	Idempotency          CapabilityIdempotency
+	Name                     string
+	CanonicalName            string
+	Namespace                string
+	ModelName                string
+	ModelVisibility          string
+	Description              string
+	PrivacyClass             string
+	RequiresUserPresence     bool
+	RequiresCompanionBrowser bool
+	WorksOffline             bool
+	InputSchema              json.RawMessage
+	InputIntentSchema        json.RawMessage
+	OutputSchema             json.RawMessage
+	ResultContract           *CapabilityToolResultContract
+	PolicyResource           string
+	SideEffectClass          string
+	RequiresApproval         bool
+	ApprovalScope            string
+	CompletionEvidence       *CapabilityCompletionEvidence
+	Availability             CapabilityAvailability
+	Idempotency              CapabilityIdempotency
 }
 
 type CapabilityToolResultContract struct {
