@@ -3,6 +3,8 @@ package bluecollarharness
 import (
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 )
 
@@ -24,5 +26,23 @@ func TestDeriveTurnOptionsWiresContextWindowTokens(t *testing.T) {
 	}
 	if options.GenerationOptions.Temperature == nil || *options.GenerationOptions.Temperature != temperature {
 		t.Fatalf("expected generation temperature to be wired, got %+v", options.GenerationOptions)
+	}
+}
+
+func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
+	defaultOptions := virtualTurnOptions(agentcontract.TurnOptions{})
+	lowProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelLow)
+	if defaultOptions.TaskLevel != lowProfile.TaskLevel ||
+		defaultOptions.MaxIterationCount != lowProfile.MaxIterationCount ||
+		defaultOptions.MaxToolCallCount != lowProfile.MaxToolCallCount ||
+		defaultOptions.MaxElapsedSecond != int(lowProfile.Duration.Seconds()) {
+		t.Fatalf("expected production low defaults, got %+v", defaultOptions)
+	}
+
+	xHighOptions := virtualTurnOptions(agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
+	xHighProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
+	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
+		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
+		t.Fatalf("expected xhigh task budget, got %+v", xHighOptions)
 	}
 }

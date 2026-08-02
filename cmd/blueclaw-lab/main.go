@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
@@ -39,6 +40,10 @@ func (printingCommandRunner PrintingCommandRunner) Output(ctx context.Context, e
 	_ = ctx
 	printExecutableCommand(executableCommand)
 	return "127.0.0.1", nil
+}
+
+func init() {
+	e2e.UseAgentHarnessFactory(bluecollarharness.NewVirtualSession)
 }
 
 func main() {
