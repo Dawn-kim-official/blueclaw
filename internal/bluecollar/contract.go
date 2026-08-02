@@ -185,8 +185,6 @@ var (
 	WithUserFacingMessage             = toolcontract.WithUserFacingMessage
 
 	appendUniqueStrings         = agentcontract.AppendUniqueStrings
-	compactWhitespace           = toolcontract.CompactWhitespace
-	truncateText                = toolcontract.TruncateText
 	taskLevelRank               = agentcontract.TaskLevelRank
 	normalizeClassification     = agentcontract.NormalizeIntakeClassification
 	normalizeExpectedResults    = agentcontract.NormalizeExpectedResults
