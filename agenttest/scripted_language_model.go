@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
 type ScriptedLanguageModelOptions struct {
@@ -26,7 +26,7 @@ type ScriptedLanguageModel struct {
 	chatResponsesBySchema       map[string][]string
 	structuredResponsesBySchema map[string][]string
 	defaultResponsesBySchema    map[string]string
-	requests                    []llm.StructuredResponseRequest
+	requests                    []model.StructuredResponseRequest
 	providerName                string
 	modelName                   string
 }
@@ -46,7 +46,7 @@ func NewScriptedLanguageModel(options ScriptedLanguageModelOptions) *ScriptedLan
 	}
 }
 
-func (languageModel *ScriptedLanguageModel) TextChatCompleter() (llm.ChatCompleter, bool) {
+func (languageModel *ScriptedLanguageModel) TextChatCompleter() (model.ChatCompleter, bool) {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
 	if len(languageModel.chatResponsesBySchema) == 0 {
@@ -55,7 +55,7 @@ func (languageModel *ScriptedLanguageModel) TextChatCompleter() (llm.ChatComplet
 	return scriptedChatCompleter{languageModel: languageModel}, true
 }
 
-func (completer scriptedChatCompleter) GenerateChatCompletion(_ context.Context, request llm.ChatCompletionRequest) (llm.ChatCompletionResponse, error) {
+func (completer scriptedChatCompleter) GenerateChatCompletion(_ context.Context, request model.ChatCompletionRequest) (model.ChatCompletionResponse, error) {
 	languageModel := completer.languageModel
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
@@ -64,35 +64,35 @@ func (completer scriptedChatCompleter) GenerateChatCompletion(_ context.Context,
 	if schemaName == "blueclaw_agent_turn_action" {
 		response, errorValue := languageModel.popActionResponse()
 		if errorValue != nil {
-			return llm.ChatCompletionResponse{}, errorValue
+			return model.ChatCompletionResponse{}, errorValue
 		}
 		return languageModel.actionChatResponse(request, response)
 	}
 	responses := languageModel.chatResponsesBySchema[schemaName]
 	if len(responses) == 0 {
-		return llm.ChatCompletionResponse{}, fmt.Errorf("scripted language model has no %s chat response", request.SchemaName)
+		return model.ChatCompletionResponse{}, fmt.Errorf("scripted language model has no %s chat response", request.SchemaName)
 	}
 	languageModel.chatResponsesBySchema[schemaName] = responses[1:]
-	return llm.ChatCompletionResponse{
+	return model.ChatCompletionResponse{
 		FinishReason:    "stop",
 		ProviderName:    languageModel.providerName,
 		ModelName:       languageModel.modelName,
 		SelectedBackend: "device",
-		Message: llm.ChatCompletionMessage{
+		Message: model.ChatCompletionMessage{
 			Role:    "assistant",
 			Content: responses[0],
 		},
 	}, nil
 }
 
-func (languageModel *ScriptedLanguageModel) actionChatResponse(request llm.ChatCompletionRequest, content string) (llm.ChatCompletionResponse, error) {
+func (languageModel *ScriptedLanguageModel) actionChatResponse(request model.ChatCompletionRequest, content string) (model.ChatCompletionResponse, error) {
 	var actionDocument struct {
 		Action    string          `json:"action"`
 		ToolName  string          `json:"toolName"`
 		ToolInput json.RawMessage `json:"toolInput"`
 	}
 	if errorValue := json.Unmarshal([]byte(content), &actionDocument); errorValue != nil {
-		return llm.ChatCompletionResponse{}, errorValue
+		return model.ChatCompletionResponse{}, errorValue
 	}
 	toolName := strings.TrimSpace(actionDocument.Action)
 	arguments := json.RawMessage(content)
@@ -101,16 +101,16 @@ func (languageModel *ScriptedLanguageModel) actionChatResponse(request llm.ChatC
 		arguments = actionDocument.ToolInput
 	}
 	if toolName == "" || len(arguments) == 0 {
-		return llm.ChatCompletionResponse{}, errors.New("scripted agent action is incomplete")
+		return model.ChatCompletionResponse{}, errors.New("scripted agent action is incomplete")
 	}
 	if !chatRequestHasTool(request, toolName) {
-		return llm.ChatCompletionResponse{}, fmt.Errorf("scripted agent action tool %q is not exposed; available tools: %s", toolName, strings.Join(chatRequestToolNames(request), ", "))
+		return model.ChatCompletionResponse{}, fmt.Errorf("scripted agent action tool %q is not exposed; available tools: %s", toolName, strings.Join(chatRequestToolNames(request), ", "))
 	}
 	arguments = removeActionDiscriminator(arguments)
 	return languageModel.toolCallResponse(toolName, arguments), nil
 }
 
-func chatRequestHasTool(request llm.ChatCompletionRequest, toolName string) bool {
+func chatRequestHasTool(request model.ChatCompletionRequest, toolName string) bool {
 	for _, availableToolName := range chatRequestToolNames(request) {
 		if availableToolName == toolName {
 			return true
@@ -119,7 +119,7 @@ func chatRequestHasTool(request llm.ChatCompletionRequest, toolName string) bool
 	return false
 }
 
-func chatRequestToolNames(request llm.ChatCompletionRequest) []string {
+func chatRequestToolNames(request model.ChatCompletionRequest) []string {
 	toolNames := make([]string, 0, len(request.Tools))
 	for _, tool := range request.Tools {
 		toolNames = append(toolNames, tool.Function.Name)
@@ -127,18 +127,18 @@ func chatRequestToolNames(request llm.ChatCompletionRequest) []string {
 	return toolNames
 }
 
-func (languageModel *ScriptedLanguageModel) toolCallResponse(toolName string, arguments json.RawMessage) llm.ChatCompletionResponse {
-	return llm.ChatCompletionResponse{
+func (languageModel *ScriptedLanguageModel) toolCallResponse(toolName string, arguments json.RawMessage) model.ChatCompletionResponse {
+	return model.ChatCompletionResponse{
 		FinishReason:    "tool_calls",
 		ProviderName:    languageModel.providerName,
 		ModelName:       languageModel.modelName,
 		SelectedBackend: "device",
-		Message: llm.ChatCompletionMessage{
+		Message: model.ChatCompletionMessage{
 			Role: "assistant",
-			ToolCalls: []llm.ChatCompletionToolCall{{
+			ToolCalls: []model.ChatCompletionToolCall{{
 				ID:   "scripted-call",
 				Type: "function",
-				Function: llm.ChatCompletionToolCallFunction{
+				Function: model.ChatCompletionToolCallFunction{
 					Name:      toolName,
 					Arguments: string(arguments),
 				},
@@ -160,14 +160,14 @@ func removeActionDiscriminator(document json.RawMessage) json.RawMessage {
 	return normalizedDocument
 }
 
-func structuredRequestFromChat(request llm.ChatCompletionRequest) llm.StructuredResponseRequest {
-	messages := make([]llm.Message, 0, len(request.Messages))
+func structuredRequestFromChat(request model.ChatCompletionRequest) model.StructuredResponseRequest {
+	messages := make([]model.Message, 0, len(request.Messages))
 	for _, message := range request.Messages {
-		messages = append(messages, llm.Message{Role: message.Role, Content: message.Content})
+		messages = append(messages, model.Message{Role: message.Role, Content: message.Content})
 	}
-	return llm.StructuredResponseRequest{
+	return model.StructuredResponseRequest{
 		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
+		StructuredOutputSchema: model.StructuredOutputSchema{
 			Name: request.SchemaName,
 		},
 		GenerationOptions: request.GenerationOptions,
@@ -226,24 +226,24 @@ func (languageModel *ScriptedLanguageModel) RequestCount() int {
 	return len(languageModel.requests)
 }
 
-func (languageModel *ScriptedLanguageModel) Requests() []llm.StructuredResponseRequest {
+func (languageModel *ScriptedLanguageModel) Requests() []model.StructuredResponseRequest {
 	return languageModel.RequestsSince(0)
 }
 
-func (languageModel *ScriptedLanguageModel) RequestsSince(startIndex int) []llm.StructuredResponseRequest {
+func (languageModel *ScriptedLanguageModel) RequestsSince(startIndex int) []model.StructuredResponseRequest {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
 	if startIndex < 0 || startIndex > len(languageModel.requests) {
 		startIndex = 0
 	}
-	return append([]llm.StructuredResponseRequest{}, languageModel.requests[startIndex:]...)
+	return append([]model.StructuredResponseRequest{}, languageModel.requests[startIndex:]...)
 }
 
 func (languageModel *ScriptedLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
 
-func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
 	languageModel.requests = append(languageModel.requests, request)
@@ -254,7 +254,7 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	if schemaName == "blueclaw_agent_turn_action" {
 		response, errorValue := languageModel.popActionResponse()
 		if errorValue != nil {
-			return llm.StructuredResponse{}, errorValue
+			return model.StructuredResponse{}, errorValue
 		}
 		return languageModel.structuredResponse(response), nil
 	}
@@ -263,14 +263,14 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		if schemaName == "blueclaw_contract_skill_arbitration" {
 			response, errorValue := defaultContractSkillArbitrationResponse(request)
 			if errorValue != nil {
-				return llm.StructuredResponse{}, errorValue
+				return model.StructuredResponse{}, errorValue
 			}
 			return languageModel.structuredResponse(response), nil
 		}
 		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}
-		return llm.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
+		return model.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
 	if schemaName == "blueclaw_skill_search_queries" && response == `{"queries":[]}` {
 		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
@@ -278,7 +278,7 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	return languageModel.structuredResponse(response), nil
 }
 
-func defaultContractSkillArbitrationResponse(request llm.StructuredResponseRequest) (string, error) {
+func defaultContractSkillArbitrationResponse(request model.StructuredResponseRequest) (string, error) {
 	var schema struct {
 		Properties map[string]struct {
 			Items struct {
@@ -307,7 +307,7 @@ func defaultContractSkillArbitrationResponse(request llm.StructuredResponseReque
 	return string(document), nil
 }
 
-func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {
+func defaultSkillSearchQueriesResponse(request model.StructuredResponseRequest) string {
 	prompt := ""
 	for index := len(request.Messages) - 1; index >= 0; index-- {
 		if request.Messages[index].Role == "user" {
@@ -346,8 +346,8 @@ func (languageModel *ScriptedLanguageModel) popActionResponse() (string, error) 
 	return "", fmt.Errorf("scripted language model action response queue is empty")
 }
 
-func (languageModel *ScriptedLanguageModel) structuredResponse(content string) llm.StructuredResponse {
-	return llm.StructuredResponse{ProviderName: languageModel.providerName, ModelName: languageModel.modelName, Content: content}
+func (languageModel *ScriptedLanguageModel) structuredResponse(content string) model.StructuredResponse {
+	return model.StructuredResponse{ProviderName: languageModel.providerName, ModelName: languageModel.modelName, Content: content}
 }
 
 func isActionResponse(content string) bool {
@@ -384,7 +384,7 @@ type approvalQuestionContextDocument struct {
 	ActionDetails   map[string]string `json:"actionDetails"`
 }
 
-func defaultApprovalQuestionResponse(request llm.StructuredResponseRequest) string {
+func defaultApprovalQuestionResponse(request model.StructuredResponseRequest) string {
 	contextDocument := approvalQuestionContextFromRequest(request)
 	details := contextDocument.ActionDetails
 	target := strings.TrimSpace(details["target"])
@@ -413,7 +413,7 @@ func defaultApprovalQuestionFromContext(contextDocument approvalQuestionContextD
 	return "should this be approved?"
 }
 
-func approvalQuestionContextFromRequest(request llm.StructuredResponseRequest) approvalQuestionContextDocument {
+func approvalQuestionContextFromRequest(request model.StructuredResponseRequest) approvalQuestionContextDocument {
 	for index := len(request.Messages) - 1; index >= 0; index-- {
 		var contextDocument approvalQuestionContextDocument
 		if json.Unmarshal([]byte(request.Messages[index].Content), &contextDocument) == nil {

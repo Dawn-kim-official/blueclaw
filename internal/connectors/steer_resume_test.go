@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/agenttest"
+	"github.com/Dawn-kim-official/blueclaw/agenttest"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
