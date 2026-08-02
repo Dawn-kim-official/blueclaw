@@ -144,6 +144,10 @@ func (turnDecision TurnDecision) WithRestoredIntakeState(intakeDecision IntakeDe
 	return turnDecision
 }
 
+func IsApprovingSignal(signal ApprovalSignal) bool {
+	return signal == ApprovalSignalApprove || signal == ApprovalSignalApproveTask
+}
+
 func NormalizeIntakeClassification(classification IntakeClassification) IntakeClassification {
 	switch classification {
 	case IntakeClassificationQuickReply, IntakeClassificationBoundedTask, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
