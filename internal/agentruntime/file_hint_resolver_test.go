@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
@@ -23,7 +23,7 @@ func TestFileReadResolvesAttachmentFileHint(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: bluecollar.VisibleContext{CurrentMaterials: []bluecollar.VisibleContextMaterial{{
+		VisibleContext: agentcontract.VisibleContext{CurrentMaterials: []agentcontract.VisibleContextMaterial{{
 			FileHint:   "attachment:mattermost:file-1",
 			MaterialID: "mattermost:file-1",
 			Path:       relativePath,
@@ -54,7 +54,7 @@ func TestFilePreviewResolvesArtifactFileHint(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: bluecollar.VisibleContext{Materials: []bluecollar.VisibleContextMaterial{{
+		VisibleContext: agentcontract.VisibleContext{Materials: []agentcontract.VisibleContextMaterial{{
 			FileHint:    fileHint,
 			Path:        filepath.Join(workspacePath, filepath.FromSlash(relativePath)),
 			Filename:    "report.md",
@@ -166,9 +166,9 @@ func TestFileToolSchemasExposeFileHint(t *testing.T) {
 }
 
 func TestFileHintResolverUsesVisibleCurrentAndPreviousMaterials(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{
-		CurrentMaterials: []bluecollar.VisibleContextMaterial{{FileHint: "attachment:current", Path: "current.txt"}},
-		Materials:        []bluecollar.VisibleContextMaterial{{FileHint: "attachment:previous", Path: "previous.txt"}},
+	request := ToolCatalogRequest{VisibleContext: agentcontract.VisibleContext{
+		CurrentMaterials: []agentcontract.VisibleContextMaterial{{FileHint: "attachment:current", Path: "current.txt"}},
+		Materials:        []agentcontract.VisibleContextMaterial{{FileHint: "attachment:previous", Path: "previous.txt"}},
 	}}
 	for _, testCase := range []struct {
 		fileHint string
@@ -185,7 +185,7 @@ func TestFileHintResolverUsesVisibleCurrentAndPreviousMaterials(t *testing.T) {
 }
 
 func TestFileHintResolverDoesNotDecodePaths(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{Materials: []bluecollar.VisibleContextMaterial{{
+	request := ToolCatalogRequest{VisibleContext: agentcontract.VisibleContext{Materials: []agentcontract.VisibleContextMaterial{{
 		FileHint: "artifact:task-run-1:report%2Ffinal.md",
 		Path:     "artifacts/report.md",
 	}}}}
@@ -203,7 +203,7 @@ func TestFileHintResolverPreservesExplicitMaterialID(t *testing.T) {
 }
 
 func TestFileHintResolverDoesNotRequireFileExistence(t *testing.T) {
-	request := ToolCatalogRequest{VisibleContext: bluecollar.VisibleContext{CurrentMaterials: []bluecollar.VisibleContextMaterial{{
+	request := ToolCatalogRequest{VisibleContext: agentcontract.VisibleContext{CurrentMaterials: []agentcontract.VisibleContextMaterial{{
 		FileHint: "attachment:mattermost:missing",
 		Path:     "inbox/missing.txt",
 	}}}}

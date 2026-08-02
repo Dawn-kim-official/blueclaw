@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
@@ -83,7 +84,7 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
 	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceAdmin,
@@ -556,7 +557,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		Prompt:      "다시 열어봐",
-		VisibleContext: bluecollar.VisibleContext{Messages: []bluecollar.VisibleContextMessage{
+		VisibleContext: agentcontract.VisibleContext{Messages: []agentcontract.VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
@@ -921,7 +922,7 @@ func useRuntimeTestLanguageModel(agentKernel *bluecollar.AgentKernel, content st
 	languageModel := staticRuntimeLanguageModel{content: content}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 }
 
 func runtimeTestTurnRouterResponse() string {
@@ -930,8 +931,8 @@ func runtimeTestTurnRouterResponse() string {
 
 type staticHistoryProvider struct{}
 
-func (historyProvider staticHistoryProvider) FetchHistory(context.Context, string, int) (bluecollar.VisibleContext, error) {
-	return bluecollar.VisibleContext{}, nil
+func (historyProvider staticHistoryProvider) FetchHistory(context.Context, string, int) (agentcontract.VisibleContext, error) {
+	return agentcontract.VisibleContext{}, nil
 }
 
 type recordingRequesterWorkspaceProvisioner struct {

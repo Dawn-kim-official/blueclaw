@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -198,7 +199,7 @@ func firstScheduleRuntimeRouterResponse(routerContent string) string {
 func useScheduledRuntimeLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(bluecollar.IntakeOptions{IsEnabled: true})
+	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 }
 
 func hasStructuredRequest(requests []llm.StructuredResponseRequest, schemaName string) bool {

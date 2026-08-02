@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 )
 
@@ -499,9 +499,9 @@ func TestFilePreviewUsesCachedAttachmentPreview(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		InputParts: []bluecollar.AgentPart{{
-			Type: bluecollar.AgentPartTypeFile,
-			File: &bluecollar.AgentFilePart{
+		InputParts: []agentcontract.AgentPart{{
+			Type: agentcontract.AgentPartTypeFile,
+			File: &agentcontract.AgentFilePart{
 				Path:             "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf",
 				Filename:         "report.pdf",
 				ContentType:      "application/pdf",
@@ -534,9 +534,9 @@ func TestFilePreviewUsesCachedAttachmentPreviewByMaterialID(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		InputParts: []bluecollar.AgentPart{{
-			Type: bluecollar.AgentPartTypeFile,
-			File: &bluecollar.AgentFilePart{
+		InputParts: []agentcontract.AgentPart{{
+			Type: agentcontract.AgentPartTypeFile,
+			File: &agentcontract.AgentFilePart{
 				Path:             "home/inbox/mattermost/post-1/report.html",
 				Filename:         "report.html",
 				ContentType:      "text/html",
@@ -544,7 +544,7 @@ func TestFilePreviewUsesCachedAttachmentPreviewByMaterialID(t *testing.T) {
 				MarkdownPreview:  "# Cached material report",
 				ConversionStatus: "converted",
 			},
-			Source: bluecollar.AgentPartSource{
+			Source: agentcontract.AgentPartSource{
 				Platform:  "mattermost",
 				MessageID: "post-1",
 				FileID:    "file-1",
@@ -575,9 +575,9 @@ func TestFileReadUsesCachedAttachmentPreviewWhenMaterialFileIsNotMounted(t *test
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		InputParts: []bluecollar.AgentPart{{
-			Type: bluecollar.AgentPartTypeFile,
-			File: &bluecollar.AgentFilePart{
+		InputParts: []agentcontract.AgentPart{{
+			Type: agentcontract.AgentPartTypeFile,
+			File: &agentcontract.AgentFilePart{
 				Path:             "home/inbox/mattermost/post-1/report.html",
 				Filename:         "report.html",
 				ContentType:      "text/html",
@@ -585,7 +585,7 @@ func TestFileReadUsesCachedAttachmentPreviewWhenMaterialFileIsNotMounted(t *test
 				MarkdownPreview:  "# Cached read report\n\nBody",
 				ConversionStatus: "converted",
 			},
-			Source: bluecollar.AgentPartSource{
+			Source: agentcontract.AgentPartSource{
 				Platform:  "mattermost",
 				MessageID: "post-1",
 				FileID:    "file-1",
@@ -622,7 +622,7 @@ func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: bluecollar.VisibleContextMaterial{
+			material: agentcontract.VisibleContextMaterial{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
@@ -656,8 +656,8 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: bluecollar.VisibleContext{
-			CurrentMaterials: []bluecollar.VisibleContextMaterial{{
+		VisibleContext: agentcontract.VisibleContext{
+			CurrentMaterials: []agentcontract.VisibleContextMaterial{{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
@@ -665,7 +665,7 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 			}},
 		},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: bluecollar.VisibleContextMaterial{
+			material: agentcontract.VisibleContextMaterial{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
@@ -699,8 +699,8 @@ func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: bluecollar.VisibleContext{
-			CurrentMaterials: []bluecollar.VisibleContextMaterial{{
+		VisibleContext: agentcontract.VisibleContext{
+			CurrentMaterials: []agentcontract.VisibleContextMaterial{{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "kim-intern-automation.html",
 				ContentType: "text/html",
@@ -708,7 +708,7 @@ func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 			}},
 		},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: bluecollar.VisibleContextMaterial{
+			material: agentcontract.VisibleContextMaterial{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "kim-intern-automation.html",
 				ContentType: "text/html",
@@ -740,8 +740,8 @@ func TestFileReadRejectsImageAttachmentMaterialFallback(t *testing.T) {
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-		VisibleContext: bluecollar.VisibleContext{
-			CurrentMaterials: []bluecollar.VisibleContextMaterial{{
+		VisibleContext: agentcontract.VisibleContext{
+			CurrentMaterials: []agentcontract.VisibleContextMaterial{{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "mascot.png",
 				ContentType: "image/png",
@@ -749,7 +749,7 @@ func TestFileReadRejectsImageAttachmentMaterialFallback(t *testing.T) {
 			}},
 		},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: bluecollar.VisibleContextMaterial{
+			material: agentcontract.VisibleContextMaterial{
 				MaterialID:  "mattermost:file-1",
 				Filename:    "mascot.png",
 				ContentType: "image/png",
@@ -779,7 +779,7 @@ func TestFilePreviewUsesResolvedAttachmentPreviewWithoutWorkspaceStat(t *testing
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
-			material: bluecollar.VisibleContextMaterial{
+			material: agentcontract.VisibleContextMaterial{
 				MaterialID:        "mattermost:file-1",
 				Filename:          "report.html",
 				ContentType:       "text/html",

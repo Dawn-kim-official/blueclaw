@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 )
 
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() bluecollar.InstructionBundle {
-		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{{
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agentcontract.InstructionBundle {
+		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{{
 			Name:           "mail",
 			Description:    "Read, search, summarize, reply to, and send email messages.",
 			ToolReferences: []string{"file_read"},
@@ -50,12 +50,12 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 
 func TestSkillSearchToolExactNameIncludesToolReferences(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() bluecollar.InstructionBundle {
-		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{{
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agentcontract.InstructionBundle {
+		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{{
 			Name:           "site-prototype",
 			Description:    "Create sites.",
 			ToolReferences: []string{"file_read"},
-			Source:         bluecollar.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Source:         agentcontract.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -436,8 +436,8 @@ func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
 
 func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() bluecollar.InstructionBundle {
-		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agentcontract.InstructionBundle {
+		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{
 			{Name: "mail", Description: "Email skill.", ToolReferences: []string{"file_read"}},
 			{Name: "site-prototype", Description: "Create sites.", ToolReferences: []string{"file_read"}},
 		}}
@@ -465,13 +465,13 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 
 func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() bluecollar.InstructionBundle {
-		return bluecollar.InstructionBundle{Skills: []bluecollar.SkillInstruction{{
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agentcontract.InstructionBundle {
+		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{{
 			Name:           "site-prototype",
 			Description:    "Create sites.",
 			Prompt:         "Build the site, verify it, and attach promoted outputs.",
 			ToolReferences: []string{"file_read"},
-			Source:         bluecollar.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Source:         agentcontract.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
