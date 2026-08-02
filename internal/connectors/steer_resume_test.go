@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agenttest"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -43,7 +43,7 @@ func TestResumePausedTaskForSteerWithoutLaunchContextSendsNoticeWithoutOrphan(t 
 		return "dispatch-1", nil
 	}
 
-	result, errorValue := connectorRuntime.resumePausedTaskForSteer(context.Background(), "test", event, ReplyTarget{}, pausedTaskRun, "이어서 해", bluecollar.TurnDecision{}, sendReply)
+	result, errorValue := connectorRuntime.resumePausedTaskForSteer(context.Background(), "test", event, ReplyTarget{}, pausedTaskRun, "이어서 해", agentcontract.TurnDecision{}, sendReply)
 
 	if errorValue != nil {
 		t.Fatalf("missing launch context must be handled with a notice, got error %v", errorValue)
@@ -66,14 +66,14 @@ func TestInterruptedTaskTurnDecisionInheritsHighestRecordedEffort(t *testing.T) 
 		{Name: "agent.budget_escalated", Body: `{"newEffortLevel":"extended"}`},
 	}
 	decision := interruptedTaskTurnDecision(taskEvents, "ko")
-	if decision.TaskLevel != bluecollar.TaskLevelHigh {
+	if decision.TaskLevel != agentcontract.TaskLevelHigh {
 		t.Fatalf("resumed task must inherit the highest recorded task level, got %q", decision.TaskLevel)
 	}
 }
 
 func TestInterruptedTaskTurnDecisionDefaultsToStandardEffort(t *testing.T) {
 	decision := interruptedTaskTurnDecision([]task.TaskEvent{{Name: "agent.intake", Body: "not-json"}}, "ko")
-	if decision.TaskLevel != bluecollar.TaskLevelLow {
+	if decision.TaskLevel != agentcontract.TaskLevelLow {
 		t.Fatalf("resumed task without recorded task level must default to low, got %q", decision.TaskLevel)
 	}
 }

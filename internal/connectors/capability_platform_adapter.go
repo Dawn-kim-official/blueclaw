@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 )
@@ -45,7 +45,7 @@ type capabilityReplyRequest struct {
 	OutboxID        string                        `json:"outboxID,omitempty"`
 	Attachments     []capabilityReplyAttachment   `json:"attachments,omitempty"`
 	RecoveryActions []toolcontract.RecoveryAction `json:"recoveryActions,omitempty"`
-	FailureNotice   bluecollar.FailureNotice      `json:"failureNotice,omitempty"`
+	FailureNotice   agentcontract.FailureNotice   `json:"failureNotice,omitempty"`
 	Interaction     *AskInteraction               `json:"interaction,omitempty"`
 }
 

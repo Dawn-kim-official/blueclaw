@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
@@ -26,7 +27,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 		return "dispatch-1", nil
 	}
 
-	turnResult := bluecollar.AgentTurnResult{
+	turnResult := agentcontract.AgentTurnResult{
 		TaskRun:       task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusCompleted},
 		FinishMessage: "Done: sandbox:/mnt/data/deck.pptx",
 		Attachments:   []toolcontract.FileAttachment{{Filename: "deck.pptx", DevicePath: "/workspace/private/people/p1/tmp/deck.pptx"}},
@@ -58,7 +59,7 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 		sentReply = reply
 		return "dispatch-1", nil
 	}
-	turnResult := bluecollar.AgentTurnResult{
+	turnResult := agentcontract.AgentTurnResult{
 		TaskRun:    task.TaskRun{TaskRunID: "task-1", Status: task.TaskStatusFailed},
 		UserNotice: message,
 	}
@@ -74,21 +75,21 @@ func TestFailedTaskReplyPreservesModelWording(t *testing.T) {
 }
 
 func TestSuppressedReplyStillDeliversApprovalQuestion(t *testing.T) {
-	waitingApproval := bluecollar.AgentTurnResult{
+	waitingApproval := agentcontract.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-approval", Status: task.TaskStatusWaitingApproval},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}
 	if decision := decideTaskReply(waitingApproval, false); decision.Kind != taskReplyDecisionSendUserNotice {
 		t.Fatalf("expected a waiting-approval task to deliver its question despite suppression, got %+v", decision)
 	}
-	waitingInput := bluecollar.AgentTurnResult{
+	waitingInput := agentcontract.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-input", Status: task.TaskStatusWaitingUserInput},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}
 	if decision := decideTaskReply(waitingInput, false); decision.Kind != taskReplyDecisionSendUserNotice {
 		t.Fatalf("expected a waiting-user-input task to deliver its question despite suppression, got %+v", decision)
 	}
-	completed := bluecollar.AgentTurnResult{
+	completed := agentcontract.AgentTurnResult{
 		TaskRun:                task.TaskRun{TaskRunID: "task-done", Status: task.TaskStatusCompleted},
 		ReplySuppressionReason: "ambient_duty_no_reply",
 	}

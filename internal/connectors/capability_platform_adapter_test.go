@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 
@@ -46,7 +46,7 @@ func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	if !parseResult.Event.Context.HasMoreBefore || parseResult.Event.Context.HistoryCursor != "cursor-1" {
 		t.Fatalf("expected history metadata, got %+v", parseResult.Event.Context)
 	}
-	if len(parseResult.Event.InputParts) != 1 || parseResult.Event.InputParts[0].Type != bluecollar.AgentPartTypeImage {
+	if len(parseResult.Event.InputParts) != 1 || parseResult.Event.InputParts[0].Type != agentcontract.AgentPartTypeImage {
 		t.Fatalf("expected input image part, got %+v", parseResult.Event.InputParts)
 	}
 	if len(parseResult.Event.Context.InputAttachments) != 1 || parseResult.Event.Context.InputAttachments[0].FileID != "file-1" {
@@ -145,7 +145,7 @@ func TestCapabilityPlatformAdapterImportsInputAttachments(t *testing.T) {
 	if receivedPath != "/v1/platform/mattermost/attachments.import" || receivedBody.MessageID != "post-1" {
 		t.Fatalf("unexpected import request path=%q body=%+v", receivedPath, receivedBody)
 	}
-	if len(result.InputParts) != 1 || result.InputParts[0].Type != bluecollar.AgentPartTypeFile {
+	if len(result.InputParts) != 1 || result.InputParts[0].Type != agentcontract.AgentPartTypeFile {
 		t.Fatalf("expected imported file part, got %+v", result.InputParts)
 	}
 }

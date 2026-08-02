@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
@@ -28,7 +28,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	if !isFound {
 		return connectorRuntime.handlePossibleFinishedTaskFollowUp(ctx, platform, event, replyTarget, personID, sendReply)
 	}
-	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, bluecollar.AgentRequest{
+	decision, errorValue := connectorRuntime.agentKernel.RouteTurn(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -47,19 +47,19 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 		"latestUserInput": strings.TrimSpace(event.Prompt),
 	}))
 	switch decision.BusyRoute {
-	case bluecollar.BusyRouteStatus:
+	case agentcontract.BusyRouteStatus:
 		return connectorRuntime.handleBusyStatusMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
-	case bluecollar.BusyRouteSteer:
+	case agentcontract.BusyRouteSteer:
 		return connectorRuntime.handleBusySteerMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
-	case bluecollar.BusyRouteReplace:
+	case agentcontract.BusyRouteReplace:
 		connectorRuntime.replaceBusyTask(event, activeTaskRun, decision)
 		return busyMessageResult{clearActiveGoal: true}, nil
-	case bluecollar.BusyRouteCancel:
+	case agentcontract.BusyRouteCancel:
 		return connectorRuntime.handleBusyCancelMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
-	case bluecollar.BusyRouteNewTask:
+	case agentcontract.BusyRouteNewTask:
 		connectorRuntime.supersedeBusyTask(event, platform, activeTaskRun, decision)
 		return busyMessageResult{clearActiveGoal: true}, nil
-	case bluecollar.BusyRouteUnrelated:
+	case agentcontract.BusyRouteUnrelated:
 		return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "busy_unrelated"}, isHandled: true}, nil
 	default:
 		return busyMessageResult{}, errors.New("turn router returned an invalid busy route")
@@ -72,7 +72,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyCancelMessage(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	activeTaskRun task.TaskRun,
-	decision bluecollar.TurnDecision,
+	decision agentcontract.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task cancelled by newer user instruction")
@@ -98,7 +98,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyStatusMessage(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	activeTaskRun task.TaskRun,
-	decision bluecollar.TurnDecision,
+	decision agentcontract.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.status.requested", marshalConnectorEventBody(map[string]string{
@@ -122,7 +122,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	activeTaskRun task.TaskRun,
-	decision bluecollar.TurnDecision,
+	decision agentcontract.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	instruction := firstNonEmptyString(strings.TrimSpace(decision.BusyInstruction), strings.TrimSpace(event.Prompt))
@@ -141,7 +141,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 	return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: activeTaskRun.TaskRunID, Reason: "busy_steer", ReplyDispatchID: dispatchID}, isHandled: true}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) appendSteerRequestedEvent(taskRunID string, event PlatformInboundEvent, instruction string, decision bluecollar.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) appendSteerRequestedEvent(taskRunID string, event PlatformInboundEvent, instruction string, decision agentcontract.TurnDecision) {
 	connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "task.steer.requested", marshalConnectorEventBody(map[string]string{
 		"messageID":   event.MessageID,
 		"instruction": instruction,
@@ -156,7 +156,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	replyTarget ReplyTarget,
 	activeTaskRun task.TaskRun,
 	instruction string,
-	decision bluecollar.TurnDecision,
+	decision agentcontract.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	taskEvents := connectorRuntime.taskRunService.ListTaskEvent(activeTaskRun.TaskRunID)
@@ -169,7 +169,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	launchRequest := connectorRuntime.interruptedTaskLaunchRequest(activeTaskRun, taskEvents, launchContext, event, adapter, userSteerTaskProfile(platform, activeTaskRun.TaskRunID), sendReply)
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, launchRequest)
 	if errorValue != nil {
-		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, bluecollar.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 			RequesterPersonID: activeTaskRun.RequesterPersonID,
 			ExistingTaskRunID: activeTaskRun.TaskRunID,
 			Platform:          platform,
@@ -196,7 +196,7 @@ func (connectorRuntime *ConnectorRuntime) replySteerResumeUnavailable(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	activeTaskRun task.TaskRun,
-	decision bluecollar.TurnDecision,
+	decision agentcontract.TurnDecision,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (busyMessageResult, error) {
 	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.steer.resume_unavailable", marshalConnectorEventBody(map[string]string{
@@ -214,7 +214,7 @@ func (connectorRuntime *ConnectorRuntime) replySteerResumeUnavailable(
 	return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: activeTaskRun.TaskRunID, Reason: "busy_steer_resume_unavailable", ReplyDispatchID: dispatchID}, isHandled: true}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundEvent, activeTaskRun task.TaskRun, decision bluecollar.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundEvent, activeTaskRun task.TaskRun, decision agentcontract.TurnDecision) {
 	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task replaced by newer user instruction")
 	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.replaced", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
@@ -223,7 +223,7 @@ func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundE
 	}))
 }
 
-func (connectorRuntime *ConnectorRuntime) supersedeBusyTask(event PlatformInboundEvent, platform string, activeTaskRun task.TaskRun, decision bluecollar.TurnDecision) {
+func (connectorRuntime *ConnectorRuntime) supersedeBusyTask(event PlatformInboundEvent, platform string, activeTaskRun task.TaskRun, decision agentcontract.TurnDecision) {
 	_, _ = connectorRuntime.taskRunService.CancelTaskRunWithReason(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "superseded_by_new_message")
 	connectorRuntime.resolveOpenTaskWaitsForTaskRun(activeTaskRun.RequesterPersonID, platform, activeTaskRun.OriginConversationID, activeTaskRun.TaskRunID)
 	connectorRuntime.taskRunService.AppendTaskEvent(activeTaskRun.TaskRunID, "task.superseded_by_message", marshalConnectorEventBody(map[string]string{
@@ -233,7 +233,7 @@ func (connectorRuntime *ConnectorRuntime) supersedeBusyTask(event PlatformInboun
 	}))
 }
 
-func (connectorRuntime *ConnectorRuntime) generateBusyReply(ctx context.Context, event PlatformInboundEvent, activeTaskRun task.TaskRun, route string, decision bluecollar.TurnDecision) (string, error) {
+func (connectorRuntime *ConnectorRuntime) generateBusyReply(ctx context.Context, event PlatformInboundEvent, activeTaskRun task.TaskRun, route string, decision agentcontract.TurnDecision) (string, error) {
 	prompt := strings.Join([]string{
 		"Write a short user-facing reply for an in-progress task.",
 		"Response language: " + responseLanguageForEvent(event),
@@ -275,7 +275,7 @@ func (connectorRuntime *ConnectorRuntime) handlePossibleFinishedTaskFollowUp(
 	if event.RawReceivedAt.IsZero() || !event.RawReceivedAt.Before(finishedTaskRun.UpdatedAt) {
 		return busyMessageResult{}, nil
 	}
-	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, bluecollar.ActiveTaskFollowUpClassificationRequest{
+	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, agentcontract.ActiveTaskFollowUpClassificationRequest{
 		ActiveTaskPrompt: finishedTaskRun.Prompt,
 		ActiveTaskStatus: string(finishedTaskRun.Status),
 		LatestMessage:    event.Prompt,
@@ -347,8 +347,8 @@ func (connectorRuntime *ConnectorRuntime) latestCurrentConversationActiveTask(pe
 	return latestTaskRun, isFound
 }
 
-func (connectorRuntime *ConnectorRuntime) activeTaskContext(taskRun task.TaskRun) bluecollar.ActiveTaskContext {
-	return bluecollar.ActiveTaskContext{
+func (connectorRuntime *ConnectorRuntime) activeTaskContext(taskRun task.TaskRun) agentcontract.ActiveTaskContext {
+	return agentcontract.ActiveTaskContext{
 		TaskRunID: taskRun.TaskRunID,
 		Prompt:    taskRun.Prompt,
 		Status:    string(taskRun.Status),
