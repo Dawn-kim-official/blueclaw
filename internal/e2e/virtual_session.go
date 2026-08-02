@@ -30,7 +30,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/agenttest"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
@@ -2449,7 +2448,7 @@ func streamProgressObserver(writer io.Writer) func(task.RawTurnEvent) {
 	return func(rawTurnEvent task.RawTurnEvent) {
 		switch {
 		case rawTurnEvent.Name == "agent.checkpoint.sent":
-			fmt.Fprintf(writer, "  ↳ reply: %s\n", bluecollar.CheckpointReplyMessage(rawTurnEvent.Body))
+			fmt.Fprintf(writer, "  ↳ reply: %s\n", checkpointReplyMessage(rawTurnEvent.Body))
 		case strings.HasPrefix(rawTurnEvent.Name, "tool.") && strings.HasSuffix(rawTurnEvent.Name, ".requested"):
 			fmt.Fprintf(writer, "  ↳ tool: %s\n", strings.TrimSuffix(strings.TrimPrefix(rawTurnEvent.Name, "tool."), ".requested"))
 		}
@@ -3169,12 +3168,20 @@ func checkpointReplyMessages(events []task.TaskEvent) []string {
 		if event.Name != "agent.checkpoint.sent" {
 			continue
 		}
-		message := bluecollar.CheckpointReplyMessage(event.Body)
+		message := checkpointReplyMessage(event.Body)
 		if message != "" {
 			messages = append(messages, message)
 		}
 	}
 	return messages
+}
+
+func checkpointReplyMessage(body string) string {
+	document := struct {
+		Message string `json:"message"`
+	}{}
+	_ = json.Unmarshal([]byte(body), &document)
+	return document.Message
 }
 
 func checkpointRepliesContain(events []task.TaskEvent, fragment string) bool {
