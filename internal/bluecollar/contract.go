@@ -192,3 +192,16 @@ var (
 )
 
 var reactionEmojiNames = agentcontract.ReactionEmojiNames
+
+var formatContextTimestamp = agentcontract.FormatContextTimestamp
+
+var buildVisibleContextDescription = agentcontract.BuildVisibleContextDescription
+
+const (
+	MemoryScopeUser         = agentcontract.MemoryScopeUser
+	MemoryScopeWorkspace    = agentcontract.MemoryScopeWorkspace
+	MemoryScopeCircle       = agentcontract.MemoryScopeCircle
+	MemoryScopeConversation = agentcontract.MemoryScopeConversation
+)
+
+var buildMemoryContext = agentcontract.BuildMemoryContext

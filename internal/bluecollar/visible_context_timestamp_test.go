@@ -4,10 +4,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 )
 
 func TestBuildVisibleContextDescriptionRendersTimestamp(t *testing.T) {
-	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, defaultTurnLocation())
+	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, agentcontract.ContextRenderLocation())
 	description := buildVisibleContextDescription(VisibleContext{
 		Messages: []VisibleContextMessage{
 			{Speaker: "Wendy", SpeakerCallingName: "Wendy", Text: "tidy up this file", SentAt: sentAt},

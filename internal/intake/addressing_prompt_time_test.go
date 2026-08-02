@@ -9,7 +9,7 @@ import (
 )
 
 func TestAddressingPromptCarriesMessageAndContextTime(t *testing.T) {
-	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, classificationLocation())
+	sentAt := time.Date(2026, 7, 10, 14, 3, 0, 0, agentcontract.ContextRenderLocation())
 	prompt := addressingClassificationPrompt(agentcontract.AddressingClassificationRequest{
 		Prompt:        "and this too",
 		MessageSentAt: sentAt.Add(30 * time.Second),

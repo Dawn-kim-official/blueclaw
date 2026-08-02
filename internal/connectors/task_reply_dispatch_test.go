@@ -20,6 +20,7 @@ func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T)
 	connectorRuntimeHarness := harnesstest.New(taskRunService)
 	connectorRuntime := NewConnectorRuntime(identityService, connectorRuntimeHarness, taskRunService, slog.Default())
 	connectorRuntime.UseIntakeClassifier(connectorRuntimeHarness)
+	connectorRuntime.UseReplyGenerator(connectorRuntimeHarness)
 
 	var sentReply OutboundReply
 	sendReply := func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {

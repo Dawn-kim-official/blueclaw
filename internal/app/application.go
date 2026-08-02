@@ -35,6 +35,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
+	"github.com/Dawn-kim-official/blueclaw/internal/reply"
 	runtimelogging "github.com/Dawn-kim-official/blueclaw/internal/runtime"
 	"github.com/Dawn-kim-official/blueclaw/internal/runtimecontrol"
 	"github.com/Dawn-kim-official/blueclaw/internal/scheduler"
@@ -291,6 +292,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskRunService,
 		logger,
 	)
+	connectorRuntime.UseReplyGenerator(reply.NewGenerator(languageModelProvider, instructionBundleLoader))
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))

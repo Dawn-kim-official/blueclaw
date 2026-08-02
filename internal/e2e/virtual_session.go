@@ -39,6 +39,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/reply"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -835,6 +836,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentHarness, taskRunService, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	adapter := &virtualAdapter{workspacePath: workspacePath}
+	runtime.UseReplyGenerator(reply.NewGenerator(highLanguageModel, instructionBundleLoader))
 	runtime.UseIntakeClassifier(intake.NewClassifier(firstAvailableLanguageModel(xLowLanguageModel, intakeLanguageModel, highLanguageModel)))
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")

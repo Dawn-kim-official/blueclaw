@@ -14,3 +14,10 @@ type MemoryFact struct {
 	SecurityLevelRank int       `json:"securityLevelRank"`
 	RequiredClasses   []string  `json:"requiredClasses"`
 }
+
+const (
+	MemoryScopeUser         = "user"
+	MemoryScopeWorkspace    = "workspace"
+	MemoryScopeCircle       = "circle"
+	MemoryScopeConversation = "conversation"
+)

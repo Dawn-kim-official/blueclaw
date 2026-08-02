@@ -247,7 +247,7 @@ func (connectorRuntime *ConnectorRuntime) generateBusyReply(ctx context.Context,
 		"Do not expose internal event names or task IDs.",
 		"Status and steer replies must not claim the task is complete. Cancel replies may say the active task has been stopped.",
 	}, "\n")
-	return connectorRuntime.harness.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
+	return connectorRuntime.replyGenerator.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
 }
 
 // recentlyFinishedTaskFollowUpWindow bounds how long after a task leaves active status a
@@ -307,7 +307,7 @@ func (connectorRuntime *ConnectorRuntime) generateFinishedTaskFollowUpReply(ctx 
 		"Latest user message: " + strings.TrimSpace(event.Prompt),
 		"Tell the user the task already finished before this message could apply to it, and ask whether they want it undone/redone or want to start something new. Do not silently start new work.",
 	}, "\n")
-	return connectorRuntime.harness.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
+	return connectorRuntime.replyGenerator.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
 }
 
 func (connectorRuntime *ConnectorRuntime) latestRecentlyFinishedConversationTask(personID string, conversationID string) (task.TaskRun, bool) {
