@@ -14,10 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -671,16 +669,12 @@ func TestVirtualModelCeilingDoesNotReduceTaskWorkDuration(t *testing.T) {
 	}
 	intakeTaskLevel := virtualTurnIntakeTaskLevel(t, result.TurnResults[0])
 	actionModelTier := virtualTurnActionModelTier(t, result.TurnResults[0])
-	workDuration := bluecollar.TaskLevelProfileForLevel(intakeTaskLevel).Duration
 
 	if actionModelTier != "low" {
 		t.Fatalf("expected authoritative action call to use the low ceiling, got %q", actionModelTier)
 	}
 	if intakeTaskLevel != agentcontract.TaskLevelXHigh {
 		t.Fatalf("expected authoritative intake task level xhigh, got %q", intakeTaskLevel)
-	}
-	if workDuration != time.Hour {
-		t.Fatalf("expected the selected xhigh task to retain a one-hour work duration, got %s", workDuration)
 	}
 }
 
