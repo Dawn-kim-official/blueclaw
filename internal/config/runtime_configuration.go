@@ -47,27 +47,29 @@ func (configuration CapabilityConfiguration) IsConfigured() bool {
 }
 
 type CapabilityToolDescriptor struct {
-	Name                 string                        `json:"name"`
-	CanonicalName        string                        `json:"canonicalName"`
-	Namespace            string                        `json:"namespace"`
-	ModelName            string                        `json:"modelName"`
-	ModelVisibility      string                        `json:"modelVisibility"`
-	Description          string                        `json:"description,omitempty"`
-	Version              string                        `json:"version,omitempty"`
-	PrivacyClass         string                        `json:"privacyClass,omitempty"`
-	EstimatedLatency     string                        `json:"estimatedLatency,omitempty"`
-	RequiresUserPresence bool                          `json:"requiresUserPresence,omitempty"`
-	WorksOffline         bool                          `json:"worksOffline,omitempty"`
-	InputSchema          json.RawMessage               `json:"inputSchema,omitempty"`
-	InputIntentSchema    json.RawMessage               `json:"inputIntentSchema,omitempty"`
-	OutputSchema         json.RawMessage               `json:"outputSchema,omitempty"`
-	ResultContract       *CapabilityToolResultContract `json:"resultContract,omitempty"`
-	PolicyResource       string                        `json:"policyResource,omitempty"`
-	SideEffectClass      string                        `json:"sideEffectClass,omitempty"`
-	RequiresApproval     bool                          `json:"requiresApproval,omitempty"`
-	CompletionEvidence   *CapabilityCompletionEvidence `json:"completionEvidence,omitempty"`
-	Availability         CapabilityAvailability        `json:"availability"`
-	Idempotency          CapabilityIdempotency         `json:"idempotency"`
+	Name                    string                        `json:"name"`
+	CanonicalName           string                        `json:"canonicalName"`
+	Namespace               string                        `json:"namespace"`
+	ModelName               string                        `json:"modelName"`
+	ModelVisibility         string                        `json:"modelVisibility"`
+	Description             string                        `json:"description,omitempty"`
+	Version                 string                        `json:"version,omitempty"`
+	PrivacyClass            string                        `json:"privacyClass,omitempty"`
+	EstimatedLatency        string                        `json:"estimatedLatency,omitempty"`
+	RequiresUserPresence    bool                          `json:"requiresUserPresence,omitempty"`
+	RequiresRequesterDevice bool                          `json:"requiresRequesterDevice,omitempty"`
+	ApprovalScope           string                        `json:"approvalScope,omitempty"`
+	WorksOffline            bool                          `json:"worksOffline,omitempty"`
+	InputSchema             json.RawMessage               `json:"inputSchema,omitempty"`
+	InputIntentSchema       json.RawMessage               `json:"inputIntentSchema,omitempty"`
+	OutputSchema            json.RawMessage               `json:"outputSchema,omitempty"`
+	ResultContract          *CapabilityToolResultContract `json:"resultContract,omitempty"`
+	PolicyResource          string                        `json:"policyResource,omitempty"`
+	SideEffectClass         string                        `json:"sideEffectClass,omitempty"`
+	RequiresApproval        bool                          `json:"requiresApproval,omitempty"`
+	CompletionEvidence      *CapabilityCompletionEvidence `json:"completionEvidence,omitempty"`
+	Availability            CapabilityAvailability        `json:"availability"`
+	Idempotency             CapabilityIdempotency         `json:"idempotency"`
 }
 
 type CapabilityToolResultContract struct {

@@ -229,7 +229,7 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 	failedBrowser := newFailureObservation("obs-001", "continue", "browser_open", "Companion is not connected, so the browser cannot be opened.", toolcontract.FailureDependencyUnavailable, toolcontract.FailureCodes.Unavailable, "browser_open")
 	browserToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{
-		{Name: "browser_open", Namespace: "browser", RequiresCompanionBrowser: true, Description: "Open a page on the requester's machine", PrivacyClass: "local_browser", Visibility: "visible", PolicyResource: "tool:browser_open", SideEffectClass: "state_change"},
+		{Name: "browser_open", Namespace: "browser", RequiresRequesterDevice: true, Description: "Open a page on the requester's machine", PrivacyClass: "local_browser", Visibility: "visible", PolicyResource: "tool:browser_open", SideEffectClass: "state_change"},
 	})
 	guidance := recoveryGuidanceContent(browserToolSet, failedBrowser, "")
 	if !strings.Contains(guidance, "web_fetch") {

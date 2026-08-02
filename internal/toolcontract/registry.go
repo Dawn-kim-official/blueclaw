@@ -14,28 +14,28 @@ import (
 )
 
 type ToolDescriptor struct {
-	ID                   string              `json:"id,omitempty"`
-	ProviderID           string              `json:"providerID,omitempty"`
-	Namespace            string              `json:"namespace,omitempty"`
-	Name                 string              `json:"name"`
-	Description          string              `json:"description"`
-	PrivacyClass         string              `json:"privacyClass,omitempty"`
-	RequiresUserPresence bool                `json:"requiresUserPresence,omitempty"`
-	RequiresCompanionBrowser bool            `json:"requiresCompanionBrowser,omitempty"`
-	WorksOffline         bool                `json:"worksOffline,omitempty"`
-	RecoveryCard         ToolRecoveryCard    `json:"recoveryCard,omitempty"`
-	InputSchema          json.RawMessage     `json:"inputSchema,omitempty"`
-	InputIntentSchema    json.RawMessage     `json:"inputIntentSchema,omitempty"`
-	OutputSchema         json.RawMessage     `json:"outputSchema,omitempty"`
-	ResultContract       *ToolResultContract `json:"resultContract,omitempty"`
-	Visibility           string              `json:"visibility,omitempty"`
-	PolicyResource       string              `json:"policyResource,omitempty"`
-	SideEffectClass      string              `json:"sideEffectClass,omitempty"`
-	RequiresApproval     bool                `json:"requiresApproval,omitempty"`
-	ApprovalScope        string              `json:"approvalScope,omitempty"`
-	Completion           ToolCompletion      `json:"completion,omitempty"`
-	Idempotency          string              `json:"idempotency,omitempty"`
-	IdempotencyScope     string              `json:"idempotencyScope,omitempty"`
+	ID                      string              `json:"id,omitempty"`
+	ProviderID              string              `json:"providerID,omitempty"`
+	Namespace               string              `json:"namespace,omitempty"`
+	Name                    string              `json:"name"`
+	Description             string              `json:"description"`
+	PrivacyClass            string              `json:"privacyClass,omitempty"`
+	RequiresUserPresence    bool                `json:"requiresUserPresence,omitempty"`
+	RequiresRequesterDevice bool                `json:"requiresRequesterDevice,omitempty"`
+	WorksOffline            bool                `json:"worksOffline,omitempty"`
+	RecoveryCard            ToolRecoveryCard    `json:"recoveryCard,omitempty"`
+	InputSchema             json.RawMessage     `json:"inputSchema,omitempty"`
+	InputIntentSchema       json.RawMessage     `json:"inputIntentSchema,omitempty"`
+	OutputSchema            json.RawMessage     `json:"outputSchema,omitempty"`
+	ResultContract          *ToolResultContract `json:"resultContract,omitempty"`
+	Visibility              string              `json:"visibility,omitempty"`
+	PolicyResource          string              `json:"policyResource,omitempty"`
+	SideEffectClass         string              `json:"sideEffectClass,omitempty"`
+	RequiresApproval        bool                `json:"requiresApproval,omitempty"`
+	ApprovalScope           string              `json:"approvalScope,omitempty"`
+	Completion              ToolCompletion      `json:"completion,omitempty"`
+	Idempotency             string              `json:"idempotency,omitempty"`
+	IdempotencyScope        string              `json:"idempotencyScope,omitempty"`
 }
 
 type ToolDefinition = ToolDescriptor
