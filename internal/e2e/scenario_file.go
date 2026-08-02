@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 )
 
 type virtualSessionScenarioFile struct {
@@ -21,7 +21,7 @@ type virtualSessionScenarioFile struct {
 	CapabilityToolNames       []string                                `json:"capabilityToolNames"`
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor `json:"capabilityToolDescriptors,omitempty"`
 	InitialToolNames          []string                                `json:"initialToolNames,omitempty"`
-	TurnOptions               bluecollar.TurnOptions                  `json:"turnOptions,omitempty"`
+	TurnOptions               agentcontract.TurnOptions               `json:"turnOptions,omitempty"`
 	Steps                     []VirtualTurn                           `json:"steps"`
 }
 
