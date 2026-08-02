@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"context"

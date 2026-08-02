@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"context"
@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 func TestFailureNoticeSendabilityDoesNotParseModelWording(t *testing.T) {
 	message := "작업 결과는 sandbox:/mnt/data/report.pdf에 있습니다."
-	notice := buildFailureNotice(message, "generated", FailureReport{})
+	notice := BuildFailureNotice(message, "generated", FailureReport{})
 
 	if notice.SendableMessage() != message {
 		t.Fatalf("expected non-empty model wording to remain sendable, got %+v", notice)
@@ -197,7 +198,7 @@ func TestFailureNoticeGeneratorKeepsRawErrorAfterChatFailures(t *testing.T) {
 func TestFailureNoticeSendabilityAllowsPublicURLAndNaturalEllipsis(t *testing.T) {
 	message := "공개 문서 https://example.com/guide 를 확인했지만 요청한 결과를 끝내지 못했습니다..."
 
-	if !failureNoticeMessageIsSendable(message) {
+	if !FailureNoticeMessageIsSendable(message) {
 		t.Fatalf("expected public URL and natural ellipsis to be sendable")
 	}
 }
@@ -216,7 +217,7 @@ func TestFailureNoticeGeneratorRejectsUngroundedGeneratedReply(t *testing.T) {
 		FailedOperation:    "site.build",
 		SafeFailureSummary: "site.build could not create the build scaffold",
 		OriginalRequest:    "더 해 괜찮아",
-		ResponseLanguage:   ResponseLanguageKorean,
+		ResponseLanguage:   toolcontract.ResponseLanguageKorean,
 		DiagnosticEventID:  "task-1:stall",
 	})
 
@@ -238,11 +239,11 @@ func TestFailureNoticePromptUsesCompactContextOnly(t *testing.T) {
 		FailedOperation:    "site.build",
 		SafeFailureSummary: "build tool could not write the requested output",
 		OriginalRequest:    "발표자료 만들어줘",
-		ResponseLanguage:   ResponseLanguageKorean,
+		ResponseLanguage:   toolcontract.ResponseLanguageKorean,
 		DiagnosticEventID:  "task-1:failure",
 	}
 
-	prompt := buildFailureNoticePrompt(report)
+	prompt := BuildFailureNoticePrompt(report)
 
 	if !strings.Contains(prompt, "Compact failure context") || !strings.Contains(prompt, "발표자료 만들어줘") {
 		t.Fatalf("expected compact failure context, got %q", prompt)
@@ -258,10 +259,10 @@ func TestFailureNoticePromptForcesCompletedSummaryOnMaxElapsedLimit(t *testing.T
 		StopReason:       "max_elapsed",
 		CompletedSummary: "- message_search: found 3 candidate messages about the Q3 launch\n- skill_search: matched \"weekly-report\" skill",
 		OriginalRequest:  "이번 주 업무 관련 메시지 찾아줘",
-		ResponseLanguage: ResponseLanguageKorean,
+		ResponseLanguage: toolcontract.ResponseLanguageKorean,
 	}
 
-	prompt := buildFailureNoticePrompt(report)
+	prompt := BuildFailureNoticePrompt(report)
 
 	if !strings.Contains(prompt, "concrete findings") {
 		t.Fatalf("expected prompt to require concrete findings from completedSummary, got %q", prompt)
@@ -276,10 +277,10 @@ func TestFailureNoticePromptDoesNotForceCompletedSummaryWithoutData(t *testing.T
 		Phase:            "limit",
 		StopReason:       "max_elapsed",
 		OriginalRequest:  "이번 주 업무 관련 메시지 찾아줘",
-		ResponseLanguage: ResponseLanguageKorean,
+		ResponseLanguage: toolcontract.ResponseLanguageKorean,
 	}
 
-	prompt := buildFailureNoticePrompt(report)
+	prompt := BuildFailureNoticePrompt(report)
 
 	if strings.Contains(prompt, "concrete findings") {
 		t.Fatalf("expected no completedSummary instruction without data, got %q", prompt)
@@ -309,24 +310,8 @@ func TestFailureNoticeGeneratorFallsBackToRedactedRawError(t *testing.T) {
 	}
 }
 
-func TestStallControlPhraseNotDeliveredWhenModelFails(t *testing.T) {
-	notice, status := (FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}).Generate(context.Background(), FailureReport{
-		Phase:             "stall",
-		StopReason:        "stopped after repeated model actions without workspace, tool, artifact, attachment, or new failure progress, including after stall guidance",
-		ResponseLanguage:  ResponseLanguageKorean,
-		DiagnosticEventID: "task-1:stall",
-	})
-
-	if status.Source != "raw_error" {
-		t.Fatalf("expected raw error fallback for stall, got %+v", status)
-	}
-	if stallNoticeCanReachUser(notice, status.Source) {
-		t.Fatalf("expected stall control phrase not to reach the user, got %q", notice.SendableMessage())
-	}
-}
-
 func TestFinishMessageCompressionPromptUsesMattermostBudget(t *testing.T) {
-	prompt := buildFinishMessageCompressionPrompt("긴 결과입니다.", ResponseLanguageKorean, finishMessageMaximumCharacters)
+	prompt := BuildFinishMessageCompressionPrompt("긴 결과입니다.", toolcontract.ResponseLanguageKorean, FinishMessageMaximumCharacters)
 
 	if !strings.Contains(prompt, "Maximum characters: 1200") {
 		t.Fatalf("expected Mattermost finish budget, got %q", prompt)
@@ -360,7 +345,7 @@ func TestIntakeNoticeGeneratorUsesGeneratedReply(t *testing.T) {
 		Classification:   IntakeClassificationNeedsConfirmation,
 		Reason:           "request appears too large for one bounded execution",
 		OriginalRequest:  "회사 전체 데이터를 다 정리해줘",
-		ResponseLanguage: ResponseLanguageKorean,
+		ResponseLanguage: toolcontract.ResponseLanguageKorean,
 	})
 
 	if notice.Source != "generated" || !notice.IsSendable {
@@ -377,7 +362,7 @@ func TestIntakeNoticeGeneratorFallsBackToReasonWhenModelFails(t *testing.T) {
 	notice := generator.GenerateIntakeNotice(context.Background(), IntakeReport{
 		Classification:   IntakeClassificationUnsupported,
 		Reason:           "request is outside the available execution boundary",
-		ResponseLanguage: ResponseLanguageKorean,
+		ResponseLanguage: toolcontract.ResponseLanguageKorean,
 	})
 
 	if notice.Source != "raw_error" {
@@ -392,13 +377,13 @@ func TestIntakeNoticeGeneratorFallsBackToReasonWhenModelFails(t *testing.T) {
 }
 
 func TestIntakeNoticePromptCarriesClassificationIntent(t *testing.T) {
-	report := normalizeFailureReport(FailureReport{
+	report := NormalizeFailureReport(FailureReport{
 		Phase:            "task_intake",
 		StopReason:       "request appears too large for one bounded execution",
-		ResponseLanguage: ResponseLanguageKorean,
+		ResponseLanguage: toolcontract.ResponseLanguageKorean,
 	})
 
-	prompt := buildIntakeNoticePrompt(IntakeClassificationNeedsConfirmation, report)
+	prompt := BuildIntakeNoticePrompt(IntakeClassificationNeedsConfirmation, report)
 
 	if !strings.Contains(prompt, "confirm a narrower scope") {
 		t.Fatalf("expected needs-confirmation intent, got %q", prompt)

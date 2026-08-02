@@ -169,7 +169,7 @@ func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
 	launchRequest := connectorRuntime.interruptedTaskLaunchRequest(activeTaskRun, taskEvents, launchContext, event, adapter, userSteerTaskProfile(platform, activeTaskRun.TaskRunID), sendReply)
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, launchRequest)
 	if errorValue != nil {
-		failureTurnResult := connectorRuntime.harness.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
+		failureTurnResult := connectorRuntime.launchFailureCompleter.CompleteLaunchFailure(ctx, agentcontract.AgentTurnRequest{
 			RequesterPersonID: activeTaskRun.RequesterPersonID,
 			ExistingTaskRunID: activeTaskRun.TaskRunID,
 			Platform:          platform,

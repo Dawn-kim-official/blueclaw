@@ -1,19 +1,20 @@
-package bluecollar
+package agentcontract
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 const (
 	failureNoticeMaximumCharacters = 600
-	finishMessageMaximumCharacters = 1200
+	FinishMessageMaximumCharacters = 1200
 )
 
 type FailureReport struct {
@@ -43,7 +44,7 @@ type FailureNoticeGenerationStatus struct {
 	OriginalWasInvalid bool   `json:"originalWasInvalid,omitempty"`
 }
 
-const elapsedLimitRawErrorSummary = "Execution limit reached; completed progress was saved for continuation."
+const ElapsedLimitRawErrorSummary = "Execution limit reached; completed progress was saved for continuation."
 
 type FailureNoticeGenerator struct {
 	LanguageModel model.LanguageModelProvider
@@ -57,89 +58,49 @@ type IntakeReport struct {
 	DiagnosticEventID string               `json:"diagnosticEventID,omitempty"`
 }
 
-func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string, stopReason string, observations []turnObservation, attachments []toolcontract.FileAttachment, executionState ExecutionState, decision recoveryDecision) FailureReport {
-	report := FailureReport{
-		Phase:               strings.TrimSpace(phase),
-		StopReason:          compactWhitespace(strings.TrimSpace(stopReason)),
-		RawError:            compactWhitespace(redactRawFailureNotice(strings.TrimSpace(stopReason))),
-		FailedOperation:     latestFailedOperation(observations),
-		SafeFailureSummary:  latestSafeFailureSummary(observations, stopReason),
-		CompletedSummary:    buildLimitObservationSummary(observations),
-		NextAction:          strings.TrimSpace(decision.NextAction),
-		OriginalRequest:     strings.TrimSpace(request.Prompt),
-		ResponseLanguage:    strings.TrimSpace(request.ResponseLanguage),
-		ArtifactRequired:    requestRequiresFileAttachment(request),
-		HasAttachments:      len(attachments) > 0,
-		AttachmentFilenames: failureReportAttachmentFilenames(attachments),
-		DiagnosticEventID:   diagnosticEventID(request, taskRunID, phase),
-	}
-	if report.Phase == "limit" && report.StopReason == "max_elapsed" {
-		report.RawError = elapsedLimitRawErrorSummary
-	}
-	if report.NextAction == "" {
-		report.NextAction = strings.TrimSpace(decision.UserReplyIntent)
-	}
-	if report.NextAction == "" {
-		report.NextAction = strings.TrimSpace(executionState.NextPlan)
-	}
-	return report
-}
-
-func recoveryFinalizationContextWithParent(parentContext context.Context, request AgentTurnRequest) (context.Context, context.CancelFunc) {
-	recoveryContext := model.ContextWithRequestContext(parentContext, model.RequestContext{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterEmail:          request.RequesterEmail,
-		RequesterName:           request.RequesterName,
-		RequesterPlatformUserID: request.RequesterPlatformUserID,
-		ConversationID:          request.ConversationID,
-		Platform:                request.Platform,
-	})
-	return context.WithCancel(recoveryContext)
-}
-
-func buildElapsedLimitRawErrorFailureNotice(request AgentTurnRequest) FailureNotice {
+func BuildElapsedLimitRawErrorFailureNotice(request AgentTurnRequest) FailureNotice {
 	report := FailureReport{
 		Phase:            "limit",
 		StopReason:       "max_elapsed",
-		RawError:         elapsedLimitRawErrorSummary,
+		RawError:         ElapsedLimitRawErrorSummary,
 		ResponseLanguage: request.ResponseLanguage,
 		OriginalRequest:  request.Prompt,
 	}
-	return buildRawErrorFailureNotice(report)
+	return BuildRawErrorFailureNotice(report)
 }
 
 func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {
-	report = normalizeFailureReport(report)
+	report = NormalizeFailureReport(report)
 	generationContext := ctx
 	status := FailureNoticeGenerationStatus{}
 	if generator.LanguageModel == nil {
 		status.Source = "raw_error"
 		status.Reason = "language_model_unavailable"
-		return buildRawErrorFailureNotice(report), status
+		return BuildRawErrorFailureNotice(report), status
 	}
-	reply, errorValue := generator.generateRecoveryText(generationContext, "blueclaw_failure_notice", buildFailureNoticePrompt(report))
+	reply, errorValue := generator.generateRecoveryText(generationContext, "blueclaw_failure_notice", BuildFailureNoticePrompt(report))
 	if errorValue == nil {
-		if notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, reply, "generated", report); hasNotice {
+		if notice, source, hasNotice := PrepareFailureNoticeWithGenerator(generator, generationContext, reply, "generated", report); hasNotice {
 			status.Source = source
 			return notice, status
 		}
 	}
-	if contextError := recoveryContextError(generationContext, errorValue); contextError != nil {
+	if contextError := RecoveryContextError(generationContext, errorValue); contextError != nil {
 		status.Source = "raw_error"
 		status.Reason = "request_aborted"
 		status.TextRecoveryError = contextError.Error()
-		return buildRawErrorFailureNotice(report), status
+		return BuildRawErrorFailureNotice(report), status
 	}
 	if strings.TrimSpace(reply) != "" {
 		status.FirstInvalid = true
 		for repairCount := 1; repairCount <= 2; repairCount++ {
-			repairedReply, repairError := generator.generateRecoveryText(generationContext, "blueclaw_failure_notice_repair", buildFailureNoticeRepairPrompt(report, reply, repairCount))
+			repairedReply, repairError := generator.generateRecoveryText(generationContext, "blueclaw_failure_notice_repair", BuildFailureNoticeRepairPrompt(report, reply, repairCount))
 			if repairError != nil || strings.TrimSpace(repairedReply) == "" {
 				status.RepairCount = repairCount
 				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
 				break
 			}
-			notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, repairedReply, "generated_repair", report)
+			notice, source, hasNotice := PrepareFailureNoticeWithGenerator(generator, generationContext, repairedReply, "generated_repair", report)
 			if hasNotice {
 				status.Source = source
 				status.RepairCount = repairCount
@@ -155,7 +116,7 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 		status.Source = "raw_error"
 		status.Reason = "request_aborted"
 		status.TextRecoveryError = generationContext.Err().Error()
-		return buildRawErrorFailureNotice(report), status
+		return BuildRawErrorFailureNotice(report), status
 	}
 	if notice, localError, hasNotice := generator.generateLocalFailureNotice(generationContext, report, reply); hasNotice {
 		status.Source = notice.Source
@@ -168,11 +129,11 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 	status.Source = "raw_error"
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
 	status.TextRecoveryError = firstNonEmptyString(status.TextRecoveryError, errorString(errorValue), "invalid_generated_reply")
-	return buildRawErrorFailureNotice(report), status
+	return BuildRawErrorFailureNotice(report), status
 }
 
 func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {
-	failureReport := normalizeFailureReport(FailureReport{
+	failureReport := NormalizeFailureReport(FailureReport{
 		Phase:             "task_intake",
 		StopReason:        report.Reason,
 		OriginalRequest:   report.OriginalRequest,
@@ -180,33 +141,33 @@ func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context
 		DiagnosticEventID: report.DiagnosticEventID,
 	})
 	if generator.LanguageModel == nil {
-		return buildRawErrorFailureNotice(failureReport)
+		return BuildRawErrorFailureNotice(failureReport)
 	}
 	generationContext, cancel := context.WithCancel(ctx)
 	defer cancel()
-	prompt := buildIntakeNoticePrompt(report.Classification, failureReport)
+	prompt := BuildIntakeNoticePrompt(report.Classification, failureReport)
 	reply, errorValue := generator.generateRecoveryText(generationContext, "blueclaw_intake_notice", prompt)
 	if errorValue == nil {
-		if notice := buildFailureNotice(reply, "generated", failureReport); notice.IsSendable {
+		if notice := BuildFailureNotice(reply, "generated", failureReport); notice.IsSendable {
 			return notice
 		}
 	}
-	if recoveryContextError(generationContext, errorValue) != nil {
-		return buildRawErrorFailureNotice(failureReport)
+	if RecoveryContextError(generationContext, errorValue) != nil {
+		return BuildRawErrorFailureNotice(failureReport)
 	}
 	localReply, localError := generator.generateLocalRecoveryText(generationContext, "blueclaw_intake_notice", prompt)
 	if localError == nil {
-		if notice := buildFailureNotice(localReply, "local_generated", failureReport); notice.IsSendable {
+		if notice := BuildFailureNotice(localReply, "local_generated", failureReport); notice.IsSendable {
 			return notice
 		}
 	}
-	return buildRawErrorFailureNotice(failureReport)
+	return BuildRawErrorFailureNotice(failureReport)
 }
 
-func buildIntakeNoticePrompt(classification IntakeClassification, report FailureReport) string {
+func BuildIntakeNoticePrompt(classification IntakeClassification, report FailureReport) string {
 	sections := []string{
 		"You are writing a short user-facing reply for a request that was not started.",
-		responseLanguageInstruction(report.ResponseLanguage),
+		ResponseLanguageInstruction(report.ResponseLanguage),
 		intakeNoticeIntent(classification),
 		"Use only the compact intake context below. Do not infer from earlier conversation history.",
 		"Write one or two natural sentences.",
@@ -227,26 +188,26 @@ func intakeNoticeIntent(classification IntakeClassification) string {
 	}
 }
 
-func normalizeFailureReport(report FailureReport) FailureReport {
+func NormalizeFailureReport(report FailureReport) FailureReport {
 	report.Phase = strings.TrimSpace(report.Phase)
 	report.StepName = strings.TrimSpace(report.StepName)
 	report.StopReason = compactWhitespace(strings.TrimSpace(report.StopReason))
 	report.SafeFailureSummary = compactWhitespace(strings.TrimSpace(report.SafeFailureSummary))
-	report.RawError = compactWhitespace(redactRawFailureNotice(strings.TrimSpace(report.RawError)))
+	report.RawError = compactWhitespace(RedactRawFailureNotice(strings.TrimSpace(report.RawError)))
 	report.OriginalRequest = strings.TrimSpace(report.OriginalRequest)
-	report.ResponseLanguage = ResolveResponseLanguage(report.ResponseLanguage)
+	report.ResponseLanguage = toolcontract.ResolveResponseLanguage(report.ResponseLanguage)
 	report.DiagnosticEventID = strings.TrimSpace(report.DiagnosticEventID)
 	if report.SafeFailureSummary == "" {
 		report.SafeFailureSummary = report.StopReason
 	}
 	if report.RawError == "" {
-		report.RawError = redactRawFailureNotice(firstNonEmptyString(report.StopReason, report.SafeFailureSummary))
+		report.RawError = RedactRawFailureNotice(firstNonEmptyString(report.StopReason, report.SafeFailureSummary))
 	}
 	return report
 }
 
 func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context, schemaName string, prompt string) (string, error) {
-	reply, errorValue, isSupported := generateRecoveryChatText(ctx, generator.LanguageModel, schemaName, prompt)
+	reply, errorValue, isSupported := GenerateRecoveryChatText(ctx, generator.LanguageModel, schemaName, prompt)
 	if !isSupported {
 		return "", errors.New("recovery chat completion unavailable")
 	}
@@ -254,19 +215,19 @@ func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context
 }
 
 func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Context, schemaName string, prompt string) (string, error) {
-	reply, errorValue, isSupported := generateLocalRecoveryChatText(ctx, generator.LanguageModel, schemaName, prompt)
+	reply, errorValue, isSupported := GenerateLocalRecoveryChatText(ctx, generator.LanguageModel, schemaName, prompt)
 	if !isSupported {
 		return "", errors.New("local recovery chat completion unavailable")
 	}
 	return reply, errorValue
 }
 
-func generateRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
+func GenerateRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
 	recoveryProvider, isAvailable := model.ResolveRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
 	}
-	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(schemaName, prompt))
+	response, errorValue := recoveryProvider.GenerateRecoveryChatCompletion(ctx, RecoveryChatCompletionRequest(schemaName, prompt))
 	if errorValue != nil {
 		return "", errorValue, true
 	}
@@ -274,12 +235,12 @@ func generateRecoveryChatText(ctx context.Context, provider model.LanguageModelP
 	return reply, errorValue, true
 }
 
-func generateLocalRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
+func GenerateLocalRecoveryChatText(ctx context.Context, provider model.LanguageModelProvider, schemaName string, prompt string) (string, error, bool) {
 	localRecoveryProvider, isAvailable := model.ResolveLocalRecoveryChatCompleter(provider)
 	if !isAvailable {
 		return "", nil, false
 	}
-	response, errorValue := localRecoveryProvider.GenerateLocalRecoveryChatCompletion(ctx, recoveryChatCompletionRequest(schemaName, prompt))
+	response, errorValue := localRecoveryProvider.GenerateLocalRecoveryChatCompletion(ctx, RecoveryChatCompletionRequest(schemaName, prompt))
 	if errorValue != nil {
 		return "", errorValue, true
 	}
@@ -287,7 +248,7 @@ func generateLocalRecoveryChatText(ctx context.Context, provider model.LanguageM
 	return reply, errorValue, true
 }
 
-func recoveryChatCompletionRequest(schemaName string, prompt string) model.ChatCompletionRequest {
+func RecoveryChatCompletionRequest(schemaName string, prompt string) model.ChatCompletionRequest {
 	return model.ChatCompletionRequest{
 		SchemaName: schemaName,
 		Messages: []model.ChatCompletionMessage{{
@@ -297,7 +258,7 @@ func recoveryChatCompletionRequest(schemaName string, prompt string) model.ChatC
 	}
 }
 
-func recoveryContextError(ctx context.Context, errorValue error) error {
+func RecoveryContextError(ctx context.Context, errorValue error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -311,24 +272,24 @@ func recoveryContextError(ctx context.Context, errorValue error) error {
 }
 
 func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.Context, report FailureReport, rejectedReply string) (FailureNotice, string, bool) {
-	prompt := buildFailureNoticePrompt(report)
+	prompt := BuildFailureNoticePrompt(report)
 	if strings.TrimSpace(rejectedReply) != "" {
-		prompt = buildFailureNoticeRepairPrompt(report, rejectedReply, 3)
+		prompt = BuildFailureNoticeRepairPrompt(report, rejectedReply, 3)
 	}
 	reply, errorValue := generator.generateLocalRecoveryText(ctx, "blueclaw_failure_notice", prompt)
 	if errorValue != nil || strings.TrimSpace(reply) == "" {
 		return FailureNotice{}, firstNonEmptyString(errorString(errorValue), "empty_local_reply"), false
 	}
-	notice, _, hasNotice := prepareFailureNoticeWithGenerator(generator, ctx, reply, "local_generated", report)
+	notice, _, hasNotice := PrepareFailureNoticeWithGenerator(generator, ctx, reply, "local_generated", report)
 	if hasNotice {
 		return notice, "", true
 	}
 	for repairCount := 1; repairCount <= 2; repairCount++ {
-		repairedReply, repairError := generator.generateLocalRecoveryText(ctx, "blueclaw_failure_notice_repair", buildFailureNoticeRepairPrompt(report, reply, repairCount))
+		repairedReply, repairError := generator.generateLocalRecoveryText(ctx, "blueclaw_failure_notice_repair", BuildFailureNoticeRepairPrompt(report, reply, repairCount))
 		if repairError != nil || strings.TrimSpace(repairedReply) == "" {
 			return FailureNotice{}, firstNonEmptyString(errorString(repairError), "empty_local_repair"), false
 		}
-		notice, _, hasNotice := prepareFailureNoticeWithGenerator(generator, ctx, repairedReply, "local_generated", report)
+		notice, _, hasNotice := PrepareFailureNoticeWithGenerator(generator, ctx, repairedReply, "local_generated", report)
 		if hasNotice {
 			return notice, "", true
 		}
@@ -337,31 +298,31 @@ func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.C
 	return FailureNotice{}, "invalid_local_generated_reply", false
 }
 
-func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
+func PrepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
 	candidate := strings.TrimSpace(reply)
-	if textExceedsCharacterBudget(candidate, failureNoticeMaximumCharacters) {
-		compressedReply, errorValue := generator.generateRecoveryText(ctx, "blueclaw_failure_notice_compression", buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
+	if TextExceedsCharacterBudget(candidate, failureNoticeMaximumCharacters) {
+		compressedReply, errorValue := generator.generateRecoveryText(ctx, "blueclaw_failure_notice_compression", BuildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
 		if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
 			return FailureNotice{}, "", false
 		}
 		candidate = strings.TrimSpace(compressedReply)
 	}
-	if !failureNoticeRequiresReview(report) {
-		notice := buildFailureNotice(candidate, source, report)
+	if !FailureNoticeRequiresReview(report) {
+		notice := BuildFailureNotice(candidate, source, report)
 		return notice, notice.Source, notice.IsSendable
 	}
 	reviewedReply, reviewedSource, hasReviewedReply := generator.reviewFailureNotice(ctx, report, candidate, source)
 	if !hasReviewedReply {
 		return FailureNotice{}, "", false
 	}
-	notice := buildFailureNotice(reviewedReply, reviewedSource, report)
+	notice := BuildFailureNotice(reviewedReply, reviewedSource, report)
 	if notice.IsSendable {
 		return notice, reviewedSource, true
 	}
 	return FailureNotice{}, "", false
 }
 
-func failureNoticeRequiresReview(report FailureReport) bool {
+func FailureNoticeRequiresReview(report FailureReport) bool {
 	return strings.TrimSpace(report.Phase) == "stall"
 }
 
@@ -372,7 +333,7 @@ func (generator FailureNoticeGenerator) reviewFailureNotice(ctx context.Context,
 	}
 	prompt := strings.Join([]string{
 		"Review and, when needed, rewrite this user-facing failure notice.",
-		responseLanguageInstruction(report.ResponseLanguage),
+		ResponseLanguageInstruction(report.ResponseLanguage),
 		"Return only the final notice. Ground it in the compact failure context.",
 		"Keep it concise and natural. Do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, serialized status, or false artifact delivery claims.",
 		"Compact failure context:\n" + marshalEventBody(report),
@@ -396,9 +357,9 @@ func (generator FailureNoticeGenerator) generateFailureNoticeReview(ctx context.
 	return generator.generateRecoveryText(ctx, "blueclaw_failure_notice_review", prompt)
 }
 
-func buildRawErrorFailureNotice(report FailureReport) FailureNotice {
+func BuildRawErrorFailureNotice(report FailureReport) FailureNotice {
 	message := firstNonEmptyString(report.RawError, report.SafeFailureSummary, report.StopReason)
-	message = truncateText(compactWhitespace(redactRawFailureNotice(message)), failureNoticeMaximumCharacters)
+	message = truncateText(compactWhitespace(RedactRawFailureNotice(message)), failureNoticeMaximumCharacters)
 	return FailureNotice{
 		Message:           message,
 		Source:            "raw_error",
@@ -414,7 +375,7 @@ var rawFailureNoticePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)sk-[A-Za-z0-9_-]{8,}`),
 }
 
-func redactRawFailureNotice(message string) string {
+func RedactRawFailureNotice(message string) string {
 	redactedMessage := strings.TrimSpace(message)
 	for _, pattern := range rawFailureNoticePatterns {
 		redactedMessage = pattern.ReplaceAllString(redactedMessage, "${1}[redacted]")
@@ -422,39 +383,7 @@ func redactRawFailureNotice(message string) string {
 	return redactedMessage
 }
 
-func latestFailedOperation(observations []turnObservation) string {
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if !observation.Failed() {
-			continue
-		}
-		operation := strings.TrimSpace(observation.Tool)
-		if operation == "" {
-			operation = strings.TrimSpace(observation.Action)
-		}
-		return operation
-	}
-	return ""
-}
-
-func latestSafeFailureSummary(observations []turnObservation, fallback string) string {
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if !observation.Failed() {
-			continue
-		}
-		summary := strings.TrimSpace(observation.FailureSummary())
-		if summary == "" {
-			summary = strings.TrimSpace(summarizeObservationContent(observation))
-		}
-		if summary != "" {
-			return truncateText(compactWhitespace(redactUnsafeText(summary)), 360)
-		}
-	}
-	return truncateText(compactWhitespace(redactUnsafeText(fallback)), 360)
-}
-
-func failureReportAttachmentFilenames(attachments []toolcontract.FileAttachment) []string {
+func FailureReportAttachmentFilenames(attachments []toolcontract.FileAttachment) []string {
 	filenames := []string{}
 	seenFilenames := map[string]bool{}
 	for _, attachment := range attachments {
@@ -468,7 +397,7 @@ func failureReportAttachmentFilenames(attachments []toolcontract.FileAttachment)
 	return filenames
 }
 
-func diagnosticEventID(request AgentTurnRequest, taskRunID string, phase string) string {
+func DiagnosticEventID(request AgentTurnRequest, taskRunID string, phase string) string {
 	if strings.TrimSpace(taskRunID) != "" {
 		return strings.TrimSpace(taskRunID) + ":" + strings.TrimSpace(phase)
 	}
@@ -498,10 +427,10 @@ func failureNoticeCompletedSummaryInstruction(report FailureReport) string {
 	return "completedSummary in the compact failure context lists concrete partial findings already gathered before the limit was reached. Your reply must state those concrete findings for the user first; only mention the time/step limit as the reason work stopped."
 }
 
-func buildFailureNoticePrompt(report FailureReport) string {
+func BuildFailureNoticePrompt(report FailureReport) string {
 	sections := []string{
 		failureNoticeFramingInstruction(report.Phase),
-		responseLanguageInstruction(report.ResponseLanguage),
+		ResponseLanguageInstruction(report.ResponseLanguage),
 		"Use only the compact failure context below. Do not infer from earlier conversation history.",
 	}
 	if completedSummaryInstruction := failureNoticeCompletedSummaryInstruction(report); completedSummaryInstruction != "" {
@@ -524,9 +453,9 @@ func buildFailureNoticePrompt(report FailureReport) string {
 	return strings.Join(sections, "\n\n")
 }
 
-func buildFailureNoticeRepairPrompt(report FailureReport, rejectedReply string, repairCount int) string {
+func BuildFailureNoticeRepairPrompt(report FailureReport, rejectedReply string, repairCount int) string {
 	sections := []string{
-		buildFailureNoticePrompt(report),
+		BuildFailureNoticePrompt(report),
 		"Previous draft was rejected because it was unsafe, too long, exposed internal diagnostics, or claimed unavailable delivery.",
 		"Rewrite it as a concise user-facing notice. Preserve only safe facts from the compact context.",
 		"Rejected draft:\n" + strings.TrimSpace(rejectedReply),
@@ -537,10 +466,10 @@ func buildFailureNoticeRepairPrompt(report FailureReport, rejectedReply string, 
 	return strings.Join(sections, "\n\n")
 }
 
-func buildFailureNoticeCompressionPrompt(report FailureReport, reply string, maximumCharacters int) string {
+func BuildFailureNoticeCompressionPrompt(report FailureReport, reply string, maximumCharacters int) string {
 	return strings.Join([]string{
 		"You are compressing a user-facing failure notice for Mattermost.",
-		responseLanguageInstruction(report.ResponseLanguage),
+		ResponseLanguageInstruction(report.ResponseLanguage),
 		"Keep the same meaning and omit internal diagnostics.",
 		"Write one or two natural sentences.",
 		"Maximum characters: " + strconv.Itoa(maximumCharacters),
@@ -549,10 +478,10 @@ func buildFailureNoticeCompressionPrompt(report FailureReport, reply string, max
 	}, "\n\n")
 }
 
-func buildFinishMessageCompressionPrompt(reply string, responseLanguage string, maximumCharacters int) string {
+func BuildFinishMessageCompressionPrompt(reply string, responseLanguage string, maximumCharacters int) string {
 	return strings.Join([]string{
 		"You are compressing a successful user-facing reply for Mattermost.",
-		responseLanguageInstruction(responseLanguage),
+		ResponseLanguageInstruction(responseLanguage),
 		"Keep the concrete result, attachment filenames, and next useful action if present.",
 		"Do not add claims that were not in the original reply.",
 		"Write a concise reply under the character limit.",
@@ -561,7 +490,7 @@ func buildFinishMessageCompressionPrompt(reply string, responseLanguage string, 
 	}, "\n\n")
 }
 
-func buildFailureNotice(message string, source string, report FailureReport) FailureNotice {
+func BuildFailureNotice(message string, source string, report FailureReport) FailureNotice {
 	trimmedMessage := strings.TrimSpace(message)
 	return FailureNotice{
 		Message:           trimmedMessage,
@@ -573,10 +502,10 @@ func buildFailureNotice(message string, source string, report FailureReport) Fai
 }
 
 func failureNoticeMessageIsSendableForReport(message string, _ FailureReport) bool {
-	return failureNoticeMessageIsSendable(message)
+	return FailureNoticeMessageIsSendable(message)
 }
 
-func failureNoticeMessageIsSendable(message string) bool {
+func FailureNoticeMessageIsSendable(message string) bool {
 	trimmedMessage := strings.TrimSpace(message)
 	if trimmedMessage == "" {
 		return false
@@ -587,6 +516,42 @@ func failureNoticeMessageIsSendable(message string) bool {
 	return true
 }
 
-func textExceedsCharacterBudget(value string, maximumCharacters int) bool {
+func TextExceedsCharacterBudget(value string, maximumCharacters int) bool {
 	return maximumCharacters > 0 && len([]rune(strings.TrimSpace(value))) > maximumCharacters
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
+}
+
+func errorString(errorValue error) string {
+	if errorValue == nil {
+		return ""
+	}
+	return errorValue.Error()
+}
+
+func compactWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func truncateText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "..."
+}
+
+func marshalEventBody(value any) string {
+	body, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return ""
+	}
+	return string(body)
 }
