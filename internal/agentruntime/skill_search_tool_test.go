@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"strings"
 	"testing"
@@ -14,19 +15,19 @@ import (
 type recordingSkillSearchRetriever struct {
 	instructions []bluecollar.SkillInstruction
 	limit        int
-	candidates   []bluecollar.SkillCandidate
+	candidates   []agentcontract.SkillCandidate
 }
 
-func (retriever *recordingSkillSearchRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) bluecollar.SkillRetrievalResult {
-	return bluecollar.SkillRetrievalResult{}
+func (retriever *recordingSkillSearchRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) agentcontract.SkillRetrievalResult {
+	return agentcontract.SkillRetrievalResult{}
 }
 
-func (retriever *recordingSkillSearchRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, instructions []bluecollar.SkillInstruction, _ bluecollar.SkillSearchQuerySet, limit int) bluecollar.SkillRetrievalResult {
+func (retriever *recordingSkillSearchRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, instructions []bluecollar.SkillInstruction, _ agentcontract.SkillSearchQuerySet, limit int) agentcontract.SkillRetrievalResult {
 	retriever.instructions = append([]bluecollar.SkillInstruction{}, instructions...)
 	retriever.limit = limit
-	return bluecollar.SkillRetrievalResult{
+	return agentcontract.SkillRetrievalResult{
 		CandidateCount:     len(retriever.candidates),
-		SelectedCandidates: append([]bluecollar.SkillCandidate{}, retriever.candidates...),
+		SelectedCandidates: append([]agentcontract.SkillCandidate{}, retriever.candidates...),
 	}
 }
 
@@ -60,11 +61,11 @@ func TestSkillSearchListModeIsBoundedAndStructured(t *testing.T) {
 
 func TestSkillSearchSearchModeCapsRetrieverAndPublicResults(t *testing.T) {
 	instructions := make([]bluecollar.SkillInstruction, 0, 10)
-	candidates := make([]bluecollar.SkillCandidate, 0, 10)
+	candidates := make([]agentcontract.SkillCandidate, 0, 10)
 	for index := 0; index < 10; index++ {
 		name := fmt.Sprintf("skill-%02d", index)
 		instructions = append(instructions, bluecollar.SkillInstruction{Name: name, Description: name})
-		candidates = append(candidates, bluecollar.SkillCandidate{Name: name, Score: float64(10 - index)})
+		candidates = append(candidates, agentcontract.SkillCandidate{Name: name, Score: float64(10 - index)})
 	}
 	retriever := &recordingSkillSearchRetriever{candidates: candidates}
 	toolSet := canonicalSkillSearchToolSet(retriever, instructions)
@@ -84,11 +85,11 @@ func TestSkillSearchSearchModeCapsRetrieverAndPublicResults(t *testing.T) {
 
 func TestSkillSearchSearchModeSlicesBoundedMatchesByRequestedLimit(t *testing.T) {
 	instructions := make([]bluecollar.SkillInstruction, 0, 10)
-	candidates := make([]bluecollar.SkillCandidate, 0, 10)
+	candidates := make([]agentcontract.SkillCandidate, 0, 10)
 	for index := 0; index < 10; index++ {
 		name := fmt.Sprintf("skill-%02d", index)
 		instructions = append(instructions, bluecollar.SkillInstruction{Name: name, Description: name})
-		candidates = append(candidates, bluecollar.SkillCandidate{Name: name, Score: float64(10 - index)})
+		candidates = append(candidates, agentcontract.SkillCandidate{Name: name, Score: float64(10 - index)})
 	}
 	retriever := &recordingSkillSearchRetriever{candidates: candidates}
 	toolSet := canonicalSkillSearchToolSet(retriever, instructions)
@@ -163,7 +164,7 @@ func TestSkillSearchFiltersUnavailableToolReferencesBeforeEveryMode(t *testing.T
 		{Name: "available", Description: "Available skill.", ToolReferences: []string{"file_read"}},
 		{Name: "unavailable", Description: "Unavailable skill.", ToolReferences: []string{"missing.tool"}},
 	}
-	retriever := &recordingSkillSearchRetriever{candidates: []bluecollar.SkillCandidate{
+	retriever := &recordingSkillSearchRetriever{candidates: []agentcontract.SkillCandidate{
 		{Name: "unavailable", Score: 1},
 		{Name: "available", Score: 0.5},
 	}}
@@ -249,7 +250,7 @@ func TestSkillSearchResultContractRejectsMalformedOutput(t *testing.T) {
 	}
 }
 
-func canonicalSkillSearchToolSet(retriever bluecollar.SkillRetriever, instructions []bluecollar.SkillInstruction) *toolcontract.ToolSet {
+func canonicalSkillSearchToolSet(retriever agentcontract.SkillRetriever, instructions []bluecollar.SkillInstruction) *toolcontract.ToolSet {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(retriever, func() bluecollar.InstructionBundle {
 		return bluecollar.InstructionBundle{Skills: instructions}

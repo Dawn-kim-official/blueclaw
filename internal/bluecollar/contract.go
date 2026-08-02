@@ -54,7 +54,12 @@ type (
 	PriorTaskReference                      = agentcontract.PriorTaskReference
 	RecoveryBudget                          = agentcontract.RecoveryBudget
 	ScheduledRunContext                     = agentcontract.ScheduledRunContext
+	SkillCandidate                          = agentcontract.SkillCandidate
 	SkillInstruction                        = agentcontract.SkillInstruction
+	SkillRetrievalResult                    = agentcontract.SkillRetrievalResult
+	SkillRetriever                          = agentcontract.SkillRetriever
+	SkillSearchQuery                        = agentcontract.SkillSearchQuery
+	SkillSearchQuerySet                     = agentcontract.SkillSearchQuerySet
 	SkillSelectionDecision                  = agentcontract.SkillSelectionDecision
 	TaskControlIntent                       = agentcontract.TaskControlIntent
 	TaskControlIntentDecision               = agentcontract.TaskControlIntentDecision
@@ -157,15 +162,16 @@ const (
 )
 
 var (
-	DefaultResponseLanguage        = toolcontract.DefaultResponseLanguage
-	IsApprovingSignal              = agentcontract.IsApprovingSignal
-	LargerTaskLevel                = agentcontract.LargerTaskLevel
-	NormalizeResponseLanguage      = toolcontract.NormalizeResponseLanguage
-	NormalizeTaskLevel             = agentcontract.NormalizeTaskLevel
-	OutcomeContractHasRequirements = agentcontract.OutcomeContractHasRequirements
-	ResolveResponseLanguage        = toolcontract.ResolveResponseLanguage
-	NormalizePlan                  = toolcontract.NormalizePlan
-	normalizePlanSteps             = toolcontract.NormalizePlanSteps
+	DefaultResponseLanguage              = toolcontract.DefaultResponseLanguage
+	IsApprovingSignal                    = agentcontract.IsApprovingSignal
+	LargerTaskLevel                      = agentcontract.LargerTaskLevel
+	NormalizeResponseLanguage            = toolcontract.NormalizeResponseLanguage
+	NormalizeTaskLevel                   = agentcontract.NormalizeTaskLevel
+	OutcomeContractHasRequirements       = agentcontract.OutcomeContractHasRequirements
+	VisibleSkillInstructionsForRequester = agentcontract.VisibleSkillInstructionsForRequester
+	ResolveResponseLanguage              = toolcontract.ResolveResponseLanguage
+	NormalizePlan                        = toolcontract.NormalizePlan
+	normalizePlanSteps                   = toolcontract.NormalizePlanSteps
 
 	ObservationIDFromContext          = toolcontract.ObservationIDFromContext
 	ResponseLanguageFromContext       = toolcontract.ResponseLanguageFromContext

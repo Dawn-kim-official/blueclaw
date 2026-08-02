@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"io"
 	"os"
@@ -386,18 +387,18 @@ func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(conte
 
 type skillSearchTestRetriever struct{}
 
-func (skillSearchTestRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) bluecollar.SkillRetrievalResult {
-	return bluecollar.SkillRetrievalResult{}
+func (skillSearchTestRetriever) Retrieve(context.Context, bluecollar.AgentRequest, []bluecollar.SkillInstruction, int) agentcontract.SkillRetrievalResult {
+	return agentcontract.SkillRetrievalResult{}
 }
 
-func (skillSearchTestRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, _ []bluecollar.SkillInstruction, querySet bluecollar.SkillSearchQuerySet, _ int) bluecollar.SkillRetrievalResult {
+func (skillSearchTestRetriever) Search(_ context.Context, _ bluecollar.AgentRequest, _ []bluecollar.SkillInstruction, querySet agentcontract.SkillSearchQuerySet, _ int) agentcontract.SkillRetrievalResult {
 	if len(querySet.Queries) == 0 {
-		return bluecollar.SkillRetrievalResult{}
+		return agentcontract.SkillRetrievalResult{}
 	}
-	return bluecollar.SkillRetrievalResult{
+	return agentcontract.SkillRetrievalResult{
 		RetrievalMode: "embedding",
 		IndexStatus:   "ready",
-		SelectedCandidates: []bluecollar.SkillCandidate{{
+		SelectedCandidates: []agentcontract.SkillCandidate{{
 			Name:   "mail",
 			Score:  0.91,
 			Reason: "embedding_similarity",
