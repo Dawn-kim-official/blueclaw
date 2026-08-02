@@ -52,13 +52,21 @@ func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Cont
 		"reasonDetail":      "runtime approval gate for " + heldCall.ToolName,
 		"responseLanguage":  request.ResponseLanguage,
 	}))
-	agentTurnRunner.appendEvent(taskRunID, "ask.requested", marshalEventBody(map[string]any{
+	askBody := map[string]any{
 		"kind":             "ask_confirm",
 		"message":          confirmation,
 		"reasonCode":       "external_send",
 		"reasonDetail":     "runtime approval gate for " + heldCall.ToolName,
 		"responseLanguage": request.ResponseLanguage,
-	}))
+	}
+	// A tool that belongs to an approval family can be approved for the rest of the
+	// task instead of once, so the user is not asked again for every step of the
+	// same piece of work.
+	if scope := approvalScopeForTool(request.ToolSet, heldCall.ToolName); scope != "" {
+		askBody["approvalScope"] = scope
+		askBody["sessionApprovable"] = true
+	}
+	agentTurnRunner.appendEvent(taskRunID, "ask.requested", marshalEventBody(askBody))
 	agentTurnRunner.saveStep(taskRunID, stepID, taskstate.TaskStatusWaitingApproval, "approval "+heldCall.ToolName, confirmation)
 	return toolCallActionOutcome{
 		Result:       AgentTurnResult{TaskRun: pausedTaskRun, UserNotice: confirmation, Attachments: state.Attachments},
@@ -90,6 +98,9 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 	observation := agentTurnRunner.invokeTool(ctx, executionToolSet, taskRunID, observationID, heldCall.ToolName, heldCall.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, "")
 	agentTurnRunner.appendEvent(taskRunID, "approval.executed", marshalEventBody(approvalExecutedCall{ToolName: heldCall.ToolName, ToolInput: copyJSONRawMessage(heldCall.ToolInput)}))
+	if scope := approvalScopeForTool(request.ToolSet, heldCall.ToolName); scope != "" {
+		agentTurnRunner.appendEvent(taskRunID, "approval.scope_granted", marshalEventBody(map[string]string{"scope": scope}))
+	}
 	request.ApprovedHeldCallKey = ""
 	state.Request = request
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
@@ -190,6 +201,44 @@ func approvalHeldCallExecutedAfter(taskEvents []taskstate.TaskEvent, toolName st
 		}
 	}
 	return false
+}
+
+// A tool that names an approval scope belongs to a family the user approves once
+// per task. Everything else - a send, a delete - stays a per-call decision, because
+// approving one of those must never stand in for approving the next.
+func approvalScopeForTool(toolSet *toolcontract.ToolSet, toolName string) string {
+	definition, isFound := toolSet.ToolDefinition(strings.TrimSpace(toolName))
+	if !isFound {
+		return ""
+	}
+	return strings.TrimSpace(definition.ApprovalScope)
+}
+
+func (agentTurnRunner *AgentTurnRunner) taskAlreadyApprovedScope(taskRunID string, toolSet *toolcontract.ToolSet, toolName string) bool {
+	scope := approvalScopeForTool(toolSet, toolName)
+	if scope == "" {
+		return false
+	}
+	return taskApprovedScopes(agentTurnRunner.taskRunService.ListTaskEvent(taskRunID))[scope]
+}
+
+func taskApprovedScopes(taskEvents []taskstate.TaskEvent) map[string]bool {
+	approvedScopes := map[string]bool{}
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name != "approval.scope_granted" {
+			continue
+		}
+		var body struct {
+			Scope string `json:"scope"`
+		}
+		if json.Unmarshal([]byte(taskEvent.Body), &body) != nil {
+			continue
+		}
+		if scope := strings.TrimSpace(body.Scope); scope != "" {
+			approvedScopes[scope] = true
+		}
+	}
+	return approvedScopes
 }
 
 func toolCallRequiresRuntimeApproval(toolSet *toolcontract.ToolSet, actionDocument turnActionDocument) bool {

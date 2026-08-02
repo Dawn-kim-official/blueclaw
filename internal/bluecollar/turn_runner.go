@@ -693,7 +693,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return outcome
 	}
 	agentTurnRunner.notePlanMissingBeforeStateChange(taskRunID, request, state, actionDocument)
-	if toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) && !isExemptFromApprovalHold(request, actionDocument) {
+	if toolCallRequiresRuntimeApproval(request.ToolSet, actionDocument) &&
+		!isExemptFromApprovalHold(request, actionDocument) &&
+		!agentTurnRunner.taskAlreadyApprovedScope(taskRunID, request.ToolSet, actionDocument.ToolName) {
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}
 	state.ToolCallCount++
