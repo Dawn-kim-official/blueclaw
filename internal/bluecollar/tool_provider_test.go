@@ -147,7 +147,7 @@ func TestRegisterProviderRejectsModelVisibleToolWithoutResultContract(t *testing
 }
 
 func TestRegisterProviderAllowsHiddenToolWithoutResultContract(t *testing.T) {
-	providerTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm_text")
+	providerTool := validProviderTool("capabilityd/internal/llm_text", "internal", "llm_text")
 	providerTool.Definition.Visibility = toolcontract.ToolVisibilityInternal
 	providerTool.Definition.ResultContract = nil
 	toolSet := toolcontract.NewToolSet([]string{"llm_text"})
@@ -764,7 +764,7 @@ func TestRegisterBoundToolRejectsOverwrite(t *testing.T) {
 }
 
 func TestProviderVisibilityControlsModelExposure(t *testing.T) {
-	hiddenTool := validProviderTool("capabilityd/internal/llm.text", "internal", "llm_text")
+	hiddenTool := validProviderTool("capabilityd/internal/llm_text", "internal", "llm_text")
 	hiddenTool.Definition.Visibility = toolcontract.ToolVisibilityInternal
 	toolSet := toolcontract.NewToolSet([]string{"llm_text"})
 

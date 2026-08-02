@@ -1442,7 +1442,7 @@ func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 
 func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
-	legacyDocument := `[{"skillName":"presentation","sourcePath":"skills/presentation/SKILL.md","sourceSHA256":"one","searchText":"Create presentation slides.","embeddingModel":"embedding.create","embedding":[1],"indexedAt":"2026-01-01T00:00:00Z"}]`
+	legacyDocument := `[{"skillName":"presentation","sourcePath":"skills/presentation/SKILL.md","sourceSHA256":"one","searchText":"Create presentation slides.","embeddingModel":"embedding_create","embedding":[1],"indexedAt":"2026-01-01T00:00:00Z"}]`
 	if errorValue := os.WriteFile(indexPath, []byte(legacyDocument), 0o644); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1461,7 +1461,7 @@ func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	if !strings.Contains(string(document), skillSearchDocumentVersion) {
 		t.Fatalf("expected versioned skill index, got %s", string(document))
 	}
-	if strings.Contains(string(document), `"embeddingModel": "embedding.create"`) {
+	if strings.Contains(string(document), `"embeddingModel": "embedding_create"`) {
 		t.Fatalf("expected legacy embedding model key to be replaced, got %s", string(document))
 	}
 }

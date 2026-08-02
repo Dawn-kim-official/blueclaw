@@ -40,3 +40,12 @@ func TestScopelessToolNeverBecomesSessionApproved(t *testing.T) {
 		t.Fatalf("expected a tool outside the set to claim no family, got %q", scope)
 	}
 }
+
+func TestApprovingSignalCoversBothApprovalChoices(t *testing.T) {
+	if !IsApprovingSignal(ApprovalSignalApprove) || !IsApprovingSignal(ApprovalSignalApproveTask) {
+		t.Fatal("expected both approval choices to let the held call run")
+	}
+	if IsApprovingSignal(ApprovalSignalReject) || IsApprovingSignal(ApprovalSignalUnclear) {
+		t.Fatal("expected a rejection or an unclear reply never to run the held call")
+	}
+}
