@@ -8,59 +8,11 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/toolcontract"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
-type IntakeClassification string
-type TaskShape string
-type TurnRoute string
-type ApprovalSignal string
-type BusyRoute string
-type PriorTaskReference string
-
-const (
-	IntakeClassificationQuickReply        IntakeClassification = "quick_reply"
-	IntakeClassificationBoundedTask       IntakeClassification = "bounded_task"
-	IntakeClassificationNeedsConfirmation IntakeClassification = "needs_confirmation"
-	IntakeClassificationUnsupported       IntakeClassification = "unsupported"
-
-	TaskShapeImmediateReply     TaskShape = "immediate_reply"
-	TaskShapeResearchTask       TaskShape = "research_task"
-	TaskShapeMaintenanceTask    TaskShape = "maintenance_task"
-	TaskShapeScheduledTask      TaskShape = "scheduled_task"
-	TaskShapeBrowserHandoffTask TaskShape = "browser_handoff_task"
-	TaskShapeApprovalGatedTask  TaskShape = "approval_gated_task"
-
-	TurnRouteContinueTask   TurnRoute = "continue_task"
-	TurnRouteReviseTask     TurnRoute = "revise_task"
-	TurnRouteAnswerQuestion TurnRoute = "answer_question"
-	TurnRouteStartTask      TurnRoute = "start_task"
-	TurnRouteAnswerMeta     TurnRoute = "answer_meta"
-	TurnRouteClarify        TurnRoute = "clarify"
-	TurnRouteConsume        TurnRoute = "consume"
-	TurnRouteGiveUp         TurnRoute = "give_up"
-
-	BusyRouteStatus    BusyRoute = "status"
-	BusyRouteSteer     BusyRoute = "steer"
-	BusyRouteReplace   BusyRoute = "replace"
-	BusyRouteCancel    BusyRoute = "cancel"
-	BusyRouteNewTask   BusyRoute = "new_task"
-	BusyRouteUnrelated BusyRoute = "unrelated"
-
-	PriorTaskReferenceNone            PriorTaskReference = "none"
-	PriorTaskReferenceOutcomeRecovery PriorTaskReference = "outcome_recovery"
-
-	DefaultReactionEmojiName = "white_check_mark"
-
-	ApprovalSignalApprove ApprovalSignal = "approve"
-	// approve_task approves the whole family of work for the rest of this task, so
-	// the person is asked once instead of at every step of the same job.
-	ApprovalSignalApproveTask ApprovalSignal = "approve_task"
-	ApprovalSignalReject      ApprovalSignal = "reject"
-	ApprovalSignalUnclear     ApprovalSignal = "unclear"
-)
+const DefaultReactionEmojiName = "white_check_mark"
 
 var allowedReactionEmojiNames = reactionEmojiNames
 
@@ -69,166 +21,6 @@ type IntakeOptions struct {
 	DefaultTaskLevel      TaskLevel
 	SkillTaskLevelFloor   TaskLevel
 	DebugAddressingReason bool
-}
-
-type AgentRequest struct {
-	RequesterPersonID          string
-	RequesterName              string
-	RequesterCallingName       string
-	RequesterHandle            string
-	RequesterCircles           []string
-	SourceReference            string
-	IsApprovalContinuation     bool
-	IsRuntimeRestartResume     bool
-	ExistingTaskRunID          string
-	OriginReplyTargetID        string
-	OriginIsThread             bool
-	ProfileName                string
-	ConversationID             string
-	ConversationType           string
-	Prompt                     string
-	InputParts                 []AgentPart
-	ResponseLanguage           string
-	VisibleContext             VisibleContext
-	MemoryFacts                []MemoryFact
-	ToolSet                    *toolcontract.ToolSet
-	PinnedToolNames            []string
-	PinnedSkillNames           []string
-	WorkspaceRootPath          string
-	ActivePaths                []string
-	InstructionPrompt          string
-	ActiveGoal                 ActiveGoal
-	PriorTask                  PriorTaskContext
-	ScheduledRun               ScheduledRunContext
-	ActiveTask                 ActiveTaskContext
-	PendingConfirmation        PendingConfirmationContext
-	PendingChoice              PendingChoiceContext
-	PendingInput               PendingInputContext
-	TaskShape                  TaskShape
-	AllowGiveUp                bool
-	AllowGiveUpReason          string
-	PrecomputedTurnDecision    *TurnDecision
-	IsPrecomputedDecisionExact bool
-	SkipSkillSelection         bool
-	AmbientDuty                AmbientDutyContext
-	TaskLevel                  TaskLevel
-	TurnStartedAt              time.Time
-	CheckpointSender           AgentCheckpointSender
-}
-
-type PendingConfirmationContext struct {
-	TaskRunID string
-	Prompt    string
-	Question  string
-}
-
-type ActiveTaskContext struct {
-	TaskRunID string
-	Prompt    string
-	Status    string
-	Summary   string
-}
-
-type PendingChoiceContext struct {
-	TaskRunID     string
-	Question      string
-	SelectionMode string
-	Options       []ChoiceReplyOption
-}
-
-type PendingInputContext struct {
-	TaskRunID     string
-	Question      string
-	SelectionMode string
-	Options       []ChoiceReplyOption
-}
-
-type IntakeDecision struct {
-	Classification         IntakeClassification  `json:"classification"`
-	TaskShape              TaskShape             `json:"taskShape"`
-	TaskLevel              TaskLevel             `json:"level"`
-	EstimatedMinutes       int                   `json:"estimatedMinutes"`
-	RequestedOutputFormats []string              `json:"requestedOutputFormats"`
-	DeliverableKind        DeliverableKind       `json:"deliverableKind,omitempty"`
-	ExpectedResults        []ExpectedResult      `json:"expectedResults,omitempty"`
-	ResponseLanguage       string                `json:"responseLanguage"`
-	Reason                 string                `json:"reason"`
-	UserFacingReply        string                `json:"userFacingReply"`
-	InitialToolNames       []string              `json:"initialToolNames,omitempty"`
-	PriorTaskReference     PriorTaskReference    `json:"priorTaskReference,omitempty"`
-	ClarificationQuestion  string                `json:"clarificationQuestion,omitempty"`
-	ClarificationOptions   []ClarificationOption `json:"clarificationOptions,omitempty"`
-}
-
-type DeliverableKind string
-
-const (
-	DeliverableKindWebsite      DeliverableKind = "website"
-	DeliverableKindPresentation DeliverableKind = "presentation"
-	DeliverableKindDocument     DeliverableKind = "document"
-	DeliverableKindNone         DeliverableKind = "none"
-)
-
-type ClarificationOption struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	Value string `json:"value,omitempty"`
-}
-
-type TurnDecision struct {
-	Route                  TurnRoute             `json:"route"`
-	Classification         IntakeClassification  `json:"classification"`
-	TaskShape              TaskShape             `json:"taskShape"`
-	TaskLevel              TaskLevel             `json:"level"`
-	EstimatedMinutes       int                   `json:"estimatedMinutes"`
-	RequestedOutputFormats []string              `json:"requestedOutputFormats"`
-	DeliverableKind        DeliverableKind       `json:"deliverableKind,omitempty"`
-	ExpectedResults        []ExpectedResult      `json:"expectedResults,omitempty"`
-	ResponseLanguage       string                `json:"responseLanguage"`
-	Reason                 string                `json:"reason"`
-	UserFacingReply        string                `json:"userFacingReply"`
-	InitialToolNames       []string              `json:"initialToolNames,omitempty"`
-	PriorTaskReference     PriorTaskReference    `json:"priorTaskReference,omitempty"`
-	Approval               *ApprovalSignal       `json:"approval,omitempty"`
-	Choices                []string              `json:"choices,omitempty"`
-	ClarificationQuestion  string                `json:"clarificationQuestion,omitempty"`
-	ClarificationOptions   []ClarificationOption `json:"clarificationOptions,omitempty"`
-	ReactionEmojiName      string                `json:"reactionEmojiName,omitempty"`
-	BusyRoute              BusyRoute             `json:"busyRoute,omitempty"`
-	BusyInstruction        string                `json:"busyInstruction,omitempty"`
-}
-
-func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
-	return IntakeDecision{
-		Classification:         turnDecision.Classification,
-		TaskShape:              turnDecision.TaskShape,
-		TaskLevel:              NormalizeTaskLevel(string(turnDecision.TaskLevel)),
-		EstimatedMinutes:       turnDecision.EstimatedMinutes,
-		RequestedOutputFormats: append([]string{}, turnDecision.RequestedOutputFormats...),
-		DeliverableKind:        turnDecision.DeliverableKind,
-		ExpectedResults:        normalizeExpectedResults(turnDecision.ExpectedResults),
-		ResponseLanguage:       turnDecision.ResponseLanguage,
-		Reason:                 turnDecision.Reason,
-		UserFacingReply:        turnDecision.UserFacingReply,
-		InitialToolNames:       append([]string{}, turnDecision.InitialToolNames...),
-		PriorTaskReference:     normalizePriorTaskReference(turnDecision.PriorTaskReference),
-		ClarificationQuestion:  turnDecision.ClarificationQuestion,
-		ClarificationOptions:   append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
-	}
-}
-
-func (turnDecision TurnDecision) WithRestoredIntakeState(intakeDecision IntakeDecision) TurnDecision {
-	if intakeDecision.EstimatedMinutes < 1 {
-		return turnDecision
-	}
-	turnDecision.Classification = intakeDecision.Classification
-	turnDecision.TaskShape = intakeDecision.TaskShape
-	turnDecision.TaskLevel = intakeDecision.TaskLevel
-	turnDecision.EstimatedMinutes = intakeDecision.EstimatedMinutes
-	turnDecision.RequestedOutputFormats = append([]string{}, intakeDecision.RequestedOutputFormats...)
-	turnDecision.ExpectedResults = normalizeExpectedResults(intakeDecision.ExpectedResults)
-	turnDecision.InitialToolNames = append([]string{}, intakeDecision.InitialToolNames...)
-	return turnDecision
 }
 
 type TaskIntakePlanner struct {
@@ -661,15 +453,6 @@ func normalizeTurnDecisionFileRequirement(decision TurnDecision) TurnDecision {
 	return decision
 }
 
-func normalizePriorTaskReference(reference PriorTaskReference) PriorTaskReference {
-	switch reference {
-	case PriorTaskReferenceOutcomeRecovery:
-		return PriorTaskReferenceOutcomeRecovery
-	default:
-		return PriorTaskReferenceNone
-	}
-}
-
 func turnRouterSchema(request AgentRequest) string {
 	callableToolNames := []string{}
 	if request.ToolSet != nil {
@@ -967,15 +750,6 @@ func normalizeTaskShape(taskShape TaskShape) TaskShape {
 	}
 }
 
-func normalizeClassification(classification IntakeClassification) IntakeClassification {
-	switch classification {
-	case IntakeClassificationQuickReply, IntakeClassificationBoundedTask, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
-		return classification
-	default:
-		return ""
-	}
-}
-
 func normalizeTurnRoute(route TurnRoute) TurnRoute {
 	switch route {
 	case TurnRouteContinueTask, TurnRouteReviseTask, TurnRouteAnswerQuestion, TurnRouteStartTask, TurnRouteAnswerMeta, TurnRouteClarify, TurnRouteConsume, TurnRouteGiveUp:
@@ -1127,16 +901,6 @@ func registeredToolNamesOnly(toolRegistry *toolcontract.ToolSet, toolNames []str
 		}
 	}
 	return registeredToolNames
-}
-
-func (intakeDecision IntakeDecision) Validate() error {
-	if normalizeClassification(intakeDecision.Classification) == "" {
-		return errors.New("intake classification is invalid")
-	}
-	if NormalizeTaskLevel(string(intakeDecision.TaskLevel)) == "" {
-		return errors.New("intake task level is invalid")
-	}
-	return nil
 }
 
 func IsApprovingSignal(signal ApprovalSignal) bool {

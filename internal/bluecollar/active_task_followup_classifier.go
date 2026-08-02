@@ -9,12 +9,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
 
-type ActiveTaskFollowUpClassificationRequest struct {
-	ActiveTaskPrompt string
-	ActiveTaskStatus string
-	LatestMessage    string
-}
-
 type activeTaskFollowUpClassificationDocument struct {
 	RelatesToActiveTask bool `json:"relatesToActiveTask"`
 }

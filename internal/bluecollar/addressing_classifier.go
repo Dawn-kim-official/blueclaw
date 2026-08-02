@@ -6,40 +6,9 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/model"
 )
-
-type AddressingTarget string
-
-const (
-	AddressingTargetBot     AddressingTarget = "bot"
-	AddressingTargetHuman   AddressingTarget = "human"
-	AddressingTargetAnyone  AddressingTarget = "anyone"
-	AddressingTargetNone    AddressingTarget = "none"
-	AddressingTargetUnclear AddressingTarget = "unclear"
-)
-
-type AddressingClassificationRequest struct {
-	Prompt           string
-	BotMentioned     bool
-	MessageSentAt    time.Time
-	ConversationType string
-	SenderName       string
-	SenderHandle     string
-	VisibleContext   VisibleContext
-}
-
-type AddressingDecision struct {
-	Target         AddressingTarget
-	ShouldRespond  bool
-	ReactionEmoji  string
-	Reason         string
-	DutyMatch      bool
-	DutyName       string
-	DutyConfidence float64
-}
 
 type addressingClassificationDocument struct {
 	Target         AddressingTarget `json:"target"`
