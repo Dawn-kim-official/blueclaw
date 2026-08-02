@@ -960,7 +960,8 @@ func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *test
 }
 
 func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing.T) {
-	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
+	taskRunService := connectorRuntime.taskRunService
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "기업 문서 가이드를 docx로 만들어줘")
 	appendConnectorActiveGoal(t, taskRunService, taskRun, agentcontract.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
@@ -991,7 +992,8 @@ func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing
 }
 
 func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T) {
-	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
+	taskRunService := connectorRuntime.taskRunService
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"}, "기업 문서 가이드를 docx로 만들어줘")
 	appendConnectorActiveGoal(t, taskRunService, taskRun, agentcontract.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
@@ -1049,7 +1051,8 @@ func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T
 }
 
 func TestConnectorRuntimeProvidesRecentPriorTaskContextWithoutTextInference(t *testing.T) {
-	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
+	taskRunService := connectorRuntime.taskRunService
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"}, "기업 문서 가이드를 워드 파일로 만들어줘")
 	if _, errorValue := taskRunService.CompleteTaskRun(taskRun.TaskRunID, "요청하신 작업이 이미 성공적으로 완료되었습니다."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -1071,7 +1074,8 @@ func TestConnectorRuntimeProvidesRecentPriorTaskContextWithoutTextInference(t *t
 }
 
 func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
-	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime, _, _ := newStubbedTestConnectorRuntime(t)
+	taskRunService := connectorRuntime.taskRunService
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "웹사이트 만들어줘")
 	appendConnectorActiveGoal(t, taskRunService, taskRun, agentcontract.ActiveGoal{
 		TaskRunID:           taskRun.TaskRunID,
@@ -1282,16 +1286,8 @@ func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T)
 }
 
 func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"tada"}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnResult = agentcontract.AgentTurnResult{TurnRoute: agentcontract.TurnRouteConsume, ReactionEmojiName: "tada"}
 	event := testInboundEvent("message-consume")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
@@ -1318,16 +1314,8 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 }
 
 func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"알겠습니다.","reactionEmojiName":"tada"}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnResult = agentcontract.AgentTurnResult{TurnRoute: agentcontract.TurnRouteConsume, ReactionEmojiName: "tada", FinishMessage: "알겠습니다."}
 	adapter.reactionError = errors.New("reaction failed")
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
@@ -1349,16 +1337,8 @@ func TestConnectorRuntimeDirectConsumeFallsBackToReplyWhenReactionFails(t *testi
 }
 
 func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"확인했습니다.","reactionEmojiName":"white_check_mark"}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnResult = agentcontract.AgentTurnResult{TurnRoute: agentcontract.TurnRouteConsume, ReactionEmojiName: "white_check_mark", FinishMessage: "확인했습니다."}
 	event := testInboundEvent("message-direct-consume")
 	event.Context.ConversationType = "D"
 
@@ -1373,16 +1353,8 @@ func TestConnectorRuntimeDirectConsumeFallsBackWithoutReactionAdapter(t *testing
 }
 
 func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnResult = agentcontract.AgentTurnResult{TurnRoute: agentcontract.TurnRouteConsume}
 	noReactionAdapter := testAdapterWithoutReaction{adapter: adapter}
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), noReactionAdapter, testInboundEvent("message-consume"))
@@ -1399,16 +1371,8 @@ func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T)
 }
 
 func TestConnectorRuntimeReactionFailureDoesNotSendFallbackReply(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	connectorRuntime, adapter, harness := newStubbedTestConnectorRuntime(t)
+	harness.TurnResult = agentcontract.AgentTurnResult{TurnRoute: agentcontract.TurnRouteConsume}
 	adapter.reactionError = errors.New("reaction failed")
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-consume"))
