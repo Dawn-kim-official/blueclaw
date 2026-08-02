@@ -2,12 +2,12 @@ package bluecollar
 
 import (
 	"context"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"errors"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 func TestTaskContextCompactionTriggersOnlyOverBudget(t *testing.T) {
@@ -150,7 +150,7 @@ func (languageModel *truncatingSummaryLanguageModel) GenerateResponse(context.Co
 func (languageModel *truncatingSummaryLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
 	if request.StructuredOutputSchema.Name == "blueclaw_task_context_summary" {
-		return model.StructuredResponse{}, llm.StructuredOutputTruncatedError{FinishReason: "length", ContentBytes: 128}
+		return model.StructuredResponse{}, errors.New("structured output truncated: finish reason length")
 	}
 	return model.StructuredResponse{Content: finishMessageDocument("done")}, nil
 }
