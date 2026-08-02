@@ -28,7 +28,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	if !isFound {
 		return connectorRuntime.handlePossibleFinishedTaskFollowUp(ctx, platform, event, replyTarget, personID, sendReply)
 	}
-	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,

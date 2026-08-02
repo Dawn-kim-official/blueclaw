@@ -353,6 +353,7 @@ type ConnectorRuntime struct {
 	identityService        *identity.IdentityService
 	harness                agentcontract.Harness
 	intakeClassifier       IntakeClassifier
+	turnRouter             TurnRouter
 	replyGenerator         ReplyGenerator
 	launchFailureCompleter LaunchFailureCompleter
 	taskRunService         *taskstate.TaskRunService
@@ -547,6 +548,14 @@ type ReplyGenerator interface {
 
 func (connectorRuntime *ConnectorRuntime) UseReplyGenerator(replyGenerator ReplyGenerator) {
 	connectorRuntime.replyGenerator = replyGenerator
+}
+
+type TurnRouter interface {
+	Plan(context.Context, agentcontract.AgentRequest) (agentcontract.TurnDecision, error)
+}
+
+func (connectorRuntime *ConnectorRuntime) UseTurnRouter(turnRouter TurnRouter) {
+	connectorRuntime.turnRouter = turnRouter
 }
 
 type IntakeClassifier interface {
@@ -1271,7 +1280,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 			return approval, agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationQuickReply, TaskShape: agentcontract.TaskShapeImmediateReply, TaskLevel: agentcontract.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1313,7 +1322,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
+		decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
@@ -1351,7 +1360,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 		return event, decision, true, nil
 	}
-	decision, errorValue := connectorRuntime.harness.RouteTurn(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,

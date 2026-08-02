@@ -26,6 +26,7 @@ const (
 type TaskLauncher struct {
 	harness                       agentcontract.Harness
 	launchFailureCompleter        LaunchFailureCompleter
+	turnRouter                    TurnRouter
 	taskRunService                *taskstate.TaskRunService
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
@@ -130,6 +131,14 @@ type launchMemoryResult struct {
 	Error           string
 }
 
+type TurnRouter interface {
+	Plan(context.Context, agentcontract.AgentRequest) (agentcontract.TurnDecision, error)
+}
+
+func (taskLauncher *TaskLauncher) UseTurnRouter(turnRouter TurnRouter) {
+	taskLauncher.turnRouter = turnRouter
+}
+
 type LaunchFailureCompleter interface {
 	CompleteLaunchFailure(context.Context, agentcontract.AgentTurnRequest, string, string, error) agentcontract.AgentTurnResult
 }
@@ -181,6 +190,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
 	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
 	request.ArtifactManifest = taskLauncher.conversationArtifactManifest(request, normalizedProfileName)
+	request.PrecomputedTurnDecision = taskLauncher.routedTurnDecision(ctx, request, normalizedProfileName)
 	request.VisibleContext = taskLauncher.visibleContextWithArtifactManifest(request.VisibleContext, request.ArtifactManifest)
 	execution := &taskLaunchExecution{
 		Launcher:              taskLauncher,
@@ -549,4 +559,25 @@ func bluecollarMemoryFacts(facts []memory.MemoryFact) []agentcontract.MemoryFact
 		})
 	}
 	return converted
+}
+
+func (taskLauncher *TaskLauncher) routedTurnDecision(ctx context.Context, request TaskLaunchRequest, profileName string) *agentcontract.TurnDecision {
+	if request.PrecomputedTurnDecision != nil || taskLauncher.turnRouter == nil {
+		return request.PrecomputedTurnDecision
+	}
+	turnDecision, errorValue := taskLauncher.turnRouter.Plan(ctx, agentcontract.AgentRequest{
+		RequesterPersonID: request.RequesterPersonID,
+		ConversationID:    request.ConversationID,
+		Prompt:            request.Prompt,
+		ResponseLanguage:  request.ResponseLanguage,
+		VisibleContext:    request.VisibleContext,
+		ScheduledRun:      request.ScheduledRun,
+		ActiveGoal:        request.ActiveGoal,
+		PriorTask:         request.PriorTask,
+		ToolSet:           taskLauncher.toolCatalogBuilder.BuildToolSet(taskLauncher.toolCatalogRequestForLaunch(request, profileName)),
+	})
+	if errorValue != nil {
+		return nil
+	}
+	return &turnDecision
 }
