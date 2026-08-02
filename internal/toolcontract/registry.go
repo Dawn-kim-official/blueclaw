@@ -31,6 +31,7 @@ type ToolDescriptor struct {
 	PolicyResource       string              `json:"policyResource,omitempty"`
 	SideEffectClass      string              `json:"sideEffectClass,omitempty"`
 	RequiresApproval     bool                `json:"requiresApproval,omitempty"`
+	ApprovalScope        string              `json:"approvalScope,omitempty"`
 	Completion           ToolCompletion      `json:"completion,omitempty"`
 	Idempotency          string              `json:"idempotency,omitempty"`
 	IdempotencyScope     string              `json:"idempotencyScope,omitempty"`

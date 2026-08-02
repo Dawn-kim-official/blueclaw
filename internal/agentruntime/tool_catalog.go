@@ -108,6 +108,7 @@ type CapabilityToolDescriptor struct {
 	PolicyResource       string
 	SideEffectClass      string
 	RequiresApproval     bool
+	ApprovalScope        string
 	CompletionEvidence   *CapabilityCompletionEvidence
 	Availability         CapabilityAvailability
 	Idempotency          CapabilityIdempotency
