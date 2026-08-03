@@ -197,7 +197,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		Runner:            terminalService.WorkspaceActorFactory(),
 		WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
 	})
+	selectedHarnessName := strings.TrimSpace(runtimeConfiguration.Agent.Harness.Name)
+	if selectedHarnessName == "" {
+		selectedHarnessName = harnessselection.BundledHarnessName
+	}
 	if harnessSelectionError != nil {
+		selectedHarnessName = "unavailable"
 		logger.Error("application.harness.unavailable", "error", harnessSelectionError)
 		if startupError == nil {
 			startupError = harnessSelectionError
@@ -415,6 +420,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskIntakeGate:          taskIntakeController,
 			AllowTaskDecisionPreset: runtimeConfiguration.Agent.AllowAdminTaskDiagnostic,
 		},
+		HarnessStatusHandler: adminapi.HarnessStatusHandler{Status: adminapi.HarnessStatus{
+			Name:                    selectedHarnessName,
+			AgentCommandPath:        runtimeConfiguration.Agent.Harness.AgentCommandPath,
+			RunsAsRequesterIdentity: strings.TrimSpace(runtimeConfiguration.Terminal.POSIXHelperPath) != "",
+			ToolCatalogURL:          toolCatalogURL(runtimeConfiguration),
+		}},
 		TaskApprovalHandler: adminapi.TaskApprovalHandler{
 			TaskLauncher:    taskLauncher,
 			TaskRunService:  taskRunService,

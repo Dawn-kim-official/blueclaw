@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
@@ -16,17 +17,21 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
-const toolCatalogServerName = "blueclaw"
+const (
+	toolCatalogServerName           = "blueclaw"
+	toolCatalogTokenEnvironmentName = "BLUECLAW_TOOL_CATALOG_TOKEN"
+)
 
 type ToolCatalogPublisher interface {
 	PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (endpointURL string, bearerToken string, revoke func(), errorValue error)
 }
 
 type AgentCommand struct {
-	Path                 string
-	PromptArguments      []string
-	ToolCatalogArguments func(toolCatalogConfigurationPath string) []string
-	Environment          []string
+	Path                       string
+	PromptArguments            []string
+	ToolCatalogArguments       func(toolCatalogConfigurationPath string) []string
+	ToolCatalogInlineArguments func(endpointURL string, bearerTokenEnvironmentName string) []string
+	Environment                []string
 }
 
 type RequesterProcessRunner interface {
@@ -77,15 +82,16 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if harness.agentCommand.ToolCatalogArguments != nil {
 		arguments = append(arguments, harness.agentCommand.ToolCatalogArguments(configurationPath)...)
 	}
+	if harness.agentCommand.ToolCatalogInlineArguments != nil {
+		arguments = append(arguments, harness.agentCommand.ToolCatalogInlineArguments(endpointURL, toolCatalogTokenEnvironmentName)...)
+	}
 	if harness.requesterProcessRunner != nil {
 		return harness.runAsRequester(ctx, request, arguments)
 	}
 	command := exec.CommandContext(ctx, harness.agentCommand.Path, arguments...)
 	command.Dir = request.WorkspaceRootPath
 	command.Stdin = strings.NewReader(request.Prompt)
-	if len(harness.agentCommand.Environment) > 0 {
-		command.Env = harness.agentCommand.Environment
-	}
+	command.Env = append(harness.commandEnvironment(), toolCatalogTokenEnvironmentName+"="+bearerToken)
 	standardOutput := &bytes.Buffer{}
 	standardError := &bytes.Buffer{}
 	command.Stdout = standardOutput
@@ -172,9 +178,19 @@ func (harness *Harness) runAsRequester(ctx context.Context, request agentcontrac
 func CodexAgentCommand(commandPath string) AgentCommand {
 	return AgentCommand{
 		Path:            commandPath,
-		PromptArguments: []string{"exec", "--sandbox", "read-only"},
+		PromptArguments: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check"},
 		ToolCatalogArguments: func(toolCatalogConfigurationPath string) []string {
-			return []string{"-c", "mcp_servers_config_file=" + toolCatalogConfigurationPath}
+			return nil
+		},
+		ToolCatalogInlineArguments: func(endpointURL string, bearerTokenEnvironmentName string) []string {
+			return []string{"-c", "mcp_servers." + toolCatalogServerName + "={url=" + strconv.Quote(endpointURL) + ",bearer_token_env_var=" + strconv.Quote(bearerTokenEnvironmentName) + "}"}
 		},
 	}
+}
+
+func (harness *Harness) commandEnvironment() []string {
+	if len(harness.agentCommand.Environment) > 0 {
+		return append([]string{}, harness.agentCommand.Environment...)
+	}
+	return os.Environ()
 }

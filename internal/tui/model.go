@@ -138,6 +138,10 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		command := (&model).handleKeyPress(typedMsg)
 		return model, command
 
+	case harnessStatusMessage:
+		model.harnessInfo = typedMsg.harnessInfo
+		return model, nil
+
 	case tickMsg:
 		model.now = time.Time(typedMsg)
 		return model, tea.Batch(fetchTaskRunsCmd(model.client), model.refreshVisibleScreenCmd(), tickCmd(model.pollInterval))
@@ -195,8 +199,7 @@ func (model *Model) handleKeyPress(keyPressMsg tea.KeyPressMsg) tea.Cmd {
 		return model.refreshVisibleScreenCmd()
 	case "4":
 		model.screen = screenHarness
-		model.harnessInfo = LoadHarnessInfo(model.runtimeConfigPath)
-		return nil
+		return model.refreshHarnessCmd()
 	case "tab":
 		model.screen = nextScreen(model.screen)
 		return model.refreshVisibleScreenCmd()
@@ -336,4 +339,22 @@ func maximumInt(leftValue int, rightValue int) int {
 		return leftValue
 	}
 	return rightValue
+}
+
+type harnessStatusMessage struct {
+	harnessInfo HarnessInfo
+}
+
+func (model Model) refreshHarnessCmd() tea.Cmd {
+	runtimeConfigPath := model.runtimeConfigPath
+	client := model.client
+	return func() tea.Msg {
+		requestContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		harnessStatus, errorValue := client.GetHarnessStatus(requestContext)
+		if errorValue == nil {
+			return harnessStatusMessage{harnessInfo: HarnessInfoFromStatus(harnessStatus)}
+		}
+		return harnessStatusMessage{harnessInfo: LoadHarnessInfo(runtimeConfigPath)}
+	}
 }

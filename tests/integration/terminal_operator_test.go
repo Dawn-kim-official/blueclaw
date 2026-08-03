@@ -23,6 +23,12 @@ func terminalOperatorSandbox(t *testing.T) (*httptest.Server, *task.TaskRunServi
 			TaskStepService:  taskStepService,
 			TaskEventService: taskEventService,
 		},
+		HarnessStatusHandler: adminapi.HarnessStatusHandler{Status: adminapi.HarnessStatus{
+			Name:                    "claude-code",
+			AgentCommandPath:        "/usr/local/bin/claude",
+			RunsAsRequesterIdentity: true,
+			ToolCatalogURL:          "http://127.0.0.1:8080/harness/tool-catalog",
+		}},
 		TaskApprovalHandler: adminapi.TaskApprovalHandler{
 			TaskRunService: taskRunService,
 			TaskLauncher:   agentruntime.NewTaskLauncher(nil, taskRunService, agentruntime.NewToolCatalogBuilder()),
@@ -86,5 +92,25 @@ func TestTerminalOperatorApprovalReachesTheRealGate(t *testing.T) {
 	}
 	if _, errorValue := terminalClient.SubmitApproval(context.Background(), "missing", "confirm"); errorValue == nil {
 		t.Fatal("expected the real gate to refuse an unknown task run")
+	}
+}
+
+func TestTerminalOperatorSeesTheHarnessTheSandboxIsActuallyRunning(t *testing.T) {
+	server, _ := terminalOperatorSandbox(t)
+	terminalClient := tui.NewClient(server.URL, server.Client())
+
+	harnessStatus, errorValue := terminalClient.GetHarnessStatus(context.Background())
+	if errorValue != nil {
+		t.Fatalf("expected the terminal to read the running harness: %v", errorValue)
+	}
+	harnessInfo := tui.HarnessInfoFromStatus(harnessStatus)
+	if !harnessInfo.IsLiveReport || !harnessInfo.IsKnown {
+		t.Fatalf("expected a live harness report, got %+v", harnessInfo)
+	}
+	if harnessInfo.Name != "claude-code" {
+		t.Fatalf("expected the running harness name, got %q", harnessInfo.Name)
+	}
+	if !harnessInfo.RunsAsRequesterIdentity {
+		t.Fatal("expected the operator to be told whether the harness runs inside the requester's identity")
 	}
 }
