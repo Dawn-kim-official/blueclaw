@@ -1024,10 +1024,10 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	return languageModelProvider
 }
 
-func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) harnessdriver.TaskTierLanguageModels {
+func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) agentcontract.TaskTierLanguageModels {
 	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
-		return harnessdriver.TaskTierLanguageModels{}
+		return agentcontract.TaskTierLanguageModels{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	maximumModelTier := normalizeMaximumModelTier(languageModelConfiguration.LanguageModel.Capability.MaximumModelTier)
@@ -1062,7 +1062,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	xHighModel := llm.WithModelTier(configuredProvider(tierNames.XHigh), "xhigh")
 	maxModel := llm.WithModelTier(configuredProvider(tierNames.Max), "max")
 	if hasConfigurationError {
-		return harnessdriver.TaskTierLanguageModels{}
+		return agentcontract.TaskTierLanguageModels{}
 	}
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
@@ -1110,7 +1110,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		FallbackLabel:    "xhigh",
 		Logger:           logger,
 	}
-	return harnessdriver.TaskTierLanguageModels{
+	return agentcontract.TaskTierLanguageModels{
 		Low:    lowWithFallback,
 		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
@@ -1179,7 +1179,7 @@ type cappedModelTierProviders struct {
 	max    llm.LanguageModelProvider
 }
 
-func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) harnessdriver.TaskTierLanguageModels {
+func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, tierNames llm.ModelTierNames, minimumModelTier string, maximumModelTier string, logger *slog.Logger) agentcontract.TaskTierLanguageModels {
 	hasConfigurationError := false
 	providerFactory := func(modelName string) llm.LanguageModelProvider {
 		provider, errorValue := llm.NewConfiguredLanguageModelProviderForModel(runtimeConfiguration, modelName)
@@ -1194,12 +1194,12 @@ func resolveCappedTaskTierLanguageModelProviders(runtimeConfiguration config.Run
 	}
 	providers := buildCappedModelTierProviders(tierNames, providerFactory, logger)
 	if hasConfigurationError {
-		return harnessdriver.TaskTierLanguageModels{}
+		return agentcontract.TaskTierLanguageModels{}
 	}
 	if logger != nil {
 		logger.Info("resolved capped task model tiers", "maximumModelTier", maximumModelTier, "xlow", tierNames.XLow, "lowVision", tierNames.Low)
 	}
-	return harnessdriver.TaskTierLanguageModels{
+	return agentcontract.TaskTierLanguageModels{
 		Low:    providers.providerWithinBounds("low", minimumModelTier, maximumModelTier),
 		XLow:   providers.providerWithinBounds("xlow", minimumModelTier, maximumModelTier),
 		Medium: providers.providerWithinBounds("medium", minimumModelTier, maximumModelTier),
@@ -1595,7 +1595,7 @@ func deriveListenAddress(baseURL string) string {
 	return parsedURL.Host
 }
 
-func classificationLanguageModelProvider(taskTierLanguageModels harnessdriver.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
+func classificationLanguageModelProvider(taskTierLanguageModels agentcontract.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
 	if taskTierLanguageModels.XLow != nil {
 		return taskTierLanguageModels.XLow
 	}
@@ -1605,7 +1605,7 @@ func classificationLanguageModelProvider(taskTierLanguageModels harnessdriver.Ta
 	return taskTierLanguageModels.High
 }
 
-func turnRouterLanguageModelProvider(taskTierLanguageModels harnessdriver.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
+func turnRouterLanguageModelProvider(taskTierLanguageModels agentcontract.TaskTierLanguageModels, intakeLanguageModelProvider model.LanguageModelProvider) model.LanguageModelProvider {
 	if intakeLanguageModelProvider != nil {
 		return intakeLanguageModelProvider
 	}

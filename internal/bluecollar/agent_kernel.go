@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -48,7 +48,7 @@ func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel model.Lan
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(taskTierLanguageModels harnessdriver.TaskTierLanguageModels) {
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(taskTierLanguageModels agentcontract.TaskTierLanguageModels) {
 	agentKernel.maxTaskLanguageModel = taskTierLanguageModels.Max
 	agentKernel.xHighTaskLanguageModel = taskTierLanguageModels.XHigh
 	agentKernel.highTaskLanguageModel = taskTierLanguageModels.High

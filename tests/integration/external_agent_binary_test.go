@@ -23,8 +23,8 @@ func buildExternalAgentBinary(t *testing.T) string {
 	if _, errorValue := exec.LookPath("go"); errorValue != nil {
 		t.Skip("go toolchain is unavailable, so the external agent binary cannot be built")
 	}
-	binaryPath := filepath.Join(t.TempDir(), "bluecollar-acp")
-	buildCommand := exec.Command("go", "build", "-o", binaryPath, "github.com/Dawn-kim-official/blueclaw/cmd/bluecollar-acp")
+	binaryPath := filepath.Join(t.TempDir(), "acptestagent")
+	buildCommand := exec.Command("go", "build", "-o", binaryPath, "github.com/Dawn-kim-official/blueclaw/tests/acptestagent")
 	buildCommand.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if output, errorValue := buildCommand.CombinedOutput(); errorValue != nil {
 		t.Fatalf("expected the external agent binary to build: %v\n%s", errorValue, output)
@@ -103,7 +103,7 @@ func TestARealExternalAgentBinaryTakesTheRequesterToolCatalog(t *testing.T) {
 
 	harness := acpharness.New(acpharness.AgentCommand{
 		Path:      binaryPath,
-		Arguments: []string{"--llm-endpoint", "http://127.0.0.1:59999"},
+		Arguments: []string{"--tool-name", "meeting_note_write", "--tool-arguments-json", `{"text":"회의록"}`},
 	}, publisher, nil)
 
 	_, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
@@ -132,7 +132,7 @@ func TestARealExternalAgentBinaryCannotStartASessionWithoutAValidCatalogToken(t 
 
 	harness := acpharness.New(acpharness.AgentCommand{
 		Path:      binaryPath,
-		Arguments: []string{"--llm-endpoint", "http://127.0.0.1:59999"},
+		Arguments: []string{"--tool-name", "meeting_note_write", "--tool-arguments-json", `{"text":"회의록"}`},
 	}, forgedTokenPublisher{endpointURL: catalogServer.URL}, nil)
 
 	_, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{

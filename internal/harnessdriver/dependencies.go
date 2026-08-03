@@ -7,15 +7,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
-type TaskTierLanguageModels struct {
-	Low    model.LanguageModelProvider
-	XLow   model.LanguageModelProvider
-	Medium model.LanguageModelProvider
-	High   model.LanguageModelProvider
-	XHigh  model.LanguageModelProvider
-	Max    model.LanguageModelProvider
-}
-
 type Dependencies struct {
 	RuntimeConfiguration        config.RuntimeConfiguration
 	TaskRunStore                taskstate.TaskRunStore
@@ -26,7 +17,7 @@ type Dependencies struct {
 	EmbeddingProvider           model.EmbeddingProvider
 	EmbeddingModelName          string
 	SkillIndexPath              string
-	TaskTierLanguageModels      TaskTierLanguageModels
+	TaskTierLanguageModels      agentcontract.TaskTierLanguageModels
 	IntakeLanguageModelProvider model.LanguageModelProvider
 }
 
@@ -36,7 +27,7 @@ type VirtualSessionDependencies struct {
 	TaskRunStore                taskstate.TaskRunStore
 	TaskStepStore               taskstate.TaskStepStore
 	TaskArtifactStore           taskstate.TaskArtifactStore
-	TaskTierLanguageModels      TaskTierLanguageModels
+	TaskTierLanguageModels      agentcontract.TaskTierLanguageModels
 	IntakeLanguageModelProvider model.LanguageModelProvider
 	IntakeOptions               agentcontract.IntakeOptions
 	ScenarioTurnOptions         agentcontract.TurnOptions
