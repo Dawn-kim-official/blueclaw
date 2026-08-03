@@ -15,7 +15,7 @@ import (
 )
 
 type TurnStreamer interface {
-	StreamTurn(context.Context, agentcontract.AgentTurnRequest) <-chan bluecollar.TurnEvent
+	StreamTurn(context.Context, agentcontract.AgentTurnRequest) *bluecollar.TurnStream
 }
 
 type ToolSetRequest struct {
@@ -137,19 +137,11 @@ func (agent *Agent) runTurn(ctx context.Context, sessionID acp.SessionId, prompt
 }
 
 func (agent *Agent) streamTurnEvents(ctx context.Context, sessionID acp.SessionId, promptSession *session, toolSet *toolcontract.ToolSet, promptText string) (agentcontract.AgentTurnResult, error) {
-	turnEvents := agent.options.TurnStreamer.StreamTurn(ctx, agent.turnRequest(promptSession, toolSet, promptText))
-	finalEvent := bluecollar.TurnEvent{}
-	for turnEvent := range turnEvents {
-		if turnEvent.Kind == bluecollar.TurnEventFinal {
-			finalEvent = turnEvent
-			continue
-		}
+	turnStream := agent.options.TurnStreamer.StreamTurn(ctx, agent.turnRequest(promptSession, toolSet, promptText))
+	for turnEvent := range turnStream.Events {
 		agent.publishSessionUpdate(ctx, sessionID, sessionUpdateForTurnEvent(turnEvent, toolSet, promptSession.nextToolCallIdentity()))
 	}
-	if finalEvent.Error != nil {
-		return agentcontract.AgentTurnResult{}, finalEvent.Error
-	}
-	return finalEvent.Result, nil
+	return turnStream.Result()
 }
 
 func (agent *Agent) turnRequest(promptSession *session, toolSet *toolcontract.ToolSet, promptText string) agentcontract.AgentTurnRequest {

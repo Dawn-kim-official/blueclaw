@@ -11,9 +11,9 @@ import (
 type TurnEventKind string
 
 const (
-	TurnEventReply TurnEventKind = "reply"
-	TurnEventTool  TurnEventKind = "tool"
-	TurnEventFinal TurnEventKind = "final"
+	TurnEventReply    TurnEventKind = "reply"
+	TurnEventTool     TurnEventKind = "tool"
+	TurnEventApproval TurnEventKind = "approval"
 )
 
 type TurnEvent struct {
@@ -21,14 +21,25 @@ type TurnEvent struct {
 	ToolName string
 	Message  string
 	Body     string
-	Result   AgentTurnResult
-	Error    error
+}
+
+type TurnStream struct {
+	Events   <-chan TurnEvent
+	finished chan struct{}
+	result   AgentTurnResult
+	error    error
+}
+
+func (turnStream *TurnStream) Result() (AgentTurnResult, error) {
+	<-turnStream.finished
+	return turnStream.result, turnStream.error
 }
 
 const streamTurnEventBuffer = 64
 
-func (agentTurnRunner *AgentTurnRunner) StreamTurn(ctx context.Context, request AgentTurnRequest) <-chan TurnEvent {
+func (agentTurnRunner *AgentTurnRunner) StreamTurn(ctx context.Context, request AgentTurnRequest) *TurnStream {
 	events := make(chan TurnEvent, streamTurnEventBuffer)
+	turnStream := &TurnStream{Events: events, finished: make(chan struct{})}
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	request.ExistingTaskRunID = taskRun.TaskRunID
 
@@ -45,12 +56,23 @@ func (agentTurnRunner *AgentTurnRunner) StreamTurn(ctx context.Context, request 
 	})
 
 	go func() {
+		defer close(turnStream.finished)
 		defer close(events)
 		defer unregisterObserver()
-		result, errorValue := agentTurnRunner.RunTurn(ctx, request)
-		send(TurnEvent{Kind: TurnEventFinal, Result: result, Error: errorValue})
+		turnStream.result, turnStream.error = agentTurnRunner.RunTurn(ctx, request)
 	}()
-	return events
+	return turnStream
+}
+
+type heldCallEventBody struct {
+	ToolName     string `json:"toolName"`
+	Confirmation string `json:"confirmation"`
+}
+
+func decodeHeldCallEventBody(body string) heldCallEventBody {
+	decodedBody := heldCallEventBody{}
+	json.Unmarshal([]byte(body), &decodedBody)
+	return decodedBody
 }
 
 type checkpointEventBody struct {
@@ -62,6 +84,10 @@ func decodeTurnEvent(rawTurnEvent taskstate.RawTurnEvent) (TurnEvent, bool) {
 	if rawTurnEvent.Name == "agent.checkpoint.sent" {
 		checkpointBody := decodeCheckpointEventBody(rawTurnEvent.Body)
 		return TurnEvent{Kind: TurnEventReply, Message: checkpointBody.Message, ToolName: checkpointBody.ToolName}, true
+	}
+	if rawTurnEvent.Name == "approval.pending_call" {
+		heldCall := decodeHeldCallEventBody(rawTurnEvent.Body)
+		return TurnEvent{Kind: TurnEventApproval, ToolName: heldCall.ToolName, Message: heldCall.Confirmation}, true
 	}
 	if isToolResultEventName(rawTurnEvent.Name) {
 		return TurnEvent{Kind: TurnEventTool, ToolName: toolResultEventToolName(rawTurnEvent.Body), Body: rawTurnEvent.Body}, true
