@@ -23,6 +23,16 @@ type ApprovalRequest struct {
 	ToolInput         json.RawMessage
 	ApprovalScope     string
 	SideEffectClass   string
+	HarnessSession    HarnessSession
+}
+
+// HarnessSession is the handle that lets a held call be resumed inside the
+// conversation that asked for it, rather than restarting the agent's
+// reasoning from nothing. A harness that cannot resume leaves it empty.
+type HarnessSession struct {
+	HarnessName string `json:"harnessName,omitempty"`
+	SessionID   string `json:"sessionID,omitempty"`
+	IsResumable bool   `json:"isResumable"`
 }
 
 type ApprovalOutcome struct {
@@ -36,9 +46,10 @@ type ApprovalGate interface {
 
 var errApprovalGateMissing = errors.New("this tool needs approval and the catalog has no approval gate configured, so it will not run")
 
-func approvalRequestForTool(requesterPersonID string, toolDescriptor toolcontract.ToolDescriptor, toolInput json.RawMessage) ApprovalRequest {
+func approvalRequestForTool(requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, toolInput json.RawMessage) ApprovalRequest {
 	return ApprovalRequest{
-		RequesterPersonID: requesterPersonID,
+		RequesterPersonID: requesterToolSet.RequesterPersonID,
+		HarnessSession:    requesterToolSet.HarnessSession,
 		ToolName:          toolDescriptor.Name,
 		ToolInput:         toolInput,
 		ApprovalScope:     strings.TrimSpace(toolDescriptor.ApprovalScope),

@@ -18,6 +18,7 @@ type RequesterToolSet struct {
 	RequesterPersonID string
 	ToolSet           *toolcontract.ToolSet
 	ApprovalGate      ApprovalGate
+	HarnessSession    HarnessSession
 }
 
 func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*mcp.Server, error) {
@@ -92,7 +93,7 @@ func awaitApprovalBeforeInvoking(ctx context.Context, requesterToolSet Requester
 	if requesterToolSet.ApprovalGate == nil {
 		return heldCallResult(errApprovalGateMissing.Error()), false
 	}
-	outcome, errorValue := requesterToolSet.ApprovalGate.AwaitApproval(ctx, approvalRequestForTool(requesterToolSet.RequesterPersonID, toolDescriptor, toolInput))
+	outcome, errorValue := requesterToolSet.ApprovalGate.AwaitApproval(ctx, approvalRequestForTool(requesterToolSet, toolDescriptor, toolInput))
 	if errorValue != nil {
 		return heldCallResult(errorValue.Error()), false
 	}

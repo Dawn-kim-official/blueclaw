@@ -3,12 +3,15 @@ package cliharness
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
@@ -28,6 +31,8 @@ type ToolCatalogPublisher interface {
 
 type AgentCommand struct {
 	Path                       string
+	HarnessName                string
+	SessionArguments           func(sessionID string, isResuming bool) []string
 	PromptArguments            []string
 	ToolCatalogArguments       func(toolCatalogConfigurationPath string) []string
 	ToolCatalogInlineArguments func(endpointURL string, bearerTokenEnvironmentName string) []string
@@ -63,9 +68,11 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if strings.TrimSpace(request.RequesterPersonID) == "" {
 		return agentcontract.AgentTurnResult{}, errors.New("cli harness refuses a turn with no requester, because tools execute as the requester")
 	}
+	harnessSession := harness.harnessSessionForTurn(request)
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
 		RequesterPersonID: request.RequesterPersonID,
 		ToolSet:           request.ToolSet,
+		HarnessSession:    harnessSession,
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -79,6 +86,9 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	defer os.Remove(configurationPath)
 
 	arguments := append([]string{}, harness.agentCommand.PromptArguments...)
+	if harness.agentCommand.SessionArguments != nil && harnessSession.IsResumable {
+		arguments = append(arguments, harness.agentCommand.SessionArguments(harnessSession.SessionID, request.IsApprovalContinuation)...)
+	}
 	if harness.agentCommand.ToolCatalogArguments != nil {
 		arguments = append(arguments, harness.agentCommand.ToolCatalogArguments(configurationPath)...)
 	}
@@ -138,7 +148,14 @@ func writeToolCatalogConfiguration(endpointURL string, bearerToken string) (stri
 
 func ClaudeCodeAgentCommand(commandPath string) AgentCommand {
 	return AgentCommand{
-		Path:            commandPath,
+		Path:        commandPath,
+		HarnessName: "claude-code",
+		SessionArguments: func(sessionID string, isResuming bool) []string {
+			if isResuming {
+				return []string{"--resume", sessionID}
+			}
+			return []string{"--session-id", sessionID}
+		},
 		PromptArguments: []string{"--print", "--strict-mcp-config"},
 		ToolCatalogArguments: func(toolCatalogConfigurationPath string) []string {
 			return []string{"--mcp-config", toolCatalogConfigurationPath}
@@ -177,7 +194,14 @@ func (harness *Harness) runAsRequester(ctx context.Context, request agentcontrac
 
 func CodexAgentCommand(commandPath string) AgentCommand {
 	return AgentCommand{
-		Path:            commandPath,
+		Path:        commandPath,
+		HarnessName: "codex",
+		SessionArguments: func(sessionID string, isResuming bool) []string {
+			if isResuming {
+				return []string{"resume", sessionID}
+			}
+			return nil
+		},
 		PromptArguments: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check"},
 		ToolCatalogArguments: func(toolCatalogConfigurationPath string) []string {
 			return nil
@@ -193,4 +217,35 @@ func (harness *Harness) commandEnvironment() []string {
 		return append([]string{}, harness.agentCommand.Environment...)
 	}
 	return os.Environ()
+}
+
+// harnessSessionForTurn keeps one conversation identity per task run, so a
+// call held at the approval gate can be resumed inside the conversation that
+// asked for it instead of restarting the agent's reasoning.
+func (harness *Harness) harnessSessionForTurn(request agentcontract.AgentTurnRequest) mcpserver.HarnessSession {
+	if harness.agentCommand.SessionArguments == nil {
+		return mcpserver.HarnessSession{HarnessName: harness.agentCommand.HarnessName}
+	}
+	return mcpserver.HarnessSession{
+		HarnessName: harness.agentCommand.HarnessName,
+		SessionID:   harnessSessionIdentity(request),
+		IsResumable: true,
+	}
+}
+
+func harnessSessionIdentity(request agentcontract.AgentTurnRequest) string {
+	seed := strings.TrimSpace(request.ExistingTaskRunID)
+	if seed == "" {
+		seed = strings.TrimSpace(request.RequesterPersonID) + "|" + strings.TrimSpace(request.ConversationID) + "|" + request.TurnStartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	digest := sha256.Sum256([]byte(seed))
+	return formatDigestAsUUID(digest)
+}
+
+func formatDigestAsUUID(digest [32]byte) string {
+	identityBytes := digest[:16]
+	identityBytes[6] = (identityBytes[6] & 0x0f) | 0x40
+	identityBytes[8] = (identityBytes[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(identityBytes)
+	return encoded[0:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:32]
 }
