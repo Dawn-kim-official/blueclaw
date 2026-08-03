@@ -34,7 +34,7 @@ func TestProtocolAgentMessageFixtureMatchesAgentMessage(t *testing.T) {
 
 func protocolAgentFixture(t *testing.T, fixtureName string) json.RawMessage {
 	t.Helper()
-	documentBytes, errorValue := os.ReadFile("../../protocol/fixtures/valid.json")
+	documentBytes, errorValue := os.ReadFile("../protocol/fixtures/valid.json")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}

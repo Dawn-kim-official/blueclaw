@@ -8,10 +8,10 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {

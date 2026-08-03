@@ -3,8 +3,8 @@ package integration
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 func TestPlannerToResearcherDispatch(t *testing.T) {

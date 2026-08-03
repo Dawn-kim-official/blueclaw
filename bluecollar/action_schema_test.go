@@ -138,7 +138,7 @@ func assertDocumentValidatesAgainstSchema(t *testing.T, schemaDocument string, i
 
 func eightToolCapabilityCatalogFixture(t *testing.T) []toolcontract.ToolDefinition {
 	t.Helper()
-	document, errorValue := os.ReadFile("../../protocol/generated/capability-tools.json")
+	document, errorValue := os.ReadFile("../protocol/generated/capability-tools.json")
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}

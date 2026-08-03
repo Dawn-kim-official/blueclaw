@@ -15,7 +15,6 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
@@ -25,6 +24,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {

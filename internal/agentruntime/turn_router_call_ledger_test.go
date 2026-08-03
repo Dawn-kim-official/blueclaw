@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 type routerLedgerLanguageModel struct {

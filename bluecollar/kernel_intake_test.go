@@ -460,11 +460,11 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 		InitialToolNames: []string{"alpha"},
 	}
 	result, errorValue := services.kernel.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID:         "person-1",
-		ConversationID:            "conversation-1",
-		Prompt:                    "확인해줘",
-		ToolSet:                   toolRegistry,
-		PrecomputedTurnDecision:   &precomputedDecision,
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "확인해줘",
+		ToolSet:                    toolRegistry,
+		PrecomputedTurnDecision:    &precomputedDecision,
 		IsPrecomputedDecisionExact: true,
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)

@@ -201,18 +201,8 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
+func TestAgentKernelFailsTurnCarryingNoRoutingDecision(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteConsume,
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeResearchTask,
-		TaskLevel:        TaskLevelLow,
-		EstimatedMinutes: 1,
-		ResponseLanguage: "ko",
-		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
-		InitialToolNames: []string{"task_add"},
-	}})
 
 	toolCallCount := 0
 	toolSet := newTestCapabilityToolSet([]string{"task_add", "task_list", "task_update"})
@@ -228,15 +218,15 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 
 	request := kernelTestRequest("업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선")
 	request.ToolSet = toolSet
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected router failure result: %v", errorValue)
+		t.Fatalf("expected unrouted turn to settle as a result: %v", errorValue)
 	}
 	if result.TaskRun.Status != taskstate.TaskStatusFailed {
-		t.Fatalf("expected failed task for contradictory decision, got %q", result.TaskRun.Status)
+		t.Fatalf("expected failed task for a turn carrying no routing decision, got %q", result.TaskRun.Status)
 	}
 	if toolCallCount != 0 {
-		t.Fatalf("expected no tool call after contradictory decision, got %d", toolCallCount)
+		t.Fatalf("expected no tool call for a turn carrying no routing decision, got %d", toolCallCount)
 	}
 }
 

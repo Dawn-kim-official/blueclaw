@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
