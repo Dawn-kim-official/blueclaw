@@ -31,7 +31,6 @@ function createConfiguration(overrides: Partial<ChatdConfiguration> = {}): Chatd
 			baseURL: "https://mattermost.example.com",
 			botToken: "test-token",
 			actionCallbackURL: undefined,
-			adminToken: undefined,
 		},
 		buzz: undefined,
 		...overrides,

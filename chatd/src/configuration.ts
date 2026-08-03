@@ -2,7 +2,6 @@ export type MattermostConfiguration = {
   baseURL: string;
   botToken: string;
   actionCallbackURL: string | undefined;
-  adminToken: string | undefined;
 };
 
 export type BuzzConfiguration = {
@@ -45,7 +44,6 @@ function loadMattermostConfiguration(environment: Record<string, string | undefi
     baseURL,
     botToken: requireValue(environment, 'CHATD_MATTERMOST_BOT_TOKEN'),
     actionCallbackURL: environment['CHATD_ACTION_CALLBACK_URL'],
-    adminToken: environment['CHATD_MATTERMOST_ADMIN_TOKEN']?.trim() || undefined,
   };
 }
 
