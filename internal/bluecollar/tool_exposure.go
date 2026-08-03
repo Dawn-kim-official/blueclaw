@@ -309,7 +309,6 @@ func outcomeContractJSON(contract OutcomeContract) string {
 	return string(document)
 }
 
-
 func firstPendingRequiredToolName(requiredNextToolNames []string, observations []turnObservation) string {
 	nextToolIndex := 0
 	requiredNextToolNames = appendUniqueStrings(requiredNextToolNames)

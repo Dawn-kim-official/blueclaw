@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"time"
@@ -33,22 +33,22 @@ func TaskLevelProfileForLevel(taskLevel TaskLevel) TaskLevelProfile {
 	return taskLevelProfiles[1]
 }
 
-func nextTaskLevel(taskLevel TaskLevel) (TaskLevel, bool) {
-	currentRank := taskLevelRank(TaskLevelProfileForLevel(taskLevel).TaskLevel)
+func NextTaskLevel(taskLevel TaskLevel) (TaskLevel, bool) {
+	currentRank := TaskLevelRank(TaskLevelProfileForLevel(taskLevel).TaskLevel)
 	if currentRank < 0 || currentRank+1 >= len(taskLevelProfiles) {
 		return "", false
 	}
 	return taskLevelProfiles[currentRank+1].TaskLevel, true
 }
 
-func taskLevelWantsProgressCheckpoints(taskLevel TaskLevel) bool {
-	return taskLevelRank(taskLevel) >= taskLevelRank(TaskLevelMedium)
+func TaskLevelWantsProgressCheckpoints(taskLevel TaskLevel) bool {
+	return TaskLevelRank(taskLevel) >= TaskLevelRank(TaskLevelMedium)
 }
 
-func taskLevelWantsSingleFinalReply(taskLevel TaskLevel) bool {
+func TaskLevelWantsSingleFinalReply(taskLevel TaskLevel) bool {
 	return NormalizeTaskLevel(string(taskLevel)) == TaskLevelXLow
 }
 
-func taskLevelRequiresPlan(taskLevel TaskLevel) bool {
-	return taskLevelRank(taskLevel) >= taskLevelRank(TaskLevelMedium)
+func TaskLevelRequiresPlan(taskLevel TaskLevel) bool {
+	return TaskLevelRank(taskLevel) >= TaskLevelRank(TaskLevelMedium)
 }

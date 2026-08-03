@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 )
 
 const llmCallErrorMaximumCharacters = 300
-const turnRouterSchemaName = "blueclaw_turn_router"
-const agentActionSchemaName = "blueclaw_agent_turn_action"
+const TurnRouterSchemaName = "blueclaw_turn_router"
+const AgentActionSchemaName = "blueclaw_agent_turn_action"
 
-type llmCallRecord struct {
+type LLMCallRecord struct {
 	Kind                   string                                   `json:"kind"`
 	Transport              string                                   `json:"transport,omitempty"`
 	SchemaName             string                                   `json:"schemaName,omitempty"`
@@ -48,29 +48,29 @@ type llmCallRecord struct {
 	DiagnosticRepairStatus model.StructuredOutputRepairStatus       `json:"diagnosticRepairStatus,omitempty"`
 }
 
-type llmCallObserver func(record llmCallRecord)
+type LLMCallObserver func(record LLMCallRecord)
 
-type turnRouterCallLedger struct {
-	records []llmCallRecord
+type TurnRouterCallLedger struct {
+	Records []LLMCallRecord
 }
 
-func (ledger *turnRouterCallLedger) observe(record llmCallRecord) {
-	if record.SchemaName != turnRouterSchemaName {
+func (ledger *TurnRouterCallLedger) Observe(record LLMCallRecord) {
+	if record.SchemaName != TurnRouterSchemaName {
 		return
 	}
-	ledger.records = append(ledger.records, record)
+	ledger.Records = append(ledger.Records, record)
 }
 
-func (ledger *turnRouterCallLedger) languageModel(provider model.LanguageModelProvider) model.LanguageModelProvider {
-	return observeLanguageModel(provider, ledger.observe)
+func (ledger *TurnRouterCallLedger) LanguageModel(provider model.LanguageModelProvider) model.LanguageModelProvider {
+	return ObserveLanguageModel(provider, ledger.Observe)
 }
 
 type observedLanguageModel struct {
 	provider model.LanguageModelProvider
-	observe  llmCallObserver
+	observe  LLMCallObserver
 }
 
-func observeLanguageModel(provider model.LanguageModelProvider, observe llmCallObserver) model.LanguageModelProvider {
+func ObserveLanguageModel(provider model.LanguageModelProvider, observe LLMCallObserver) model.LanguageModelProvider {
 	if provider == nil || observe == nil {
 		return provider
 	}
@@ -104,7 +104,7 @@ func (observedModel observedLanguageModel) observedInnerProvider() model.Languag
 	return observedModel.provider
 }
 
-func observedInnerLanguageModel(provider model.LanguageModelProvider) model.LanguageModelProvider {
+func ObservedInnerLanguageModel(provider model.LanguageModelProvider) model.LanguageModelProvider {
 	observedProvider, isObserved := provider.(interface {
 		observedInnerProvider() model.LanguageModelProvider
 	})
@@ -114,7 +114,7 @@ func observedInnerLanguageModel(provider model.LanguageModelProvider) model.Lang
 	return observedProvider.observedInnerProvider()
 }
 
-func isSameLanguageModelProvider(left model.LanguageModelProvider, right model.LanguageModelProvider) bool {
+func IsSameLanguageModelProvider(left model.LanguageModelProvider, right model.LanguageModelProvider) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
@@ -177,7 +177,7 @@ func (observedModel observedLanguageModel) GenerateStructuredResponse(ctx contex
 	response, errorValue := observedModel.provider.GenerateStructuredResponse(ctx, request)
 	promptBytes := structuredRequestByteCount(request)
 	schemaBytes := len(request.StructuredOutputSchema.Document)
-	record := llmCallRecord{
+	record := LLMCallRecord{
 		Kind:                  "structured",
 		Transport:             response.Transport,
 		SchemaName:            strings.TrimSpace(request.StructuredOutputSchema.Name),
@@ -269,8 +269,8 @@ func (observedModel observedLanguageModel) localRecoveryResponse(ctx context.Con
 	return reply, errorValue
 }
 
-func textCallRecord(kind string, prompt string, reply string, startedAt time.Time, errorValue error) llmCallRecord {
-	record := llmCallRecord{
+func textCallRecord(kind string, prompt string, reply string, startedAt time.Time, errorValue error) LLMCallRecord {
+	record := LLMCallRecord{
 		Kind:         kind,
 		LatencyMS:    time.Since(startedAt).Milliseconds(),
 		PromptBytes:  len(prompt),
@@ -282,7 +282,7 @@ func textCallRecord(kind string, prompt string, reply string, startedAt time.Tim
 	return record
 }
 
-func applyLLMCallError(record *llmCallRecord, errorValue error) {
+func applyLLMCallError(record *LLMCallRecord, errorValue error) {
 	record.IsError = true
 	diagnostic, hasDiagnostic := model.StructuredOutputDiagnosticFromError(errorValue)
 	if !hasDiagnostic {
@@ -296,8 +296,8 @@ func applyLLMCallError(record *llmCallRecord, errorValue error) {
 	record.DiagnosticRepairStatus = diagnostic.RepairStatus
 }
 
-func chatCallRecord(kind string, request model.ChatCompletionRequest, response model.ChatCompletionResponse, startedAt time.Time, errorValue error) llmCallRecord {
-	record := llmCallRecord{
+func chatCallRecord(kind string, request model.ChatCompletionRequest, response model.ChatCompletionResponse, startedAt time.Time, errorValue error) LLMCallRecord {
+	record := LLMCallRecord{
 		Kind:                  kind,
 		Transport:             response.Transport,
 		SchemaName:            chatRequestSchemaName(request),

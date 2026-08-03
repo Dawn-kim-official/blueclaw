@@ -8,6 +8,8 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -17,7 +19,8 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	useScheduleTestLanguageModel(agentKernel, staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")})
+	languageModel := staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")}
+	useScheduleTestLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
@@ -25,7 +28,10 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
 
-	result, errorValue := agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)).RunIfDue(context.Background(), agentruntime.TaskScheduleRunRequest{
+	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseTurnRouter(intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true}))
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
+	result, errorValue := agentruntime.NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), agentruntime.TaskScheduleRunRequest{
 		TaskSchedule: task.TaskSchedule{
 			TaskScheduleID:   "schedule-daily-research",
 			CreatorPersonID:  "person-1",

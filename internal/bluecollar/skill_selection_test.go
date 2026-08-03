@@ -288,12 +288,12 @@ func TestAgentKernelActionSchemaExposesTypedInitialTools(t *testing.T) {
 		return toolcontract.ToolResult{}, nil
 	})
 
-	_, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+	_, errorValue := services.kernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), services.kernel, AgentRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "repeat this 10번",
 		ToolSet:           toolRegistry,
-	})
+	}))
 	if errorValue != nil {
 		t.Fatalf("expected turn to complete: %v", errorValue)
 	}
