@@ -14,6 +14,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
@@ -72,15 +73,16 @@ func serveOverStandardIO(ctx context.Context, options serveOptions) error {
 		ModelName:      modelNameOrDefault(options.ModelName),
 	})
 	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
 	turnRunner := bluecollar.NewAgentTurnRunner(
-		task.NewTaskRunService(taskEventService),
+		taskRunService,
 		task.NewTaskStepService(),
 		task.NewTaskArtifactService(),
 		languageModel,
 		bluecollar.TurnOptions{},
 	)
 	return acpagent.Serve(ctx, acpagent.Options{
-		TurnStreamer:      turnRunner,
+		TurnStreamer:      turnstream.New(turnRunner, taskRunService),
 		BuildToolSet:      buildToolSet,
 		BuildInstruction:  workspaceInstruction,
 		RequesterPersonID: requesterPersonID,

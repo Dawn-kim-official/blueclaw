@@ -13,6 +13,7 @@ import (
 
 	"github.com/Dawn-kim-official/blueclaw/agenttest"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
@@ -137,8 +138,9 @@ func newTestOptions() Options {
 		`{"action":"continue","toolName":"`+scriptedToolName+`","toolInput":{},"message":"first reply"}`,
 		finishActionDocument("last reply"),
 	)
+	taskRunService := taskstate.NewTaskRunService(taskstate.NewTaskEventService())
 	turnRunner := bluecollar.NewAgentTurnRunner(
-		taskstate.NewTaskRunService(taskstate.NewTaskEventService()),
+		taskRunService,
 		taskstate.NewTaskStepService(),
 		taskstate.NewTaskArtifactService(),
 		languageModel,
@@ -146,7 +148,7 @@ func newTestOptions() Options {
 	)
 	sessionCount := 0
 	return Options{
-		TurnStreamer:      turnRunner,
+		TurnStreamer:      turnstream.New(turnRunner, taskRunService),
 		BuildToolSet:      func(ToolSetRequest) *toolcontract.ToolSet { return newScriptedToolSet() },
 		RequesterPersonID: "person-1",
 		NewSessionIdentity: func() string {

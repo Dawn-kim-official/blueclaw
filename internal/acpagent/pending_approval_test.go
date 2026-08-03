@@ -5,12 +5,12 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 )
 
 func TestAHeldCallReachesTheClientAsAToolCallThatDidNotRun(t *testing.T) {
-	sessionUpdate := sessionUpdateForTurnEvent(bluecollar.TurnEvent{
-		Kind:     bluecollar.TurnEventApproval,
+	sessionUpdate := sessionUpdateForTurnEvent(turnstream.Event{
+		Kind:     turnstream.EventApproval,
 		ToolName: "message_send",
 		Message:  "Send this to the whole team?",
 	}, nil, acp.ToolCallId("tool-call-1"))

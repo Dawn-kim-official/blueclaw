@@ -5,6 +5,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
 
@@ -12,8 +13,8 @@ func continueWithMessageDocument(operationName string, message string) string {
 	return `{"action":"continue","toolName":"` + operationName + `","toolInput":{},"message":"` + message + `"}`
 }
 
-func collectTurnEvents(turnStream *TurnStream) []TurnEvent {
-	collected := []TurnEvent{}
+func collectTurnEvents(turnStream *turnstream.Stream) []turnstream.Event {
+	collected := []turnstream.Event{}
 	for turnEvent := range turnStream.Events {
 		collected = append(collected, turnEvent)
 	}
@@ -31,7 +32,7 @@ func TestStreamTurnEmitsOrderedProgressBeforeTheResult(t *testing.T) {
 		return testToolSuccess("alpha result"), nil
 	})
 
-	turnStream := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
+	turnStream := turnstream.New(services.runner, services.taskRunService).StreamTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
@@ -41,8 +42,8 @@ func TestStreamTurnEmitsOrderedProgressBeforeTheResult(t *testing.T) {
 	})
 	collected := collectTurnEvents(turnStream)
 
-	replyIndex := indexOfTurnEventKind(collected, TurnEventReply)
-	toolIndex := indexOfTurnEventKind(collected, TurnEventTool)
+	replyIndex := indexOfTurnEventKind(collected, turnstream.EventReply)
+	toolIndex := indexOfTurnEventKind(collected, turnstream.EventTool)
 	if replyIndex < 0 || toolIndex < 0 {
 		t.Fatalf("expected reply and tool events, got %v", collected)
 	}
@@ -66,13 +67,13 @@ func TestStreamTurnEmitsOrderedProgressBeforeTheResult(t *testing.T) {
 
 func TestAFloodOfProgressNeverCostsTheTurnItsResult(t *testing.T) {
 	contents := []string{}
-	for index := 0; index < streamTurnEventBuffer*2; index++ {
+	for index := 0; index < 64*2; index++ {
 		contents = append(contents, continueWithMessageDocument("alpha", "reply"+string(rune('a'+index%26))))
 	}
 	contents = append(contents, finishMessageDocument("survived the flood"))
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{contents: contents}, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 
-	turnStream := services.runner.StreamTurn(context.Background(), turnRequestWithTool(services))
+	turnStream := turnstream.New(services.runner, services.taskRunService).StreamTurn(context.Background(), turnRequestWithTool(services))
 	turnResult, errorValue := turnStream.Result()
 	if errorValue != nil {
 		t.Fatalf("expected the turn to finish: %v", errorValue)
@@ -93,7 +94,7 @@ func TestStreamTurnPersistsSameEventsAsRunTurn(t *testing.T) {
 	runTurnNames := taskEventNames(runTurnServices.taskEventService.ListTaskEvent(onlyTaskRunID(runTurnServices.taskRunService)))
 
 	streamServices := newTurnRunnerTestServices(&sequenceLanguageModel{contents: append([]string{}, script...)}, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	collectTurnEvents(streamServices.runner.StreamTurn(context.Background(), turnRequestWithTool(streamServices)))
+	collectTurnEvents(turnstream.New(streamServices.runner, streamServices.taskRunService).StreamTurn(context.Background(), turnRequestWithTool(streamServices)))
 	streamNames := taskEventNames(streamServices.taskEventService.ListTaskEvent(onlyTaskRunID(streamServices.taskRunService)))
 
 	if !equalStringSlices(runTurnNames, streamNames) {
@@ -103,7 +104,7 @@ func TestStreamTurnPersistsSameEventsAsRunTurn(t *testing.T) {
 
 func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 	contents := []string{}
-	for index := 0; index < streamTurnEventBuffer*2; index++ {
+	for index := 0; index < 64*2; index++ {
 		contents = append(contents, continueWithMessageDocument("alpha", "reply"+string(rune('a'+index%26))))
 	}
 	contents = append(contents, finishMessageDocument("end"))
@@ -114,7 +115,7 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 		return testToolSuccess("alpha result"), nil
 	})
 
-	turnStream := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
+	turnStream := turnstream.New(services.runner, services.taskRunService).StreamTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
@@ -148,7 +149,7 @@ func toolRegistryWithAlpha() *toolcontract.ToolSet {
 	return toolRegistry
 }
 
-func indexOfTurnEventKind(turnEvents []TurnEvent, kind TurnEventKind) int {
+func indexOfTurnEventKind(turnEvents []turnstream.Event, kind turnstream.EventKind) int {
 	for index, turnEvent := range turnEvents {
 		if turnEvent.Kind == kind {
 			return index

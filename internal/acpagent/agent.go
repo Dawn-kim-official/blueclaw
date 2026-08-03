@@ -10,12 +10,12 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 type TurnStreamer interface {
-	StreamTurn(context.Context, agentcontract.AgentTurnRequest) *bluecollar.TurnStream
+	StreamTurn(context.Context, agentcontract.AgentTurnRequest) *turnstream.Stream
 }
 
 type ToolSetRequest struct {
