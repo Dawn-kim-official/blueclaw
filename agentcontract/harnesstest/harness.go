@@ -44,10 +44,6 @@ func (harness *Harness) RunTurn(_ context.Context, request agentcontract.AgentTu
 	return turnResult, nil
 }
 
-func (harness *Harness) RouteTurn(context.Context, agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
-	return harness.TurnDecision, nil
-}
-
 func (harness *Harness) RunAgentRequest(context.Context, agentcontract.AgentRequest) (agentcontract.AgentTurnResult, error) {
 	return agentcontract.AgentTurnResult{}, nil
 }
@@ -66,6 +62,14 @@ func (harness *Harness) CompleteLaunchFailure(_ context.Context, request agentco
 			IsSendable:        true,
 		},
 	}
+}
+
+func (harness *Harness) Plan(context.Context, agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
+	return harness.TurnDecision, nil
+}
+
+func (harness *Harness) PlanObserved(context.Context, agentcontract.AgentRequest, *agentcontract.TurnRouterCallLedger) (agentcontract.TurnDecision, error) {
+	return harness.TurnDecision, nil
 }
 
 func (harness *Harness) GenerateReply(context.Context, string) (string, error) {

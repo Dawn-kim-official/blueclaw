@@ -1,4 +1,4 @@
-package bluecollar
+package intake
 
 import (
 	"context"
@@ -9,19 +9,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
 )
 
-var allowedReactionEmojiNames = reactionEmojiNames
+var allowedReactionEmojiNames = agentcontract.ReactionEmojiNames
 
 type TaskIntakePlanner struct {
 	languageModel model.LanguageModelProvider
-	options       IntakeOptions
+	options       agentcontract.IntakeOptions
 }
 
 type TurnRouter struct {
 	languageModel model.LanguageModelProvider
-	options       IntakeOptions
+	options       agentcontract.IntakeOptions
 }
 
 const turnRouterMaxTokens = 1600
@@ -45,34 +46,34 @@ const turnRouterSystemPrompt = "You are Blueclaw's channel-agnostic turn router 
 var ErrTurnRouterDisabled = errors.New("turn router disabled")
 var ErrTurnRouterLanguageModelUnavailable = errors.New("turn router language model unavailable")
 
-func NewTaskIntakePlanner(languageModel model.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
+func NewTaskIntakePlanner(languageModel model.LanguageModelProvider, options agentcontract.IntakeOptions) TaskIntakePlanner {
 	return TaskIntakePlanner{
 		languageModel: languageModel,
-		options:       normalizeIntakeOptions(options),
+		options:       agentcontract.NormalizeIntakeOptions(options),
 	}
 }
 
-func NewTurnRouter(languageModel model.LanguageModelProvider, options IntakeOptions) TurnRouter {
+func NewTurnRouter(languageModel model.LanguageModelProvider, options agentcontract.IntakeOptions) TurnRouter {
 	return TurnRouter{
 		languageModel: languageModel,
-		options:       normalizeIntakeOptions(options),
+		options:       agentcontract.NormalizeIntakeOptions(options),
 	}
 }
 
-func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
-	if NormalizeTaskLevel(string(options.DefaultTaskLevel)) == "" {
-		options.DefaultTaskLevel = TaskLevelLow
-	}
-	options.SkillTaskLevelFloor = NormalizeTaskLevel(string(options.SkillTaskLevelFloor))
-	return options
-}
-
-func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request AgentRequest) (IntakeDecision, error) {
+func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request agentcontract.AgentRequest) (agentcontract.IntakeDecision, error) {
 	turnDecision, errorValue := NewTurnRouter(taskIntakePlanner.languageModel, taskIntakePlanner.options).Plan(ctx, request)
 	return turnDecision.IntakeDecision(), errorValue
 }
 
-func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+func (turnRouter TurnRouter) PlanObserved(ctx context.Context, request agentcontract.AgentRequest, callLedger *agentcontract.TurnRouterCallLedger) (agentcontract.TurnDecision, error) {
+	if callLedger == nil {
+		return turnRouter.Plan(ctx, request)
+	}
+	observedRouter := TurnRouter{languageModel: callLedger.LanguageModel(turnRouter.languageModel), options: turnRouter.options}
+	return observedRouter.Plan(ctx, request)
+}
+
+func (turnRouter TurnRouter) Plan(ctx context.Context, request agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
 	if request.PrecomputedTurnDecision != nil {
 		if request.IsPrecomputedDecisionExact {
 			return *request.PrecomputedTurnDecision, nil
@@ -80,14 +81,14 @@ func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) (Tu
 		return turnRouter.normalizeDecision(*request.PrecomputedTurnDecision, request)
 	}
 	if !turnRouter.options.IsEnabled {
-		return TurnDecision{}, ErrTurnRouterDisabled
+		return agentcontract.TurnDecision{}, ErrTurnRouterDisabled
 	}
 	if turnRouter.languageModel == nil {
-		return TurnDecision{}, ErrTurnRouterLanguageModelUnavailable
+		return agentcontract.TurnDecision{}, ErrTurnRouterLanguageModelUnavailable
 	}
 	turnDecision, errorValue := turnRouter.planWithLanguageModel(ctx, request)
 	if errorValue != nil {
-		return TurnDecision{}, fmt.Errorf("turn router: %w", errorValue)
+		return agentcontract.TurnDecision{}, fmt.Errorf("turn router: %w", errorValue)
 	}
 	normalizedDecision, normalizationError := turnRouter.normalizeDecision(turnDecision, request)
 	if !clarificationDecisionNeedsReview(turnDecision) {
@@ -98,25 +99,25 @@ func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) (Tu
 		if normalizationError == nil {
 			return normalizedDecision, nil
 		}
-		return TurnDecision{}, fmt.Errorf("turn router clarification review: %w", errorValue)
+		return agentcontract.TurnDecision{}, fmt.Errorf("turn router clarification review: %w", errorValue)
 	}
 	return turnRouter.normalizeDecision(reviewedDecision, request)
 }
 
-func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
 	return turnRouter.planWithMessages(ctx, request, turnRouter.buildMessages(request))
 }
 
-func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request AgentRequest, messages []model.Message) (TurnDecision, error) {
+func (turnRouter TurnRouter) planWithMessages(ctx context.Context, request agentcontract.AgentRequest, messages []model.Message) (agentcontract.TurnDecision, error) {
 	structuredResponse, errorValue := turnRouter.generateStructuredResponse(ctx, turnRouterRequest(request, messages))
 	if errorValue != nil {
-		return TurnDecision{}, errorValue
+		return agentcontract.TurnDecision{}, errorValue
 	}
 
-	var turnDecision TurnDecision
+	var turnDecision agentcontract.TurnDecision
 	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &turnDecision)
 	if errorValue != nil {
-		return TurnDecision{}, errorValue
+		return agentcontract.TurnDecision{}, errorValue
 	}
 	return turnDecision, nil
 }
@@ -142,7 +143,7 @@ func (turnRouter TurnRouter) generateStructuredResponse(ctx context.Context, req
 	return turnRouter.languageModel.GenerateStructuredResponse(ctx, correctionRequest)
 }
 
-func turnRouterRequest(request AgentRequest, messages []model.Message) model.StructuredResponseRequest {
+func turnRouterRequest(request agentcontract.AgentRequest, messages []model.Message) model.StructuredResponseRequest {
 	maxTokens := turnRouterMaxTokens
 	return model.StructuredResponseRequest{
 		Messages:          messages,
@@ -171,10 +172,10 @@ func turnRouterCorrectionInstruction(correction model.StructuredOutputCorrection
 	return strings.Join(messageParts, " ")
 }
 
-func (turnRouter TurnRouter) reviewClarificationDecision(ctx context.Context, request AgentRequest, decision TurnDecision) (TurnDecision, error) {
+func (turnRouter TurnRouter) reviewClarificationDecision(ctx context.Context, request agentcontract.AgentRequest, decision agentcontract.TurnDecision) (agentcontract.TurnDecision, error) {
 	document, errorValue := json.Marshal(decision)
 	if errorValue != nil {
-		return TurnDecision{}, errorValue
+		return agentcontract.TurnDecision{}, errorValue
 	}
 	messages := append(turnRouter.buildMessages(request),
 		model.Message{Role: "assistant", Content: string(document)},
@@ -183,8 +184,8 @@ func (turnRouter TurnRouter) reviewClarificationDecision(ctx context.Context, re
 	return turnRouter.planWithMessages(ctx, request, messages)
 }
 
-func clarificationDecisionNeedsReview(decision TurnDecision) bool {
-	if decision.Route != TurnRouteClarify && decision.Classification != IntakeClassificationNeedsConfirmation {
+func clarificationDecisionNeedsReview(decision agentcontract.TurnDecision) bool {
+	if decision.Route != agentcontract.TurnRouteClarify && decision.Classification != agentcontract.IntakeClassificationNeedsConfirmation {
 		return false
 	}
 	return strings.TrimSpace(decision.ClarificationQuestion) == "" ||
@@ -193,7 +194,7 @@ func clarificationDecisionNeedsReview(decision TurnDecision) bool {
 		len(decision.InitialToolNames) > 0
 }
 
-func (turnRouter TurnRouter) buildMessages(request AgentRequest) []model.Message {
+func (turnRouter TurnRouter) buildMessages(request agentcontract.AgentRequest) []model.Message {
 	toolDescriptions := "No tools are available."
 	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 {
 		toolDescriptions = intakeToolDescriptions(request.ToolSet)
@@ -205,7 +206,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []model.Message
 		},
 		{
 			Role:    "system",
-			Content: responseLanguageInstruction(request.ResponseLanguage),
+			Content: agentcontract.ResponseLanguageInstruction(request.ResponseLanguage),
 		},
 		{
 			Role:    "system",
@@ -220,22 +221,22 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []model.Message
 			Content: toolDescriptions,
 		},
 	}
-	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
+	if contextDescription := agentcontract.BuildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
 		messages = append(messages, model.Message{Role: "system", Content: contextDescription})
 	}
-	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
+	if goalDescription := agentcontract.ActiveGoalDescription(request.ActiveGoal); goalDescription != "" {
 		messages = append(messages, model.Message{Role: "system", Content: goalDescription})
 	}
-	if priorTaskDescription := priorTaskContextDescription(request.PriorTask); priorTaskDescription != "" {
+	if priorTaskDescription := agentcontract.PriorTaskContextDescription(request.PriorTask); priorTaskDescription != "" {
 		messages = append(messages, model.Message{Role: "system", Content: priorTaskDescription})
 	}
-	if scheduledRunDescription := (LLMContextBuilder{}).scheduledRunContext(request.ScheduledRun); scheduledRunDescription != "" {
+	if scheduledRunDescription := scheduledRunDescriptionFor(request.ScheduledRun); scheduledRunDescription != "" {
 		messages = append(messages, model.Message{Role: "system", Content: scheduledRunDescription})
 	}
 	if routingContext := turnRoutingContextDescription(request); routingContext != "" {
 		messages = append(messages, model.Message{Role: "system", Content: routingContext})
 	}
-	messages = append(messages, model.Message{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)})
+	messages = append(messages, model.Message{Role: "system", Content: agentcontract.BuildTemporalContextDescription(request.TurnStartedAt)})
 	messages = append(messages, model.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
@@ -272,19 +273,19 @@ func callableToolDescriptionsForIntake(toolSet *toolcontract.ToolSet) []string {
 	return descriptions
 }
 
-func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request AgentRequest) (TurnDecision, error) {
+func (turnRouter TurnRouter) normalizeDecision(decision agentcontract.TurnDecision, request agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
 	decision.Route = normalizeTurnRoute(decision.Route)
 	if decision.Route == "" {
-		return TurnDecision{}, errors.New("turn router returned an invalid route")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned an invalid route")
 	}
 	hasPendingConfirmation := strings.TrimSpace(request.PendingConfirmation.TaskRunID) != ""
 	decision.Approval = normalizeApprovalSignal(decision.Approval, hasPendingConfirmation)
-	if hasPendingConfirmation && decision.Approval != nil && IsApprovingSignal(*decision.Approval) {
-		decision.Route = TurnRouteContinueTask
+	if hasPendingConfirmation && decision.Approval != nil && agentcontract.IsApprovingSignal(*decision.Approval) {
+		decision.Route = agentcontract.TurnRouteContinueTask
 	}
 	decision.Choices = normalizeChoiceSelections(decision.Choices, pendingChoiceContext(request))
 	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" && !isValidBusyRoute(decision.BusyRoute) {
-		return TurnDecision{}, errors.New("turn router returned an invalid busy route")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned an invalid busy route")
 	}
 	if strings.TrimSpace(request.ActiveTask.TaskRunID) == "" {
 		decision.BusyRoute = ""
@@ -292,54 +293,54 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, request Ag
 	decision.BusyInstruction = strings.TrimSpace(decision.BusyInstruction)
 	decision.ClarificationQuestion = strings.TrimSpace(decision.ClarificationQuestion)
 	decision.ClarificationOptions = normalizeClarificationOptions(decision.ClarificationOptions)
-	decision.ReactionEmojiName = NormalizeReactionEmojiName(decision.ReactionEmojiName)
-	normalizedClassification := normalizeClassification(decision.Classification)
+	decision.ReactionEmojiName = agentcontract.NormalizeReactionEmojiName(decision.ReactionEmojiName)
+	normalizedClassification := agentcontract.NormalizeIntakeClassification(decision.Classification)
 	if normalizedClassification == "" {
-		return TurnDecision{}, errors.New("turn router returned an invalid classification")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned an invalid classification")
 	}
 	decision.Classification = normalizedClassification
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
 	if normalizedTaskShape == "" {
-		return TurnDecision{}, errors.New("turn router returned an invalid task shape")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned an invalid task shape")
 	}
 	decision.TaskShape = normalizedTaskShape
-	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
+	decision.RequestedOutputFormats = agentcontract.NormalizeRequestedOutputFormats(decision.RequestedOutputFormats)
 	decision = normalizeWebsiteDeliverableKind(decision)
 	decision = normalizeSiteDeliverableFormats(decision)
-	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
+	decision.ExpectedResults = agentcontract.NormalizeExpectedResults(decision.ExpectedResults)
 	decision = normalizeTurnDecisionFileRequirement(decision)
 	decision = normalizeSideEffectTurnDecision(decision, request.ToolSet)
-	if decision.Classification == IntakeClassificationBoundedTask && decision.TaskShape == TaskShapeImmediateReply {
-		decision.TaskShape = TaskShapeMaintenanceTask
+	if decision.Classification == agentcontract.IntakeClassificationBoundedTask && decision.TaskShape == agentcontract.TaskShapeImmediateReply {
+		decision.TaskShape = agentcontract.TaskShapeMaintenanceTask
 	}
 	decision = canonicalizeTurnDecision(decision)
-	normalizedTaskLevel := NormalizeTaskLevel(string(decision.TaskLevel))
+	normalizedTaskLevel := agentcontract.NormalizeTaskLevel(string(decision.TaskLevel))
 	if normalizedTaskLevel == "" {
-		return TurnDecision{}, errors.New("turn router returned an invalid task level")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned an invalid task level")
 	}
 	decision.TaskLevel = normalizedTaskLevel
 	if decision.EstimatedMinutes < 1 {
-		return TurnDecision{}, errors.New("turn router returned invalid estimated minutes")
+		return agentcontract.TurnDecision{}, errors.New("turn router returned invalid estimated minutes")
 	}
 	if errorValue := validateTurnDecisionConsistency(decision); errorValue != nil {
-		return TurnDecision{}, errorValue
+		return agentcontract.TurnDecision{}, errorValue
 	}
-	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames))
+	decision.InitialToolNames = agentcontract.RegisteredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames))
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	decision.Reason = strings.TrimSpace(decision.Reason)
-	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
+	decision.PriorTaskReference = agentcontract.NormalizePriorTaskReference(decision.PriorTaskReference)
 	return decision, nil
 }
 
-func normalizeWebsiteDeliverableKind(decision TurnDecision) TurnDecision {
-	if decision.DeliverableKind != DeliverableKindWebsite || decisionSuggestsSiteTool(decision) {
+func normalizeWebsiteDeliverableKind(decision agentcontract.TurnDecision) agentcontract.TurnDecision {
+	if decision.DeliverableKind != agentcontract.DeliverableKindWebsite || decisionSuggestsSiteTool(decision) {
 		return decision
 	}
 	decision.InitialToolNames = appendUniqueStrings(decision.InitialToolNames, "site_serve")
 	return decision
 }
 
-func normalizeSiteDeliverableFormats(decision TurnDecision) TurnDecision {
+func normalizeSiteDeliverableFormats(decision agentcontract.TurnDecision) agentcontract.TurnDecision {
 	if !decisionSuggestsSiteTool(decision) {
 		return decision
 	}
@@ -354,7 +355,7 @@ func normalizeSiteDeliverableFormats(decision TurnDecision) TurnDecision {
 	return decision
 }
 
-func decisionSuggestsSiteTool(decision TurnDecision) bool {
+func decisionSuggestsSiteTool(decision agentcontract.TurnDecision) bool {
 	for _, toolName := range decision.InitialToolNames {
 		if strings.HasPrefix(strings.TrimSpace(toolName), "site_") {
 			return true
@@ -363,18 +364,18 @@ func decisionSuggestsSiteTool(decision TurnDecision) bool {
 	return false
 }
 
-func normalizeSideEffectTurnDecision(decision TurnDecision, toolSet *toolcontract.ToolSet) TurnDecision {
-	if decision.Classification != IntakeClassificationQuickReply || !includesRegisteredSideEffectEvidence(toolSet, decision.InitialToolNames) {
+func normalizeSideEffectTurnDecision(decision agentcontract.TurnDecision, toolSet *toolcontract.ToolSet) agentcontract.TurnDecision {
+	if decision.Classification != agentcontract.IntakeClassificationQuickReply || !includesRegisteredSideEffectEvidence(toolSet, decision.InitialToolNames) {
 		return decision
 	}
-	decision.Classification = IntakeClassificationBoundedTask
-	if decision.TaskShape == TaskShapeImmediateReply {
-		decision.TaskShape = TaskShapeMaintenanceTask
+	decision.Classification = agentcontract.IntakeClassificationBoundedTask
+	if decision.TaskShape == agentcontract.TaskShapeImmediateReply {
+		decision.TaskShape = agentcontract.TaskShapeMaintenanceTask
 	}
 	switch decision.Route {
-	case TurnRouteStartTask, TurnRouteContinueTask, TurnRouteReviseTask:
+	case agentcontract.TurnRouteStartTask, agentcontract.TurnRouteContinueTask, agentcontract.TurnRouteReviseTask:
 	default:
-		decision.Route = TurnRouteStartTask
+		decision.Route = agentcontract.TurnRouteStartTask
 	}
 	return decision
 }
@@ -393,58 +394,58 @@ func includesRegisteredSideEffectEvidence(toolSet *toolcontract.ToolSet, toolNam
 	return false
 }
 
-func canonicalizeTurnDecision(decision TurnDecision) TurnDecision {
+func canonicalizeTurnDecision(decision agentcontract.TurnDecision) agentcontract.TurnDecision {
 	switch decision.Classification {
-	case IntakeClassificationQuickReply:
-		decision.TaskShape = TaskShapeImmediateReply
-	case IntakeClassificationNeedsConfirmation:
-		decision.Route = TurnRouteClarify
-		decision.TaskShape = TaskShapeApprovalGatedTask
-	case IntakeClassificationUnsupported:
-		decision.Route = TurnRouteGiveUp
-		decision.TaskShape = TaskShapeImmediateReply
+	case agentcontract.IntakeClassificationQuickReply:
+		decision.TaskShape = agentcontract.TaskShapeImmediateReply
+	case agentcontract.IntakeClassificationNeedsConfirmation:
+		decision.Route = agentcontract.TurnRouteClarify
+		decision.TaskShape = agentcontract.TaskShapeApprovalGatedTask
+	case agentcontract.IntakeClassificationUnsupported:
+		decision.Route = agentcontract.TurnRouteGiveUp
+		decision.TaskShape = agentcontract.TaskShapeImmediateReply
 	}
 	return decision
 }
 
-func validateTurnDecisionConsistency(decision TurnDecision) error {
+func validateTurnDecisionConsistency(decision agentcontract.TurnDecision) error {
 	switch decision.Classification {
-	case IntakeClassificationBoundedTask:
-		if decision.Route == TurnRouteConsume || decision.Route == TurnRouteClarify || decision.Route == TurnRouteGiveUp {
+	case agentcontract.IntakeClassificationBoundedTask:
+		if decision.Route == agentcontract.TurnRouteConsume || decision.Route == agentcontract.TurnRouteClarify || decision.Route == agentcontract.TurnRouteGiveUp {
 			return errors.New("turn router returned bounded_task with a terminal route")
 		}
 	}
-	if decision.Route == TurnRouteConsume && decision.Classification != IntakeClassificationQuickReply {
+	if decision.Route == agentcontract.TurnRouteConsume && decision.Classification != agentcontract.IntakeClassificationQuickReply {
 		return errors.New("turn router returned consume without quick_reply classification")
 	}
-	if decision.Route == TurnRouteClarify && decision.Classification != IntakeClassificationNeedsConfirmation {
+	if decision.Route == agentcontract.TurnRouteClarify && decision.Classification != agentcontract.IntakeClassificationNeedsConfirmation {
 		return errors.New("turn router returned clarify without needs_confirmation classification")
 	}
-	if decision.Route == TurnRouteGiveUp && decision.Classification != IntakeClassificationUnsupported {
+	if decision.Route == agentcontract.TurnRouteGiveUp && decision.Classification != agentcontract.IntakeClassificationUnsupported {
 		return errors.New("turn router returned give_up without unsupported classification")
 	}
 	return nil
 }
 
-func isValidBusyRoute(busyRoute BusyRoute) bool {
+func isValidBusyRoute(busyRoute agentcontract.BusyRoute) bool {
 	switch busyRoute {
-	case BusyRouteStatus, BusyRouteSteer, BusyRouteReplace, BusyRouteCancel, BusyRouteNewTask, BusyRouteUnrelated:
+	case agentcontract.BusyRouteStatus, agentcontract.BusyRouteSteer, agentcontract.BusyRouteReplace, agentcontract.BusyRouteCancel, agentcontract.BusyRouteNewTask, agentcontract.BusyRouteUnrelated:
 		return true
 	default:
 		return false
 	}
 }
 
-func normalizeTurnDecisionFileRequirement(decision TurnDecision) TurnDecision {
+func normalizeTurnDecisionFileRequirement(decision agentcontract.TurnDecision) agentcontract.TurnDecision {
 	if hasArtifactOutputFormat(decision.RequestedOutputFormats) {
 		return decision
 	}
-	decision.ExpectedResults = removeExpectedResultsByType(decision.ExpectedResults, ExpectedResultTypeFile)
+	decision.ExpectedResults = removeExpectedResultsByType(decision.ExpectedResults, agentcontract.ExpectedResultTypeFile)
 	decision.InitialToolNames = removeToolName(decision.InitialToolNames, toolcontract.FileDeliverToolName)
 	return decision
 }
 
-func turnRouterSchema(request AgentRequest) string {
+func turnRouterSchema(request agentcontract.AgentRequest) string {
 	callableToolNames := []string{}
 	if request.ToolSet != nil {
 		for _, toolName := range request.ToolSet.ListToolNames() {
@@ -460,35 +461,35 @@ func turnRouterSchema(request AgentRequest) string {
 		}
 	}
 	routeValues := []string{
-		string(TurnRouteContinueTask),
-		string(TurnRouteReviseTask),
-		string(TurnRouteAnswerQuestion),
-		string(TurnRouteStartTask),
-		string(TurnRouteAnswerMeta),
-		string(TurnRouteClarify),
-		string(TurnRouteConsume),
-		string(TurnRouteGiveUp),
+		string(agentcontract.TurnRouteContinueTask),
+		string(agentcontract.TurnRouteReviseTask),
+		string(agentcontract.TurnRouteAnswerQuestion),
+		string(agentcontract.TurnRouteStartTask),
+		string(agentcontract.TurnRouteAnswerMeta),
+		string(agentcontract.TurnRouteClarify),
+		string(agentcontract.TurnRouteConsume),
+		string(agentcontract.TurnRouteGiveUp),
 	}
 	properties := map[string]any{
 		"route": map[string]any{"type": "string", "enum": routeValues},
 		"classification": map[string]any{"type": "string", "enum": []string{
-			string(IntakeClassificationQuickReply),
-			string(IntakeClassificationBoundedTask),
-			string(IntakeClassificationNeedsConfirmation),
-			string(IntakeClassificationUnsupported),
+			string(agentcontract.IntakeClassificationQuickReply),
+			string(agentcontract.IntakeClassificationBoundedTask),
+			string(agentcontract.IntakeClassificationNeedsConfirmation),
+			string(agentcontract.IntakeClassificationUnsupported),
 		}},
 		"taskShape": map[string]any{"type": "string", "enum": []string{
-			string(TaskShapeImmediateReply),
-			string(TaskShapeResearchTask),
-			string(TaskShapeMaintenanceTask),
-			string(TaskShapeScheduledTask),
-			string(TaskShapeBrowserHandoffTask),
-			string(TaskShapeApprovalGatedTask),
+			string(agentcontract.TaskShapeImmediateReply),
+			string(agentcontract.TaskShapeResearchTask),
+			string(agentcontract.TaskShapeMaintenanceTask),
+			string(agentcontract.TaskShapeScheduledTask),
+			string(agentcontract.TaskShapeBrowserHandoffTask),
+			string(agentcontract.TaskShapeApprovalGatedTask),
 		}},
 		"level": map[string]any{"type": "string", "enum": []string{
-			string(TaskLevelLow),
-			string(TaskLevelMedium),
-			string(TaskLevelHigh),
+			string(agentcontract.TaskLevelLow),
+			string(agentcontract.TaskLevelMedium),
+			string(agentcontract.TaskLevelHigh),
 		}},
 		"estimatedMinutes": map[string]any{"type": "integer", "minimum": 1},
 		"requestedOutputFormats": map[string]any{"anyOf": []any{
@@ -496,10 +497,10 @@ func turnRouterSchema(request AgentRequest) string {
 			map[string]any{"type": "null"},
 		}},
 		"deliverableKind": map[string]any{"type": "string", "enum": []string{
-			string(DeliverableKindWebsite),
-			string(DeliverableKindPresentation),
-			string(DeliverableKindDocument),
-			string(DeliverableKindNone),
+			string(agentcontract.DeliverableKindWebsite),
+			string(agentcontract.DeliverableKindPresentation),
+			string(agentcontract.DeliverableKindDocument),
+			string(agentcontract.DeliverableKindNone),
 		}},
 		"expectedResults":  expectedResultsSchema(),
 		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
@@ -507,8 +508,8 @@ func turnRouterSchema(request AgentRequest) string {
 		"userFacingReply":  map[string]any{"type": "string", "maxLength": 512},
 		"initialToolNames": boundedNamedStringArraySchema(callableToolNames),
 		"priorTaskReference": map[string]any{"type": "string", "enum": []string{
-			string(PriorTaskReferenceNone),
-			string(PriorTaskReferenceOutcomeRecovery),
+			string(agentcontract.PriorTaskReferenceNone),
+			string(agentcontract.PriorTaskReferenceOutcomeRecovery),
 		}},
 		"clarificationQuestion": map[string]any{
 			"type": "string", "maxLength": 256,
@@ -521,7 +522,7 @@ func turnRouterSchema(request AgentRequest) string {
 	}
 	requiredProperties := []string{"route", "classification", "taskShape", "level", "estimatedMinutes", "requestedOutputFormats", "deliverableKind", "responseLanguage", "reason", "userFacingReply", "priorTaskReference"}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
-		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalApproveTask), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
+		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(agentcontract.ApprovalSignalApprove), string(agentcontract.ApprovalSignalApproveTask), string(agentcontract.ApprovalSignalReject), string(agentcontract.ApprovalSignalUnclear)}}
 		requiredProperties = append(requiredProperties, "approval")
 	}
 	if pendingChoice := pendingChoiceContext(request); strings.TrimSpace(pendingChoice.TaskRunID) != "" {
@@ -531,12 +532,12 @@ func turnRouterSchema(request AgentRequest) string {
 	}
 	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
 		properties["busyRoute"] = map[string]any{"type": "string", "enum": []string{
-			string(BusyRouteStatus),
-			string(BusyRouteSteer),
-			string(BusyRouteReplace),
-			string(BusyRouteCancel),
-			string(BusyRouteNewTask),
-			string(BusyRouteUnrelated),
+			string(agentcontract.BusyRouteStatus),
+			string(agentcontract.BusyRouteSteer),
+			string(agentcontract.BusyRouteReplace),
+			string(agentcontract.BusyRouteCancel),
+			string(agentcontract.BusyRouteNewTask),
+			string(agentcontract.BusyRouteUnrelated),
 		}}
 		properties["busyInstruction"] = map[string]any{"type": "string", "maxLength": 512}
 		requiredProperties = append(requiredProperties, "busyRoute", "busyInstruction")
@@ -573,7 +574,7 @@ func expectedResultsSchema() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"id":              map[string]any{"type": "string", "maxLength": 128},
-				"type":            map[string]any{"type": "string", "enum": []string{ExpectedResultTypeMessage, ExpectedResultTypeFile, ExpectedResultTypeLink}},
+				"type":            map[string]any{"type": "string", "enum": []string{agentcontract.ExpectedResultTypeMessage, agentcontract.ExpectedResultTypeFile, agentcontract.ExpectedResultTypeLink}},
 				"description":     map[string]any{"type": "string", "maxLength": 256},
 				"required":        map[string]any{"type": "boolean"},
 				"acceptanceHints": map[string]any{"type": "array", "maxItems": 4, "items": map[string]any{"type": "string", "maxLength": 128}},
@@ -584,14 +585,14 @@ func expectedResultsSchema() map[string]any {
 	}
 }
 
-func pendingChoiceContext(request AgentRequest) PendingChoiceContext {
+func pendingChoiceContext(request agentcontract.AgentRequest) agentcontract.PendingChoiceContext {
 	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
 		return request.PendingChoice
 	}
 	if strings.TrimSpace(request.PendingInput.TaskRunID) == "" || len(request.PendingInput.Options) == 0 {
-		return PendingChoiceContext{}
+		return agentcontract.PendingChoiceContext{}
 	}
-	return PendingChoiceContext{
+	return agentcontract.PendingChoiceContext{
 		TaskRunID:     request.PendingInput.TaskRunID,
 		Question:      request.PendingInput.Question,
 		SelectionMode: request.PendingInput.SelectionMode,
@@ -599,7 +600,7 @@ func pendingChoiceContext(request AgentRequest) PendingChoiceContext {
 	}
 }
 
-func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
+func pendingChoiceKeys(pendingChoice agentcontract.PendingChoiceContext) []string {
 	keys := []string{}
 	seenKeys := map[string]bool{}
 	for index, option := range pendingChoice.Options {
@@ -635,7 +636,7 @@ func clarificationOptionsSchema() map[string]any {
 	}
 }
 
-func turnRoutingContextDescription(request AgentRequest) string {
+func turnRoutingContextDescription(request agentcontract.AgentRequest) string {
 	lines := []string{}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
 		lines = append(lines,
@@ -696,34 +697,15 @@ func turnRoutingContextDescription(request AgentRequest) string {
 }
 
 func resolveDecisionResponseLanguage(decisionLanguage string, requestLanguage string) string {
-	normalizedDecisionLanguage := NormalizeResponseLanguage(decisionLanguage)
-	if normalizedDecisionLanguage == ResponseLanguageSameAsConversation {
-		return ResolveResponseLanguage(requestLanguage)
+	normalizedDecisionLanguage := toolcontract.NormalizeResponseLanguage(decisionLanguage)
+	if normalizedDecisionLanguage == toolcontract.ResponseLanguageSameAsConversation {
+		return toolcontract.ResolveResponseLanguage(requestLanguage)
 	}
-	return ResolveResponseLanguage(normalizedDecisionLanguage, requestLanguage)
-}
-
-func normalizeRequestedOutputFormats(formats []string) []string {
-	normalizedFormats := []string{}
-	seenFormat := map[string]bool{}
-	for _, format := range formats {
-		normalizedFormat := strings.ToLower(strings.TrimSpace(format))
-		switch normalizedFormat {
-		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv", "json":
-		default:
-			continue
-		}
-		if seenFormat[normalizedFormat] {
-			continue
-		}
-		seenFormat[normalizedFormat] = true
-		normalizedFormats = append(normalizedFormats, normalizedFormat)
-	}
-	return normalizedFormats
+	return toolcontract.ResolveResponseLanguage(normalizedDecisionLanguage, requestLanguage)
 }
 
 func hasArtifactOutputFormat(formats []string) bool {
-	for _, format := range normalizeRequestedOutputFormats(formats) {
+	for _, format := range agentcontract.NormalizeRequestedOutputFormats(formats) {
 		switch format {
 		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv", "json":
 			return true
@@ -732,43 +714,43 @@ func hasArtifactOutputFormat(formats []string) bool {
 	return false
 }
 
-func normalizeTaskShape(taskShape TaskShape) TaskShape {
+func normalizeTaskShape(taskShape agentcontract.TaskShape) agentcontract.TaskShape {
 	switch taskShape {
-	case TaskShapeImmediateReply, TaskShapeResearchTask, TaskShapeMaintenanceTask, TaskShapeScheduledTask, TaskShapeBrowserHandoffTask, TaskShapeApprovalGatedTask:
+	case agentcontract.TaskShapeImmediateReply, agentcontract.TaskShapeResearchTask, agentcontract.TaskShapeMaintenanceTask, agentcontract.TaskShapeScheduledTask, agentcontract.TaskShapeBrowserHandoffTask, agentcontract.TaskShapeApprovalGatedTask:
 		return taskShape
 	default:
 		return ""
 	}
 }
 
-func normalizeTurnRoute(route TurnRoute) TurnRoute {
+func normalizeTurnRoute(route agentcontract.TurnRoute) agentcontract.TurnRoute {
 	switch route {
-	case TurnRouteContinueTask, TurnRouteReviseTask, TurnRouteAnswerQuestion, TurnRouteStartTask, TurnRouteAnswerMeta, TurnRouteClarify, TurnRouteConsume, TurnRouteGiveUp:
+	case agentcontract.TurnRouteContinueTask, agentcontract.TurnRouteReviseTask, agentcontract.TurnRouteAnswerQuestion, agentcontract.TurnRouteStartTask, agentcontract.TurnRouteAnswerMeta, agentcontract.TurnRouteClarify, agentcontract.TurnRouteConsume, agentcontract.TurnRouteGiveUp:
 		return route
 	default:
 		return ""
 	}
 }
 
-func normalizeApprovalSignal(signal *ApprovalSignal, hasPendingConfirmation bool) *ApprovalSignal {
+func normalizeApprovalSignal(signal *agentcontract.ApprovalSignal, hasPendingConfirmation bool) *agentcontract.ApprovalSignal {
 	if !hasPendingConfirmation {
 		return nil
 	}
 	if signal == nil {
-		unclear := ApprovalSignalUnclear
+		unclear := agentcontract.ApprovalSignalUnclear
 		return &unclear
 	}
-	normalizedSignal := ApprovalSignal(strings.TrimSpace(string(*signal)))
+	normalizedSignal := agentcontract.ApprovalSignal(strings.TrimSpace(string(*signal)))
 	switch normalizedSignal {
-	case ApprovalSignalApprove, ApprovalSignalApproveTask, ApprovalSignalReject, ApprovalSignalUnclear:
+	case agentcontract.ApprovalSignalApprove, agentcontract.ApprovalSignalApproveTask, agentcontract.ApprovalSignalReject, agentcontract.ApprovalSignalUnclear:
 		return &normalizedSignal
 	default:
-		unclear := ApprovalSignalUnclear
+		unclear := agentcontract.ApprovalSignalUnclear
 		return &unclear
 	}
 }
 
-func normalizeChoiceSelections(selections []string, pendingChoice PendingChoiceContext) []string {
+func normalizeChoiceSelections(selections []string, pendingChoice agentcontract.PendingChoiceContext) []string {
 	if strings.TrimSpace(pendingChoice.TaskRunID) == "" {
 		return nil
 	}
@@ -800,8 +782,8 @@ func normalizeChoiceSelections(selections []string, pendingChoice PendingChoiceC
 	return normalizedChoices
 }
 
-func normalizeClarificationOptions(options []ClarificationOption) []ClarificationOption {
-	normalizedOptions := []ClarificationOption{}
+func normalizeClarificationOptions(options []agentcontract.ClarificationOption) []agentcontract.ClarificationOption {
+	normalizedOptions := []agentcontract.ClarificationOption{}
 	seenKeys := map[string]bool{}
 	for index, option := range options {
 		label := strings.TrimSpace(option.Label)
@@ -820,7 +802,7 @@ func normalizeClarificationOptions(options []ClarificationOption) []Clarificatio
 		if value == "" {
 			value = label
 		}
-		normalizedOptions = append(normalizedOptions, ClarificationOption{Key: key, Label: label, Value: value})
+		normalizedOptions = append(normalizedOptions, agentcontract.ClarificationOption{Key: key, Label: label, Value: value})
 		if len(normalizedOptions) >= 5 {
 			break
 		}
@@ -838,58 +820,94 @@ func clarificationOptionKey(index int) string {
 	return "O"
 }
 
-func NormalizeReactionEmojiName(emojiName string) string {
-	normalizedEmojiName := strings.Trim(strings.TrimSpace(emojiName), ":")
-	if normalizedEmojiName == "" {
-		return DefaultReactionEmojiName
+func scheduledRunDescriptionFor(scheduledRun agentcontract.ScheduledRunContext) string {
+	if scheduledRun.IsEmpty() {
+		return ""
 	}
-	normalizedEmojiName = strings.ToLower(normalizedEmojiName)
-	for _, allowedEmojiName := range allowedReactionEmojiNames {
-		if normalizedEmojiName == allowedEmojiName {
-			return normalizedEmojiName
-		}
+	document, errorValue := json.Marshal(scheduledRun)
+	if errorValue != nil {
+		return ""
 	}
-	return DefaultReactionEmojiName
+	return "Scheduled run:\n" + string(document)
 }
 
-func hasAllTools(toolRegistry *toolcontract.ToolSet, toolNames []string) bool {
-	if toolRegistry == nil {
+func toolIsModelCallable(toolID string) bool {
+	return strings.TrimSpace(toolID) != ""
+}
+
+func requestToolSetCanReachTool(toolSet *toolcontract.ToolSet, toolName string) bool {
+	if toolSet == nil {
 		return false
 	}
-	availableToolNames := map[string]bool{}
-	for _, toolName := range toolRegistry.ListToolNames() {
-		availableToolNames[toolName] = true
+	return toolSet.IsAllowed(toolName) || toolSet.CanExpose(toolName)
+}
+
+func appendUniqueStrings(values []string, candidates ...string) []string {
+	nextValues := append([]string{}, values...)
+	seenValue := map[string]bool{}
+	for _, value := range nextValues {
+		seenValue[value] = true
 	}
+	for _, candidate := range candidates {
+		trimmedCandidate := strings.TrimSpace(candidate)
+		if trimmedCandidate == "" || seenValue[trimmedCandidate] {
+			continue
+		}
+		seenValue[trimmedCandidate] = true
+		nextValues = append(nextValues, trimmedCandidate)
+	}
+	return nextValues
+}
+
+const (
+	requiredEvidenceToolKindNativeTool          = "native_tool"
+	requiredEvidenceToolKindCapabilityOperation = "capability_operation"
+)
+
+func requiredEvidenceRegisteredToolName(toolSet *toolcontract.ToolSet, toolName string) (string, bool) {
+	trimmedToolName := strings.TrimSpace(toolName)
+	return trimmedToolName, toolSet.IsRegistered(trimmedToolName)
+}
+
+func requiredEvidenceToolKind(toolSet *toolcontract.ToolSet, toolName string) (string, bool) {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" || toolSet == nil {
+		return "", false
+	}
+	registeredToolName, isRegistered := requiredEvidenceRegisteredToolName(toolSet, trimmedToolName)
+	if !isRegistered {
+		return "", false
+	}
+	if toolSet.IsAllowed(registeredToolName) {
+		return requiredEvidenceToolKindNativeTool, true
+	}
+	if !toolcontract.IsKernelToolName(registeredToolName) && toolSet.CanExpose(registeredToolName) {
+		return requiredEvidenceToolKindCapabilityOperation, true
+	}
+	return "", false
+}
+
+func requiredEvidenceToolCanBeSatisfied(toolSet *toolcontract.ToolSet, toolName string) bool {
+	_, isValid := requiredEvidenceToolKind(toolSet, toolName)
+	return isValid
+}
+
+func removeExpectedResultsByType(results []agentcontract.ExpectedResult, removedType string) []agentcontract.ExpectedResult {
+	filteredResults := []agentcontract.ExpectedResult{}
+	for _, result := range results {
+		if result.Type != removedType {
+			filteredResults = append(filteredResults, result)
+		}
+	}
+	return filteredResults
+}
+
+func removeToolName(toolNames []string, removedToolName string) []string {
+	values := []string{}
 	for _, toolName := range toolNames {
-		if !availableToolNames[toolName] {
-			return false
+		if !toolcontract.ToolNamesMatch(toolName, removedToolName) {
+			values = appendUniqueStrings(values, toolName)
 		}
 	}
-	return true
-}
-
-func hasTool(toolRegistry *toolcontract.ToolSet, toolName string) bool {
-	if toolRegistry == nil {
-		return false
-	}
-	for _, availableToolName := range toolRegistry.ListToolNames() {
-		if availableToolName == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-func registeredToolNamesOnly(toolRegistry *toolcontract.ToolSet, toolNames []string) []string {
-	if toolRegistry == nil || len(toolNames) == 0 {
-		return nil
-	}
-	registeredToolNames := []string{}
-	for _, toolName := range appendUniqueStrings([]string{}, toolNames...) {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if toolRegistry.IsAllowed(trimmedToolName) || requiredEvidenceToolCanBeSatisfied(toolRegistry, trimmedToolName) {
-			registeredToolNames = appendUniqueStrings(registeredToolNames, trimmedToolName)
-		}
-	}
-	return registeredToolNames
+	return values
 }

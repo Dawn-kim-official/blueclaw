@@ -31,6 +31,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	runtimeLanguageModel := staticRuntimeLanguageModel{content: runtimeFinishMessage("done")}
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
@@ -42,7 +43,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 		"default": {"conversation_history", "memory_search"},
 	}, nil)
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := routedTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder, runtimeLanguageModel).Launch(context.Background(), TaskLaunchRequest{
 		Source:                    TaskLaunchSourceConnector,
 		SourceReference:           "mattermost:post-1",
 		RequesterPersonID:         "person-1",
@@ -83,12 +84,13 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
+	noticeAuthoringLanguageModel := authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
+	agentKernel.UseLanguageModelProvider(noticeAuthoringLanguageModel)
 	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
 
-	launchResult, errorValue := NewTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder()).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := routedTaskLauncherAuthoringNoticesWith(agentKernel, taskRunService, NewToolCatalogBuilder(), failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")}, noticeAuthoringLanguageModel).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceAdmin,
 		RequesterPersonID: "person-1",
 		ConversationID:    "admin:person-1",

@@ -250,3 +250,47 @@ var (
 	normalizeFailureReport                 = agentcontract.NormalizeFailureReport
 	buildFailureNotice                     = agentcontract.BuildFailureNotice
 )
+
+var (
+	activeGoalDescription = agentcontract.ActiveGoalDescription
+)
+
+var ()
+
+var (
+	normalizeIntakeOptions          = agentcontract.NormalizeIntakeOptions
+	NormalizeReactionEmojiName      = agentcontract.NormalizeReactionEmojiName
+	normalizeRequestedOutputFormats = agentcontract.NormalizeRequestedOutputFormats
+	registeredToolNamesOnly         = agentcontract.RegisteredToolNamesOnly
+	hasAllTools                     = agentcontract.HasAllTools
+	hasTool                         = agentcontract.HasTool
+)
+
+type (
+	TaskLevelProfile = agentcontract.TaskLevelProfile
+)
+
+var (
+	TaskLevelProfileForLevel          = agentcontract.TaskLevelProfileForLevel
+	nextTaskLevel                     = agentcontract.NextTaskLevel
+	taskLevelRequiresPlan             = agentcontract.TaskLevelRequiresPlan
+	taskLevelWantsSingleFinalReply    = agentcontract.TaskLevelWantsSingleFinalReply
+	taskLevelWantsProgressCheckpoints = agentcontract.TaskLevelWantsProgressCheckpoints
+)
+
+type (
+	llmCallRecord        = agentcontract.LLMCallRecord
+	llmCallObserver      = agentcontract.LLMCallObserver
+	turnRouterCallLedger = agentcontract.TurnRouterCallLedger
+)
+
+var observeLanguageModel = agentcontract.ObserveLanguageModel
+
+var (
+	isSameLanguageModelProvider = agentcontract.IsSameLanguageModelProvider
+	observedInnerLanguageModel  = agentcontract.ObservedInnerLanguageModel
+)
+
+const agentActionSchemaName = agentcontract.AgentActionSchemaName
+
+const turnRouterSchemaName = agentcontract.TurnRouterSchemaName

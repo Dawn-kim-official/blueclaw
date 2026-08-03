@@ -839,6 +839,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	adapter := &virtualAdapter{workspacePath: workspacePath}
 	runtime.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, highLanguageModel))
 	runtime.UseReplyGenerator(reply.NewGenerator(highLanguageModel, instructionBundleLoader))
+	scenarioTurnRouter := intake.NewTurnRouter(firstAvailableLanguageModel(intakeLanguageModel, highLanguageModel), agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow})
+	runtime.UseTurnRouter(scenarioTurnRouter)
 	runtime.UseIntakeClassifier(intake.NewClassifier(firstAvailableLanguageModel(xLowLanguageModel, intakeLanguageModel, highLanguageModel)))
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")
@@ -881,6 +883,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		agentHarness,
 	)
 	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentHarness, taskRunService, toolCatalogBuilder)
+	virtualTaskLauncher.UseTurnRouter(intake.NewTurnRouter(firstAvailableLanguageModel(intakeLanguageModel, highLanguageModel), agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow}))
 	virtualTaskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, highLanguageModel))
 	virtualTaskLauncher.UseRequesterEmailResolver(identityService)
 	runtime.UseTaskLauncher(virtualTaskLauncher)

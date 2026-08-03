@@ -183,7 +183,7 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 		Reason:           "lightweight acknowledgement",
 	}})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("고마워!"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("고마워!")))
 	if errorValue != nil {
 		t.Fatalf("expected consume route to complete: %v", errorValue)
 	}
@@ -228,7 +228,7 @@ func TestAgentKernelRejectsExecutableConsumeContradiction(t *testing.T) {
 
 	request := kernelTestRequest("업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선")
 	request.ToolSet = toolSet
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 	if errorValue != nil {
 		t.Fatalf("expected router failure result: %v", errorValue)
 	}
@@ -257,7 +257,7 @@ func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 		},
 	}})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("보고서 삭제해줘"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("보고서 삭제해줘")))
 	if errorValue != nil {
 		t.Fatalf("expected disambiguation pause to complete: %v", errorValue)
 	}
@@ -282,7 +282,7 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 		UserFacingReply:  "이 요청은 현재 권한 범위 밖이라 진행할 수 없어요.",
 	}})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("서버 루트 비밀번호 바꿔줘"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("서버 루트 비밀번호 바꿔줘")))
 	if errorValue != nil {
 		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
@@ -334,7 +334,7 @@ func TestAgentKernelPreservesActiveContractOnApprovalContinuation(t *testing.T) 
 		},
 	}
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 	if errorValue != nil {
 		t.Fatalf("expected approval continuation to run: %v", errorValue)
 	}
@@ -367,7 +367,7 @@ func TestExistingTaskRunIDDoesNotAuthorizeConfirmationBypass(t *testing.T) {
 	request.ToolSet = toolSet
 	request.ExistingTaskRunID = existingTaskRun.TaskRunID
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil {
 		t.Fatalf("expected runtime approval gate: %v", errorValue)
@@ -411,7 +411,7 @@ func TestSemanticRevisionStartsNewTaskRun(t *testing.T) {
 		},
 	}
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil {
 		t.Fatalf("expected semantic revision to run: %v", errorValue)
@@ -439,7 +439,7 @@ func TestInvalidPersistedActiveGoalBlocksBeforeToolHandler(t *testing.T) {
 	request.ToolSet = toolSet
 	request.ActiveGoal = ActiveGoal{RestoreError: "latest active goal event is invalid"}
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil {
 		t.Fatalf("expected fail-closed result: %v", errorValue)
@@ -493,7 +493,7 @@ func TestAgentKernelSideEffectTaskProceedsWithoutRouterPredictedEvidence(t *test
 	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
 	request.ToolSet = toolSet
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 	if errorValue != nil {
 		t.Fatalf("expected side-effect task without predicted evidence to proceed: %v", errorValue)
 	}
@@ -558,7 +558,7 @@ func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	}})
 	agentKernel.UseLanguageModelProvider(&recoveryChatNoticeProvider{chatReply: "지금 실행 범위에서는 안전하게 처리할 수 없어요. 요청을 좁혀주시면 도와드릴게요."})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("시스템 패키지 전부 지워줘"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("시스템 패키지 전부 지워줘")))
 	if errorValue != nil {
 		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
@@ -580,7 +580,7 @@ func TestAgentKernelFallsBackToReasonWhenIntakeNoticeModelsFail(t *testing.T) {
 	}})
 	agentKernel.UseLanguageModelProvider(failingLanguageModel{})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("시스템 패키지 전부 지워줘"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("시스템 패키지 전부 지워줘")))
 	if errorValue != nil {
 		t.Fatalf("expected unsupported intake to complete: %v", errorValue)
 	}
@@ -602,7 +602,7 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}})
 	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("오늘은 수요일이에요.")}})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("오늘 무슨 요일이야?")))
 	if errorValue != nil {
 		t.Fatalf("expected bounded run to complete: %v", errorValue)
 	}
@@ -611,77 +611,6 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}
 	if !strings.Contains(result.TaskRun.Result, "수요일") {
 		t.Fatalf("expected finish message in result, got %q", result.TaskRun.Result)
-	}
-}
-
-func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
-		decision: TurnDecision{
-			Route:            TurnRouteStartTask,
-			Classification:   IntakeClassificationQuickReply,
-			TaskShape:        TaskShapeImmediateReply,
-			TaskLevel:        TaskLevelXLow,
-			EstimatedMinutes: 1,
-			ResponseLanguage: "ko",
-			Reason:           "direct answer",
-		},
-		response: model.StructuredResponse{
-			ProviderName: "llmd",
-			ModelName:    "router-model",
-			ModelTier:    "xlow",
-			Usage: model.Usage{
-				PromptTokens:     11,
-				CompletionTokens: 7,
-				TotalTokens:      18,
-			},
-		},
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}})
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
-	if errorValue != nil {
-		t.Fatalf("expected bounded run to complete: %v", errorValue)
-	}
-	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
-	if len(records) != 1 {
-		t.Fatalf("expected one persisted router call, got %+v", records)
-	}
-	if records[0].Provider != "llmd" || records[0].Model != "router-model" || records[0].ModelTier != "xlow" || records[0].UsedFallback {
-		t.Fatalf("expected LLMD router metadata without fallback, got %+v", records[0])
-	}
-	if records[0].PromptTokens != 11 || records[0].CompletionTokens != 7 || records[0].TotalTokens != 18 {
-		t.Fatalf("expected router token metadata, got %+v", records[0])
-	}
-}
-
-func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
-		response: model.StructuredResponse{
-			ProviderName: "llmd",
-			ModelName:    "router-model",
-		},
-		errorValue: errors.New("router unavailable"),
-	})
-	agentKernel.UseLanguageModelProvider(&recoveryChatNoticeProvider{chatReply: "요청을 분류하지 못해 이번 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("오늘 무슨 요일이야?"))
-	if errorValue != nil {
-		t.Fatalf("expected persisted router failure result: %v", errorValue)
-	}
-	if result.TaskRun.Status != taskstate.TaskStatusFailed || result.FailureNotice.Source != "generated" {
-		t.Fatalf("expected LLM-authored failed task, got %+v", result)
-	}
-	if !strings.Contains(result.FailureNotice.SendableMessage(), "분류하지 못해") {
-		t.Fatalf("expected authored failure notice, got %+v", result.FailureNotice)
-	}
-	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
-	if len(records) != 1 || !records[0].IsError || !strings.Contains(records[0].Error, "router unavailable") {
-		t.Fatalf("expected persisted router error call, got %+v", records)
-	}
-	if taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "") {
-		t.Fatal("router failure must not invent an intake decision")
 	}
 }
 
@@ -731,37 +660,6 @@ func TestHumanEstimateDoesNotShrinkTaskWorkDuration(t *testing.T) {
 	}
 }
 
-func TestAgentKernelRouterDeadlinePersistsOneBlockedTask(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseTurnOptions(TurnOptions{MaxElapsedSecond: 1})
-	agentKernel.UseIntakeLanguageModelProvider(deadlineBlockingRouterLanguageModel{})
-	request := kernelTestRequest("고객지원 업무를 정리해줘")
-	request.TurnStartedAt = time.Now().Add(-2 * time.Second)
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
-
-	if errorValue != nil {
-		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
-	}
-	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
-	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
-		t.Fatalf("expected exactly one persisted task, got %+v", taskRuns)
-	}
-	if result.TaskRun.Status != taskstate.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
-		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.limit_stop", `"phase":"intake"`) {
-		t.Fatal("expected observable intake max elapsed event")
-	}
-	if taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
-		t.Fatalf("expected one limit and goal event, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "agent.intake", "") {
-		t.Fatal("router deadline must not invent an intake decision")
-	}
-}
-
 func TestAgentKernelSkillDeadlinePersistsOneBlockedTask(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	languageModel := &routerThenBlockingLanguageModel{decision: TurnDecision{
@@ -779,7 +677,7 @@ func TestAgentKernelSkillDeadlinePersistsOneBlockedTask(t *testing.T) {
 	workDuration := workDurationWithinTotal(TaskLevelProfileForLevel(TaskLevelXLow).Duration)
 	request.TurnStartedAt = time.Now().Add(-workDuration + 100*time.Millisecond)
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil {
 		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
@@ -806,7 +704,7 @@ func TestAgentKernelCallerCancellationIsNotMaxElapsed(t *testing.T) {
 	responseContext, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, errorValue := agentKernel.RunAgentRequest(responseContext, kernelTestRequest("고객지원 업무를 정리해줘"))
+	result, errorValue := agentKernel.RunAgentRequest(responseContext, routedRequest(t, responseContext, agentKernel, kernelTestRequest("고객지원 업무를 정리해줘")))
 
 	if errorValue != nil {
 		t.Fatalf("expected persisted cancellation result: %v", errorValue)
@@ -919,7 +817,7 @@ func TestAgentKernelXHighTaskKeepsHourBudgetWithLowExecutionModel(t *testing.T) 
 	request.ToolSet = newTestToolSet(nil)
 	request.TurnStartedAt = time.Now().Add(-15 * time.Minute)
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil || result.TaskRun.Status != taskstate.TaskStatusCompleted {
 		t.Fatalf("expected xhigh task to complete with low execution model: result=%+v error=%v", result, errorValue)
@@ -951,7 +849,7 @@ func TestAgentKernelClampsStaleNonResumeAnchorInsteadOfInstantElapsing(t *testin
 	request.ToolSet = newTestToolSet(nil)
 	request.TurnStartedAt = time.Now().Add(-TaskLevelProfileForLevel(TaskLevelLow).Duration - time.Second)
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 
 	if errorValue != nil {
 		t.Fatalf("expected a completed task result: %v", errorValue)
@@ -1001,7 +899,7 @@ func TestAgentKernelPreservesExactPrecomputedTaskLevel(t *testing.T) {
 	request.SkipSkillSelection = true
 	request.ToolSet = newTestToolSet(nil)
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
 	if errorValue != nil {
 		t.Fatalf("expected exact low-tier diagnostic run: %v", errorValue)
 	}

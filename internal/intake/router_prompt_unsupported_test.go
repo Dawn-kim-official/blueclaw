@@ -1,8 +1,10 @@
-package bluecollar
+package intake
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 )
 
 // The intake router used to refuse doable work (e.g. generating a pptx) by
@@ -12,7 +14,7 @@ import (
 // pushing the model to attempt anything plausibly doable.
 func TestRouterPromptReservesUnsupportedForImpossibleWork(t *testing.T) {
 	systemPrompt := ""
-	for _, message := range (TurnRouter{}).buildMessages(AgentRequest{Prompt: "turn this file into a deck"}) {
+	for _, message := range (TurnRouter{}).buildMessages(agentcontract.AgentRequest{Prompt: "turn this file into a deck"}) {
 		if message.Role == "system" {
 			systemPrompt += message.Content
 		}
