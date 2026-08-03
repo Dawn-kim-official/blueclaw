@@ -48,6 +48,7 @@ func runtimeConfigurationFor(home Home, enrollment Enrollment) config.RuntimeCon
 			},
 		},
 	}
+	runtimeConfiguration.Connectors.EnrolSenders = enrollment.Messenger.IsConnected() && enrollment.Messenger.IsOpenToPeople
 	switch enrollment.Messenger.Name {
 	case MessengerMattermost:
 		runtimeConfiguration.Connectors.Mattermost.BaseURL = strings.TrimSpace(enrollment.Messenger.BaseURL)

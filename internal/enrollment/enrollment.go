@@ -37,8 +37,9 @@ const (
 )
 
 type MessengerChoice struct {
-	Name    MessengerName
-	BaseURL string
+	Name           MessengerName
+	BaseURL        string
+	IsOpenToPeople bool
 }
 
 func (choice MessengerChoice) IsConnected() bool {

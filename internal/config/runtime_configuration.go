@@ -291,11 +291,12 @@ type MemoryConfiguration struct {
 }
 
 type ConnectorConfiguration struct {
-	Mattermost MattermostConnectorConfiguration `json:"mattermost"`
-	Slack      SlackConnectorConfiguration      `json:"slack"`
-	Signal     SignalConnectorConfiguration     `json:"signal"`
-	Chatd      ChatdConnectorConfiguration      `json:"chatd"`
-	Buzz       BuzzConnectorConfiguration       `json:"buzz"`
+	EnrolSenders bool                             `json:"enrolSenders,omitempty"`
+	Mattermost   MattermostConnectorConfiguration `json:"mattermost"`
+	Slack        SlackConnectorConfiguration      `json:"slack"`
+	Signal       SignalConnectorConfiguration     `json:"signal"`
+	Chatd        ChatdConnectorConfiguration      `json:"chatd"`
+	Buzz         BuzzConnectorConfiguration       `json:"buzz"`
 }
 
 type MattermostConnectorConfiguration struct {

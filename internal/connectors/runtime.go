@@ -349,7 +349,12 @@ const connectorReplyKindCheckpoint = "checkpoint"
 const connectorReplyKindUserNotice = "user_notice"
 const connectorReplyKindPermissionNotice = "permission_notice"
 
+type PersonRegistrar interface {
+	RegisterPerson(displayName string, email string) (bool, error)
+}
+
 type ConnectorRuntime struct {
+	personRegistrar        PersonRegistrar
 	identityService        *identity.IdentityService
 	harness                agentcontract.Harness
 	intakeClassifier       IntakeClassifier
@@ -580,6 +585,10 @@ type IntakeClassifier interface {
 
 func (connectorRuntime *ConnectorRuntime) UseIntakeClassifier(intakeClassifier IntakeClassifier) {
 	connectorRuntime.intakeClassifier = intakeClassifier
+}
+
+func (connectorRuntime *ConnectorRuntime) UsePersonRegistrar(personRegistrar PersonRegistrar) {
+	connectorRuntime.personRegistrar = personRegistrar
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {
@@ -3397,6 +3406,29 @@ func (connectorRuntime *ConnectorRuntime) authorizeSender(ctx context.Context, a
 	connectorRuntime.identityService.RememberPlatformAccount(platformAccountIdentity)
 
 	personID, isFound = connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderID)
+	if isFound {
+		return personID, true, nil
+	}
+	return connectorRuntime.enrolSender(adapter, platformAccountIdentity)
+}
+
+func (connectorRuntime *ConnectorRuntime) enrolSender(adapter PlatformAdapter, platformAccountIdentity identity.PlatformAccountIdentity) (string, bool, error) {
+	if connectorRuntime.personRegistrar == nil {
+		return "", false, nil
+	}
+	wasRegistered, errorValue := connectorRuntime.personRegistrar.RegisterPerson(platformAccountIdentity.DisplayName, platformAccountIdentity.Email)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector.sender.enrolment_failed", slog.String("platform", adapter.Name()), slog.String("error", errorValue.Error()))
+		return "", false, nil
+	}
+	if !wasRegistered {
+		return "", false, nil
+	}
+	connectorRuntime.identityService.RememberPlatformAccount(platformAccountIdentity)
+	personID, isFound := connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), platformAccountIdentity.ExternalUserID)
+	if isFound {
+		connectorRuntime.logger.Info("connector.sender.enrolled", slog.String("platform", adapter.Name()), slog.String("personID", personID))
+	}
 	return personID, isFound, nil
 }
 

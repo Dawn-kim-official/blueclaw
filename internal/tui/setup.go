@@ -22,6 +22,7 @@ const (
 	setupFieldMode
 	setupFieldMessenger
 	setupFieldMessengerBaseURL
+	setupFieldMessengerOpenness
 )
 
 var setupFieldOrder = []setupFieldID{
@@ -34,6 +35,7 @@ var setupFieldOrder = []setupFieldID{
 	setupFieldMode,
 	setupFieldMessenger,
 	setupFieldMessengerBaseURL,
+	setupFieldMessengerOpenness,
 }
 
 type SetupModel struct {
@@ -76,7 +78,7 @@ func NewSetupModel(home enrollment.Home) SetupModel {
 }
 
 func isTextField(fieldID setupFieldID) bool {
-	return fieldID != setupFieldHarness && fieldID != setupFieldMode && fieldID != setupFieldMessenger
+	return fieldID != setupFieldHarness && fieldID != setupFieldMode && fieldID != setupFieldMessenger && fieldID != setupFieldMessengerOpenness
 }
 
 func (setupModel *SetupModel) focusSelectedField() {
@@ -152,6 +154,8 @@ func (setupModel SetupModel) fieldLabel(fieldID setupFieldID) string {
 		return "Messenger"
 	case setupFieldMessengerBaseURL:
 		return "Messenger address"
+	case setupFieldMessengerOpenness:
+		return "Who may ask"
 	}
 	return ""
 }
@@ -176,6 +180,11 @@ func (setupModel SetupModel) fieldValue(fieldID setupFieldID) string {
 		return string(setupModel.answers.Messenger.Name)
 	case setupFieldMessengerBaseURL:
 		return setupModel.textInputs[setupFieldMessengerBaseURL].Value()
+	case setupFieldMessengerOpenness:
+		if setupModel.answers.Messenger.IsOpenToPeople {
+			return "anyone in the workspace"
+		}
+		return "only people already registered"
 	}
 	return ""
 }
@@ -228,6 +237,8 @@ func (setupModel *SetupModel) cycleSelectedChoice() {
 		setupModel.answers.Mode = enrollment.RunModeHost
 	case setupFieldMessenger:
 		setupModel.answers.Messenger.Name = nextMessengerName(setupModel.answers.Messenger.Name)
+	case setupFieldMessengerOpenness:
+		setupModel.answers.Messenger.IsOpenToPeople = !setupModel.answers.Messenger.IsOpenToPeople
 	}
 }
 

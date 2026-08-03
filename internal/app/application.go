@@ -28,6 +28,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	apiconnector "github.com/Dawn-kim-official/blueclaw/internal/connectors/api"
+	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessselection"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
@@ -353,6 +354,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseMemoryService(memoryService)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
 	connectorRuntime.UseAdminTaskLinkBaseURL(runtimeConfiguration.Agent.AdminTaskLinkBaseURL)
+	if runtimeConfiguration.Connectors.EnrolSenders {
+		connectorRuntime.UsePersonRegistrar(&messengerPersonRegistrar{
+			home:            enrollment.ResolveHome(),
+			policyPath:      policyPath,
+			identityService: identityService,
+			policyProjector: policyProjectionService.ReplacePolicyProjectionTransactionally,
+		})
+	}
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	connectorRuntime.UseTaskIntakeGate(taskIntakeController)
 	if database.SQL != nil {
