@@ -28,6 +28,23 @@ func (access LanguageModelAccess) IsConfigured() bool {
 	return strings.TrimSpace(access.LLMDUnixSocketPath) != "" || strings.TrimSpace(access.OpenRouterAPIKey) != ""
 }
 
+type MessengerName string
+
+const (
+	MessengerNone       MessengerName = "none"
+	MessengerMattermost MessengerName = "mattermost"
+	MessengerBuzz       MessengerName = "buzz"
+)
+
+type MessengerChoice struct {
+	Name    MessengerName
+	BaseURL string
+}
+
+func (choice MessengerChoice) IsConnected() bool {
+	return choice.Name == MessengerMattermost || choice.Name == MessengerBuzz
+}
+
 type HarnessChoice struct {
 	Name             string
 	AgentCommandPath string
@@ -41,6 +58,7 @@ type Enrollment struct {
 	DatabaseConnectionString string
 	LanguageModel            LanguageModelAccess
 	Harness                  HarnessChoice
+	Messenger                MessengerChoice
 }
 
 type Provider interface {
@@ -61,6 +79,9 @@ func (enrollment Enrollment) Validate() error {
 	}
 	if strings.TrimSpace(enrollment.WorkspaceRootPath) == "" {
 		return errors.New("an enrollment needs a workspace root, because that is where the agent's work lives")
+	}
+	if enrollment.Messenger.Name == MessengerMattermost && strings.TrimSpace(enrollment.Messenger.BaseURL) == "" {
+		return errors.New("a Mattermost connection needs the server address the workspace lives at")
 	}
 	if !enrollment.LanguageModel.IsConfigured() {
 		return errors.New("an enrollment needs a way to reach a language model, either a local llmd socket or an OpenRouter key")

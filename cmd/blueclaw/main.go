@@ -31,8 +31,8 @@ func main() {
 }
 
 func ensureManagedDatabase(home enrollment.Home, runtimeConfiguration config.RuntimeConfiguration) error {
-	managedPostgres := enrollment.NewManagedPostgres(home)
-	if strings.TrimSpace(runtimeConfiguration.Database.ConnectionString) != managedPostgres.ConnectionString() {
+	managedPostgres, isManaged := enrollment.ManagedPostgresForConnectionString(home, strings.TrimSpace(runtimeConfiguration.Database.ConnectionString))
+	if !isManaged {
 		return nil
 	}
 	return managedPostgres.EnsureRunning(context.Background())

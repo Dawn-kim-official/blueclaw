@@ -20,6 +20,7 @@ type Answers struct {
 	DatabaseConnectionString string
 	LanguageModel            LanguageModelAccess
 	Harness                  HarnessChoice
+	Messenger                MessengerChoice
 }
 
 type LocalProvider struct {
@@ -41,6 +42,7 @@ func (provider LocalProvider) Enroll(context.Context) (Enrollment, error) {
 		DatabaseConnectionString: answers.DatabaseConnectionString,
 		LanguageModel:            answers.LanguageModel,
 		Harness:                  answers.Harness,
+		Messenger:                answers.Messenger,
 	}
 	if strings.TrimSpace(enrollment.Operator.DisplayName) == "" {
 		enrollment.Operator.DisplayName = currentAccountName()
@@ -61,6 +63,7 @@ func SuggestedAnswers(home Home) Answers {
 		DatabaseConnectionString: detectedDatabaseConnectionString(home),
 		LanguageModel:            LanguageModelAccess{OpenRouterAPIKey: strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))},
 		Harness:                  detectedHarness(),
+		Messenger:                MessengerChoice{Name: MessengerNone},
 	}
 }
 
@@ -96,7 +99,7 @@ func detectedDatabaseConnectionString(home Home) string {
 	if configuredURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); configuredURL != "" {
 		return configuredURL
 	}
-	return NewManagedPostgres(home).ConnectionString()
+	return NewManagedPostgresOnPort(home, availableManagedPort()).ConnectionString()
 }
 
 func currentAccountName() string {

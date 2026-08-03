@@ -20,6 +20,8 @@ const (
 	setupFieldOpenRouterAPIKey
 	setupFieldHarness
 	setupFieldMode
+	setupFieldMessenger
+	setupFieldMessengerBaseURL
 )
 
 var setupFieldOrder = []setupFieldID{
@@ -30,6 +32,8 @@ var setupFieldOrder = []setupFieldID{
 	setupFieldOpenRouterAPIKey,
 	setupFieldHarness,
 	setupFieldMode,
+	setupFieldMessenger,
+	setupFieldMessengerBaseURL,
 }
 
 type SetupModel struct {
@@ -72,7 +76,7 @@ func NewSetupModel(home enrollment.Home) SetupModel {
 }
 
 func isTextField(fieldID setupFieldID) bool {
-	return fieldID != setupFieldHarness && fieldID != setupFieldMode
+	return fieldID != setupFieldHarness && fieldID != setupFieldMode && fieldID != setupFieldMessenger
 }
 
 func (setupModel *SetupModel) focusSelectedField() {
@@ -104,6 +108,8 @@ func (setupModel SetupModel) storedFieldValue(fieldID setupFieldID) string {
 		return setupModel.answers.DatabaseConnectionString
 	case setupFieldOpenRouterAPIKey:
 		return setupModel.answers.LanguageModel.OpenRouterAPIKey
+	case setupFieldMessengerBaseURL:
+		return setupModel.answers.Messenger.BaseURL
 	}
 	return ""
 }
@@ -114,6 +120,7 @@ func (setupModel *SetupModel) readTextFieldsIntoAnswers() {
 	setupModel.answers.WorkspaceRootPath = setupModel.textInputs[setupFieldWorkspaceRootPath].Value()
 	setupModel.answers.DatabaseConnectionString = setupModel.textInputs[setupFieldDatabaseConnectionString].Value()
 	setupModel.answers.LanguageModel.OpenRouterAPIKey = setupModel.textInputs[setupFieldOpenRouterAPIKey].Value()
+	setupModel.answers.Messenger.BaseURL = setupModel.textInputs[setupFieldMessengerBaseURL].Value()
 }
 
 func indexOfHarness(availableHarness []enrollment.HarnessChoice, harnessName string) int {
@@ -141,6 +148,10 @@ func (setupModel SetupModel) fieldLabel(fieldID setupFieldID) string {
 		return "Harness"
 	case setupFieldMode:
 		return "Mode"
+	case setupFieldMessenger:
+		return "Messenger"
+	case setupFieldMessengerBaseURL:
+		return "Messenger address"
 	}
 	return ""
 }
@@ -161,6 +172,10 @@ func (setupModel SetupModel) fieldValue(fieldID setupFieldID) string {
 		return setupModel.selectedHarnessLabel()
 	case setupFieldMode:
 		return string(setupModel.answers.Mode)
+	case setupFieldMessenger:
+		return string(setupModel.answers.Messenger.Name)
+	case setupFieldMessengerBaseURL:
+		return setupModel.textInputs[setupFieldMessengerBaseURL].Value()
 	}
 	return ""
 }
@@ -174,6 +189,16 @@ func (setupModel SetupModel) selectedHarnessLabel() string {
 		return selectedHarness.Name
 	}
 	return selectedHarness.Name + " (" + selectedHarness.AgentCommandPath + ")"
+}
+
+func nextMessengerName(current enrollment.MessengerName) enrollment.MessengerName {
+	switch current {
+	case enrollment.MessengerNone:
+		return enrollment.MessengerMattermost
+	case enrollment.MessengerMattermost:
+		return enrollment.MessengerBuzz
+	}
+	return enrollment.MessengerNone
 }
 
 func maskedSecret(secret string) string {
@@ -201,6 +226,8 @@ func (setupModel *SetupModel) cycleSelectedChoice() {
 			return
 		}
 		setupModel.answers.Mode = enrollment.RunModeHost
+	case setupFieldMessenger:
+		setupModel.answers.Messenger.Name = nextMessengerName(setupModel.answers.Messenger.Name)
 	}
 }
 

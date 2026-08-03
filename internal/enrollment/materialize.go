@@ -48,6 +48,12 @@ func runtimeConfigurationFor(home Home, enrollment Enrollment) config.RuntimeCon
 			},
 		},
 	}
+	switch enrollment.Messenger.Name {
+	case MessengerMattermost:
+		runtimeConfiguration.Connectors.Mattermost.BaseURL = strings.TrimSpace(enrollment.Messenger.BaseURL)
+	case MessengerBuzz:
+		runtimeConfiguration.Connectors.Buzz.Enabled = true
+	}
 	if socketPath := strings.TrimSpace(enrollment.LanguageModel.LLMDUnixSocketPath); socketPath != "" {
 		runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
 		runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = socketPath

@@ -104,17 +104,88 @@ func TestHomeFollowsTheEnvironmentSoOneMachineCanHoldSeveralInstalls(t *testing.
 	}
 }
 
-func TestTwoInstallsOnOneMachineDoNotFightOverThePort(t *testing.T) {
-	firstHome := Home{DirectoryPath: filepath.Join(t.TempDir(), "first")}
-	secondHome := Home{DirectoryPath: filepath.Join(t.TempDir(), "second")}
-
-	firstPort := NewManagedPostgres(firstHome).Port()
-	secondPort := NewManagedPostgres(secondHome).Port()
-
-	if firstPort == secondPort {
-		t.Fatalf("expected each install to manage its own database on its own port, both got %d", firstPort)
+func TestAnInstallRemembersTheDatabasePortItChose(t *testing.T) {
+	home := homeFixture(t)
+	answers := completeAnswers(home)
+	answers.DatabaseConnectionString = NewManagedPostgresOnPort(home, 25999).ConnectionString()
+	enrolled, _ := NewLocalProvider(home, answers).Enroll(context.Background())
+	if errorValue := Materialize(home, enrolled); errorValue != nil {
+		t.Fatalf("expected the enrolment to be written: %v", errorValue)
 	}
-	if firstPort != NewManagedPostgres(firstHome).Port() {
-		t.Fatal("expected an install's port to stay the same across restarts")
+
+	runtimeConfiguration, _ := config.LoadRuntimeConfiguration(home.RuntimeConfigurationPath())
+	managedPostgres, isManaged := ManagedPostgresForConnectionString(home, runtimeConfiguration.Database.ConnectionString)
+
+	if !isManaged {
+		t.Fatal("expected the install to recognise the database it manages itself")
+	}
+	if managedPostgres.Port() != 25999 {
+		t.Fatalf("expected the install to start the database on the port it recorded, got %d", managedPostgres.Port())
+	}
+}
+
+func TestADatabaseSomebodyElseRunsIsNotTreatedAsOurs(t *testing.T) {
+	home := homeFixture(t)
+
+	if _, isManaged := ManagedPostgresForConnectionString(home, "postgres://someone@db.example.com:5432/blueclaw"); isManaged {
+		t.Fatal("expected a database we did not create to be left alone rather than started by us")
+	}
+}
+
+func enrolledWithMessenger(t *testing.T, home Home, messenger MessengerChoice) config.RuntimeConfiguration {
+	t.Helper()
+	answers := completeAnswers(home)
+	answers.Messenger = messenger
+	enrolled, errorValue := NewLocalProvider(home, answers).Enroll(context.Background())
+	if errorValue != nil {
+		t.Fatalf("expected enrolment with a messenger to be accepted: %v", errorValue)
+	}
+	if errorValue := Materialize(home, enrolled); errorValue != nil {
+		t.Fatalf("expected the enrolment to be written: %v", errorValue)
+	}
+	runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(home.RuntimeConfigurationPath())
+	if errorValue != nil {
+		t.Fatalf("expected the runtime to load it: %v", errorValue)
+	}
+	return runtimeConfiguration
+}
+
+func TestChoosingMattermostAtSetupConnectsItAtStartup(t *testing.T) {
+	home := homeFixture(t)
+
+	runtimeConfiguration := enrolledWithMessenger(t, home, MessengerChoice{Name: MessengerMattermost, BaseURL: "https://chat.example.com"})
+
+	if runtimeConfiguration.Connectors.Mattermost.BaseURL != "https://chat.example.com" {
+		t.Fatalf("expected the workspace people already use to be wired up, got %q", runtimeConfiguration.Connectors.Mattermost.BaseURL)
+	}
+}
+
+func TestChoosingBuzzAtSetupConnectsItAtStartup(t *testing.T) {
+	home := homeFixture(t)
+
+	runtimeConfiguration := enrolledWithMessenger(t, home, MessengerChoice{Name: MessengerBuzz})
+
+	if !runtimeConfiguration.Connectors.Buzz.Enabled {
+		t.Fatal("expected buzz to be turned on for an install that chose it")
+	}
+}
+
+func TestAMattermostConnectionWithNoAddressIsRefusedAtSetup(t *testing.T) {
+	home := homeFixture(t)
+	answers := completeAnswers(home)
+	answers.Messenger = MessengerChoice{Name: MessengerMattermost}
+
+	if _, errorValue := NewLocalProvider(home, answers).Enroll(context.Background()); errorValue == nil {
+		t.Fatal("expected setup to refuse a messenger it has no address for, rather than starting with a connector that reaches nothing")
+	}
+}
+
+func TestAnInstallWithNoMessengerStaysLocal(t *testing.T) {
+	home := homeFixture(t)
+
+	runtimeConfiguration := enrolledWithMessenger(t, home, MessengerChoice{Name: MessengerNone})
+
+	if runtimeConfiguration.Connectors.Mattermost.BaseURL != "" || runtimeConfiguration.Connectors.Buzz.Enabled {
+		t.Fatal("expected an install that connected nothing to stay local")
 	}
 }

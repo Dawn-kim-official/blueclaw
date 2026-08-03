@@ -2,8 +2,6 @@ package enrollment
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,15 +19,44 @@ const (
 	managedPassword     = "blueclaw"
 	managedPortEnvName  = "BLUECLAW_MANAGED_POSTGRES_PORT"
 	defaultManagedPort  = 25432
-	managedPortRange    = 1000
 )
 
 type ManagedPostgres struct {
 	home Home
+	port uint32
 }
 
 func NewManagedPostgres(home Home) ManagedPostgres {
 	return ManagedPostgres{home: home}
+}
+
+func NewManagedPostgresOnPort(home Home, port uint32) ManagedPostgres {
+	return ManagedPostgres{home: home, port: port}
+}
+
+func ManagedPostgresForConnectionString(home Home, connectionString string) (ManagedPostgres, bool) {
+	port, isManaged := managedPortFromConnectionString(connectionString)
+	if !isManaged {
+		return ManagedPostgres{}, false
+	}
+	return NewManagedPostgresOnPort(home, port), true
+}
+
+func managedPortFromConnectionString(connectionString string) (uint32, bool) {
+	prefix := "postgres://" + managedAccountName + ":" + managedPassword + "@127.0.0.1:"
+	if !strings.HasPrefix(connectionString, prefix) {
+		return 0, false
+	}
+	remainder := connectionString[len(prefix):]
+	separatorIndex := strings.Index(remainder, "/")
+	if separatorIndex < 0 {
+		return 0, false
+	}
+	parsedPort, errorValue := strconv.ParseUint(remainder[:separatorIndex], 10, 32)
+	if errorValue != nil {
+		return 0, false
+	}
+	return uint32(parsedPort), true
 }
 
 func (managed ManagedPostgres) DirectoryPath() string {
@@ -37,17 +64,15 @@ func (managed ManagedPostgres) DirectoryPath() string {
 }
 
 func (managed ManagedPostgres) Port() uint32 {
+	if managed.port > 0 {
+		return managed.port
+	}
 	if configuredPort := strings.TrimSpace(os.Getenv(managedPortEnvName)); configuredPort != "" {
 		if parsedPort, errorValue := strconv.ParseUint(configuredPort, 10, 32); errorValue == nil {
 			return uint32(parsedPort)
 		}
 	}
-	return defaultManagedPort + portOffsetForHome(managed.home.DirectoryPath)
-}
-
-func portOffsetForHome(directoryPath string) uint32 {
-	digest := sha256.Sum256([]byte(directoryPath))
-	return uint32(binary.BigEndian.Uint16(digest[:2])) % managedPortRange
+	return defaultManagedPort
 }
 
 func (managed ManagedPostgres) ConnectionString() string {

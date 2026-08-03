@@ -40,8 +40,7 @@ func checkDatabase(ctx context.Context, home Home, connectionString string) Chec
 	if strings.TrimSpace(connectionString) == "" {
 		return CheckResult{Name: CheckDatabase, Guidance: "blueclaw keeps every task, event and memory in Postgres, so it needs a connection string."}
 	}
-	managedPostgres := NewManagedPostgres(home)
-	if connectionString == managedPostgres.ConnectionString() {
+	if managedPostgres, isManaged := ManagedPostgresForConnectionString(home, connectionString); isManaged {
 		if errorValue := managedPostgres.EnsureRunning(ctx); errorValue != nil {
 			return CheckResult{Name: CheckDatabase, Detail: errorValue.Error(), Guidance: "Point this line at a Postgres you already run instead."}
 		}
