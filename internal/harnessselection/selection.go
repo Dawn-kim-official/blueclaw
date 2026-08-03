@@ -1,6 +1,7 @@
 package harnessselection
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,12 +12,14 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 const (
 	BundledHarnessName    = "bluecollar"
 	ExternalHarnessName   = "acp"
 	ClaudeCodeHarnessName = "claude-code"
+	CodexHarnessName      = "codex"
 )
 
 var claudeCodeBuiltinToolNames = []string{"Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"}
@@ -27,7 +30,16 @@ type ToolCatalogEndpoint struct {
 	Handler  http.Handler
 }
 
-func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFactory harnessdriver.Factory, toolCatalogEndpoint ToolCatalogEndpoint) (harnessdriver.Factory, error) {
+type RequesterProcessRunner interface {
+	Requester(context.Context, security.WorkspaceActorRequest) (security.WorkspaceActor, error)
+}
+
+type SandboxProcessBoundary struct {
+	Runner            RequesterProcessRunner
+	WorkspaceRootPath string
+}
+
+func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFactory harnessdriver.Factory, toolCatalogEndpoint ToolCatalogEndpoint, processBoundary SandboxProcessBoundary) (harnessdriver.Factory, error) {
 	harnessName := strings.TrimSpace(harnessConfiguration.Name)
 	switch harnessName {
 	case "", BundledHarnessName:
@@ -38,9 +50,11 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 	case ExternalHarnessName:
 		return externalHarnessFactory(harnessConfiguration, toolCatalogEndpoint)
 	case ClaudeCodeHarnessName:
-		return claudeCodeHarnessFactory(harnessConfiguration, toolCatalogEndpoint)
+		return commandHarnessFactory(ClaudeCodeHarnessName, cliharness.ClaudeCodeAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath), claudeCodeBuiltinToolNames), harnessConfiguration, toolCatalogEndpoint, processBoundary)
+	case CodexHarnessName:
+		return commandHarnessFactory(CodexHarnessName, cliharness.CodexAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	default:
-		return nil, fmt.Errorf("unknown harness %q; known harnesses are %q, %q and %q", harnessName, BundledHarnessName, ExternalHarnessName, ClaudeCodeHarnessName)
+		return nil, fmt.Errorf("unknown harness %q; known harnesses are %q, %q, %q and %q", harnessName, BundledHarnessName, ExternalHarnessName, ClaudeCodeHarnessName, CodexHarnessName)
 	}
 }
 
@@ -74,17 +88,22 @@ func (publisher sessionTokenPublisher) PublishToolCatalog(requesterToolSet mcpse
 	return publisher.endpointURL, sessionToken, func() { publisher.resolver.RevokeSessionToken(sessionToken) }, nil
 }
 
-func claudeCodeHarnessFactory(harnessConfiguration config.HarnessConfiguration, toolCatalogEndpoint ToolCatalogEndpoint) (harnessdriver.Factory, error) {
-	commandPath := strings.TrimSpace(harnessConfiguration.AgentCommandPath)
-	if commandPath == "" {
-		return nil, fmt.Errorf("harness %q needs agent.harness.agentCommandPath, the claude executable to run", ClaudeCodeHarnessName)
+func commandHarnessFactory(harnessName string, agentCommand cliharness.AgentCommand, harnessConfiguration config.HarnessConfiguration, toolCatalogEndpoint ToolCatalogEndpoint, processBoundary SandboxProcessBoundary) (harnessdriver.Factory, error) {
+	if strings.TrimSpace(harnessConfiguration.AgentCommandPath) == "" {
+		return nil, fmt.Errorf("harness %q needs agent.harness.agentCommandPath, the executable to run", harnessName)
 	}
 	if toolCatalogEndpoint.Resolver == nil || strings.TrimSpace(toolCatalogEndpoint.URL) == "" {
-		return nil, fmt.Errorf("harness %q needs a published tool catalog; without one the agent would have no tools it may run as the requester", ClaudeCodeHarnessName)
+		return nil, fmt.Errorf("harness %q needs a published tool catalog; without one the agent would have no tools it may run as the requester", harnessName)
 	}
-	agentCommand := cliharness.ClaudeCodeAgentCommand(commandPath, claudeCodeBuiltinToolNames)
+	if harnessName == CodexHarnessName && processBoundary.Runner == nil {
+		return nil, fmt.Errorf("harness %q may only run inside the requester's POSIX identity, because its own shell cannot be turned off; configure the terminal boundary first", harnessName)
+	}
 	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
-		return cliharness.New(agentCommand, publisher, dependencies.TaskRunStore), nil
+		harness := cliharness.New(agentCommand, publisher, dependencies.TaskRunStore)
+		if processBoundary.Runner != nil {
+			harness.UseRequesterProcessRunner(processBoundary.Runner, processBoundary.WorkspaceRootPath)
+		}
+		return harness, nil
 	}, nil
 }

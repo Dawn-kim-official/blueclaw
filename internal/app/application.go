@@ -186,12 +186,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
 	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
+	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	toolCatalogResolver := mcpserver.NewSessionTokenRequesterResolver(newToolCatalogSessionToken)
 	toolCatalogHandler := mcpserver.NewToolCatalogHandler(toolCatalogResolver, "1")
 	selectedHarnessFactory, harnessSelectionError := harnessselection.Select(runtimeConfiguration.Agent.Harness, agentHarnessFactory, harnessselection.ToolCatalogEndpoint{
 		URL:      toolCatalogURL(runtimeConfiguration),
 		Resolver: toolCatalogResolver,
 		Handler:  toolCatalogHandler,
+	}, harnessselection.SandboxProcessBoundary{
+		Runner:            terminalService.WorkspaceActorFactory(),
+		WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
 	})
 	if harnessSelectionError != nil {
 		logger.Error("application.harness.unavailable", "error", harnessSelectionError)
@@ -235,7 +239,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		skillRetriever.Refresh(ctx, instructionBundleLoader().Skills)
 	}
 	logger.Info("application.initializing", "stage", "memory")
-	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
 	if strings.TrimSpace(runtimeConfiguration.Memory.GraphitiEndpoint) != "" {
 		memoryService.UseGraphStore(memory.NewGraphitiClient(

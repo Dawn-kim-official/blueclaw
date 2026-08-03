@@ -22,7 +22,7 @@ func publishedCatalog() ToolCatalogEndpoint {
 
 func TestSelectFallsBackToTheBundledHarness(t *testing.T) {
 	for _, harnessName := range []string{"", BundledHarnessName} {
-		selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: harnessName}, bundledFactory(), publishedCatalog())
+		selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: harnessName}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
 		if errorValue != nil || selectedFactory == nil {
 			t.Fatalf("expected the bundled harness for %q, got %v", harnessName, errorValue)
 		}
@@ -30,31 +30,31 @@ func TestSelectFallsBackToTheBundledHarness(t *testing.T) {
 }
 
 func TestSelectFailsLoudlyWhenNoHarnessIsAvailable(t *testing.T) {
-	_, errorValue := Select(config.HarnessConfiguration{}, nil, publishedCatalog())
+	_, errorValue := Select(config.HarnessConfiguration{}, nil, publishedCatalog(), SandboxProcessBoundary{})
 	if errorValue == nil || !strings.Contains(errorValue.Error(), ExternalHarnessName) {
 		t.Fatalf("expected a build with no bundled harness to say how to configure one, got %v", errorValue)
 	}
 }
 
 func TestSelectRejectsAnUnknownHarnessRatherThanIgnoringIt(t *testing.T) {
-	_, errorValue := Select(config.HarnessConfiguration{Name: "claude-code"}, bundledFactory(), publishedCatalog())
+	_, errorValue := Select(config.HarnessConfiguration{Name: "claude-code"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "claude-code") {
 		t.Fatalf("expected an unknown harness name to be refused by name, got %v", errorValue)
 	}
 }
 
 func TestSelectRefusesAnExternalHarnessThatWouldHaveNoToolsOrNoAgent(t *testing.T) {
-	if _, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName}, bundledFactory(), publishedCatalog()); errorValue == nil {
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{}); errorValue == nil {
 		t.Fatal("expected an external harness with no agent command to be refused")
 	}
-	_, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{})
+	_, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{}, SandboxProcessBoundary{})
 	if errorValue == nil {
 		t.Fatal("expected an external harness with no published tool catalog to be refused, because it would have no tools it may run as the requester")
 	}
 }
 
 func TestSelectBuildsTheExternalHarnessWhenBothAreConfigured(t *testing.T) {
-	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog())
+	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
 	if errorValue != nil {
 		t.Fatalf("expected a configured external harness: %v", errorValue)
 	}
@@ -82,13 +82,13 @@ func TestPublishedCatalogGrantsAndRevokesPerTurn(t *testing.T) {
 }
 
 func TestClaudeCodeIsSelectableAndDeniesItsOwnBuiltinTools(t *testing.T) {
-	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName}, bundledFactory(), publishedCatalog()); errorValue == nil {
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{}); errorValue == nil {
 		t.Fatal("expected claude-code with no executable path to be refused")
 	}
-	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{}); errorValue == nil {
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{}, SandboxProcessBoundary{}); errorValue == nil {
 		t.Fatal("expected claude-code with no tool catalog to be refused")
 	}
-	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog())
+	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
 	if errorValue != nil {
 		t.Fatalf("expected a configured claude-code harness: %v", errorValue)
 	}

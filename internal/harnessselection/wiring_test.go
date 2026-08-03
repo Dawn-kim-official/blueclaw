@@ -32,6 +32,7 @@ func TestSelectedExternalHarnessPublishesTheRequesterCatalogAtTheRoutedEndpoint(
 		config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"},
 		nil,
 		ToolCatalogEndpoint{URL: catalogServer.URL, Resolver: resolver},
+		SandboxProcessBoundary{},
 	)
 	if errorValue != nil {
 		t.Fatalf("expected the configured external harness: %v", errorValue)
