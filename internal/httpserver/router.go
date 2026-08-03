@@ -29,11 +29,16 @@ type RouterDependencies struct {
 	ConnectorEventHandler *ConnectorEventHandler
 	AgentReplyHandler     AgentReplyHandler
 	WorkspaceFilesHandler WorkspaceFilesHandler
+	ToolCatalogHandler    http.Handler
 }
 
 func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer := http.NewServeMux()
 
+	if routerDependencies.ToolCatalogHandler != nil {
+		multiplexer.Handle("/harness/tool-catalog", routerDependencies.ToolCatalogHandler)
+		multiplexer.Handle("/harness/tool-catalog/", routerDependencies.ToolCatalogHandler)
+	}
 	multiplexer.HandleFunc("GET /admin/api/health", routerDependencies.HealthHandler.HandleHealth)
 	multiplexer.HandleFunc("GET /debug/pprof/", pprof.Index)
 	multiplexer.HandleFunc("GET /debug/pprof/profile", pprof.Profile)

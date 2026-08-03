@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,12 +28,14 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	apiconnector "github.com/Dawn-kim-official/blueclaw/internal/connectors/api"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessselection"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
@@ -183,7 +186,26 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
 	}
 	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, logger)
-	harness, skillRetriever := agentHarnessFactory(harnessdriver.Dependencies{
+	toolCatalogResolver := mcpserver.NewSessionTokenRequesterResolver(newToolCatalogSessionToken)
+	toolCatalogHandler := mcpserver.NewToolCatalogHandler(toolCatalogResolver, "1")
+	selectedHarnessFactory, harnessSelectionError := harnessselection.Select(runtimeConfiguration.Agent.Harness, agentHarnessFactory, harnessselection.ToolCatalogEndpoint{
+		URL:      toolCatalogURL(runtimeConfiguration),
+		Resolver: toolCatalogResolver,
+		Handler:  toolCatalogHandler,
+	})
+	if harnessSelectionError != nil {
+		logger.Error("application.harness.unavailable", "error", harnessSelectionError)
+		if startupError == nil {
+			startupError = harnessSelectionError
+		}
+		selectedHarnessFactory = agentHarnessFactory
+	}
+	if selectedHarnessFactory == nil {
+		selectedHarnessFactory = func(harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
+			return nil, nil
+		}
+	}
+	harness, skillRetriever := selectedHarnessFactory(harnessdriver.Dependencies{
 		RuntimeConfiguration:    runtimeConfiguration,
 		TaskRunStore:            taskRunService,
 		TaskStepStore:           taskStepService,
@@ -350,6 +372,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		WorkspaceFilesHandler: httpserver.WorkspaceFilesHandler{
 			WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
 		},
+		ToolCatalogHandler: toolCatalogHandler,
 		PolicyHandler: adminapi.PolicyHandler{
 			PolicyPath:                   policyPath,
 			PolicyLoader:                 policyLoader,
@@ -1573,4 +1596,19 @@ func intakeBudgetForConfiguration(runtimeConfiguration config.RuntimeConfigurati
 		MaxToolCallCount:  taskLevelProfile.MaxToolCallCount,
 		MaxElapsedSecond:  int(taskLevelProfile.Duration.Seconds()),
 	}
+}
+
+func newToolCatalogSessionToken() string {
+	sessionToken := make([]byte, 32)
+	if _, errorValue := rand.Read(sessionToken); errorValue != nil {
+		return ""
+	}
+	return hex.EncodeToString(sessionToken)
+}
+
+func toolCatalogURL(runtimeConfiguration config.RuntimeConfiguration) string {
+	if configuredURL := strings.TrimSpace(runtimeConfiguration.Agent.Harness.ToolCatalogURL); configuredURL != "" {
+		return configuredURL
+	}
+	return "http://" + deriveListenAddress(runtimeConfiguration.BaseURL) + "/harness/tool-catalog"
 }
