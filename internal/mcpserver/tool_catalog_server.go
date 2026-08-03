@@ -57,10 +57,7 @@ func servableTool(toolDescriptor toolcontract.ToolDescriptor) (*mcp.Tool, bool) 
 		Name:        toolDescriptor.Name,
 		Description: toolDescriptor.Description,
 		InputSchema: decodedSchema,
-		Annotations: &mcp.ToolAnnotations{
-			ReadOnlyHint:   toolDescriptor.SideEffectClass == toolcontract.ToolSideEffectRead,
-			IdempotentHint: strings.TrimSpace(toolDescriptor.Idempotency) == "idempotent",
-		},
+		Annotations: toolAnnotations(toolDescriptor),
 		Meta: mcp.Meta{
 			"blueclaw/sideEffectClass":         toolDescriptor.SideEffectClass,
 			"blueclaw/approvalScope":           toolDescriptor.ApprovalScope,
@@ -75,12 +72,29 @@ func servableTool(toolDescriptor toolcontract.ToolDescriptor) (*mcp.Tool, bool) 
 	return tool, true
 }
 
+func toolAnnotations(toolDescriptor toolcontract.ToolDescriptor) *mcp.ToolAnnotations {
+	isReadOnly := leavesEnvironmentUnchanged(toolDescriptor.SideEffectClass)
+	isDestructive := toolDescriptor.SideEffectClass == toolcontract.ToolSideEffectDestructive
+	return &mcp.ToolAnnotations{
+		ReadOnlyHint:    isReadOnly,
+		DestructiveHint: &isDestructive,
+	}
+}
+
+func leavesEnvironmentUnchanged(sideEffectClass string) bool {
+	switch sideEffectClass {
+	case toolcontract.ToolSideEffectRead, toolcontract.ToolSideEffectNone, toolcontract.ToolSideEffectComputation:
+		return true
+	}
+	return false
+}
+
 func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, hasOutputSchema bool) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if toolDescriptor.RequiresApproval {
 			gateResult, isSettled := awaitApprovalBeforeInvoking(ctx, requesterToolSet, toolDescriptor, request.Params.Arguments)
 			if !isSettled {
-				return callToolResult(gateResult, hasOutputSchema), nil
+				return callToolResult(gateResult, hasOutputSchema, toolDescriptor.Name), nil
 			}
 		}
 		toolResult, errorValue := requesterToolSet.ToolSet.Invoke(ctx, toolcontract.ToolInvocation{
@@ -90,7 +104,7 @@ func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor tool
 		if errorValue != nil {
 			return nil, errorValue
 		}
-		return callToolResult(toolResult, hasOutputSchema), nil
+		return callToolResult(toolResult, hasOutputSchema, toolDescriptor.Name), nil
 	}
 }
 
@@ -112,18 +126,25 @@ func awaitApprovalBeforeInvoking(ctx context.Context, requesterToolSet Requester
 	}
 }
 
-func callToolResult(toolResult toolcontract.ToolResult, hasOutputSchema bool) *mcp.CallToolResult {
+func callToolResult(toolResult toolcontract.ToolResult, hasOutputSchema bool, toolName string) *mcp.CallToolResult {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: resultText(toolResult)}},
 		IsError: toolResult.Failed(),
 	}
-	if hasOutputSchema && len(toolResult.Output.Data) > 0 {
-		var structuredContent any
-		if json.Unmarshal(toolResult.Output.Data, &structuredContent) == nil {
-			result.StructuredContent = structuredContent
-		}
+	if !hasOutputSchema || toolResult.Failed() {
+		return result
 	}
+	var structuredContent any
+	if len(toolResult.Output.Data) == 0 || json.Unmarshal(toolResult.Output.Data, &structuredContent) != nil {
+		return missingStructuredContentResult(toolName)
+	}
+	result.StructuredContent = structuredContent
 	return result
+}
+
+func missingStructuredContentResult(toolName string) *mcp.CallToolResult {
+	notice := toolName + " publishes an output schema but returned no structured result, so the runtime cannot hand you one that conforms to it. This is a defect in the tool, not in your call."
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: notice}}, IsError: true}
 }
 
 func resultText(toolResult toolcontract.ToolResult) string {

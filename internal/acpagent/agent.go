@@ -73,6 +73,7 @@ func (agent *Agent) Initialize(_ context.Context, request acp.InitializeRequest)
 		AgentCapabilities: acp.AgentCapabilities{
 			LoadSession:        false,
 			PromptCapabilities: acp.PromptCapabilities{Image: false, Audio: false, EmbeddedContext: false},
+			McpCapabilities:    acp.McpCapabilities{Http: true},
 		},
 	}, nil
 }

@@ -94,11 +94,12 @@ func (process *inProcessAgentProcess) Start(ctx context.Context) (io.Writer, io.
 }
 
 type externalAgent struct {
-	toolNameToCall  string
-	toolArguments   map[string]any
-	finalMessage    string
-	observedCatalog []string
-	toolCallError   error
+	acceptsNoHTTPToolCatalog bool
+	toolNameToCall           string
+	toolArguments            map[string]any
+	finalMessage             string
+	observedCatalog          []string
+	toolCallError            error
 }
 
 func (agent *externalAgent) serve(ctx context.Context, output io.Writer, input io.Reader) {
@@ -108,7 +109,10 @@ func (agent *externalAgent) serve(ctx context.Context, output io.Writer, input i
 }
 
 func (agent *externalAgent) Initialize(_ context.Context, request acp.InitializeRequest) (acp.InitializeResponse, error) {
-	return acp.InitializeResponse{ProtocolVersion: request.ProtocolVersion}, nil
+	return acp.InitializeResponse{
+		ProtocolVersion:   request.ProtocolVersion,
+		AgentCapabilities: acp.AgentCapabilities{McpCapabilities: acp.McpCapabilities{Http: !agent.acceptsNoHTTPToolCatalog}},
+	}, nil
 }
 
 func (agent *externalAgent) NewSession(ctx context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
@@ -222,5 +226,20 @@ func TestHarnessRefusesATurnWithNoRequester(t *testing.T) {
 		ToolSet: requesterToolSet(t, "person-1", &executed),
 	}); errorValue == nil {
 		t.Fatal("expected a turn with no requester to be refused, because tools execute as the requester")
+	}
+}
+
+func TestAnAgentThatCannotReachTheToolCatalogIsRefusedRatherThanRunWithoutIt(t *testing.T) {
+	executed := []sandboxExecutedTool{}
+	harness := New(&inProcessAgentProcess{agent: &externalAgent{acceptsNoHTTPToolCatalog: true}}, newPublishedToolCatalog(t), nil)
+
+	_, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+	})
+	if errorValue == nil {
+		t.Fatal("expected an agent that cannot accept the tool catalog to be refused, because a turn answered from no tools looks like a successful turn")
 	}
 }

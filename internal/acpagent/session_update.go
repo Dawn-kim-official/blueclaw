@@ -18,7 +18,7 @@ func sessionUpdateForTurnEvent(turnEvent bluecollar.TurnEvent, toolSet *toolcont
 			toolCallIdentity,
 			toolCallTitle(turnEvent),
 			acp.WithStartKind(toolKindForTool(toolSet, turnEvent.ToolName)),
-			acp.WithStartStatus(acp.ToolCallStatusPending),
+			acp.WithStartStatus(acp.ToolCallStatusFailed),
 			acp.WithStartRawOutput(turnEvent.Message),
 		)
 	}

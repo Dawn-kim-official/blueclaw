@@ -53,7 +53,7 @@ func (resolver *SessionTokenRequesterResolver) ResolveRequester(bearerToken stri
 }
 
 func NewToolCatalogHandler(resolver RequesterResolver, version string) http.Handler {
-	return mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
+	catalogHandler := mcp.NewStreamableHTTPHandler(func(request *http.Request) *mcp.Server {
 		requesterToolSet, errorValue := resolver.ResolveRequester(bearerTokenFromRequest(request))
 		if errorValue != nil {
 			return nil
@@ -64,6 +64,18 @@ func NewToolCatalogHandler(resolver RequesterResolver, version string) http.Hand
 		}
 		return server
 	}, nil)
+	return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if _, errorValue := resolver.ResolveRequester(bearerTokenFromRequest(request)); errorValue != nil {
+			writeUnauthenticatedChallenge(responseWriter)
+			return
+		}
+		catalogHandler.ServeHTTP(responseWriter, request)
+	})
+}
+
+func writeUnauthenticatedChallenge(responseWriter http.ResponseWriter) {
+	responseWriter.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+	http.Error(responseWriter, ErrUnauthenticatedRequester.Error(), http.StatusUnauthorized)
 }
 
 func bearerTokenFromRequest(request *http.Request) string {
