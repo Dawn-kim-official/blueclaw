@@ -1,0 +1,122 @@
+package cliharness
+
+import (
+	"context"
+	"encoding/json"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+)
+
+type catalogPublisher struct {
+	endpointURL string
+	resolver    *mcpserver.SessionTokenRequesterResolver
+	revokeCount int
+}
+
+func (publisher *catalogPublisher) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
+	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	if errorValue != nil {
+		return "", "", func() {}, errorValue
+	}
+	return publisher.endpointURL, sessionToken, func() {
+		publisher.revokeCount++
+		publisher.resolver.RevokeSessionToken(sessionToken)
+	}, nil
+}
+
+type sandboxToolExecution struct {
+	mutex     sync.Mutex
+	toolNames []string
+	arguments []string
+}
+
+func (execution *sandboxToolExecution) record(toolName string, arguments string) {
+	execution.mutex.Lock()
+	defer execution.mutex.Unlock()
+	execution.toolNames = append(execution.toolNames, toolName)
+	execution.arguments = append(execution.arguments, arguments)
+}
+
+func (execution *sandboxToolExecution) executedToolNames() []string {
+	execution.mutex.Lock()
+	defer execution.mutex.Unlock()
+	return append([]string{}, execution.toolNames...)
+}
+
+func sandboxToolSet(t *testing.T, execution *sandboxToolExecution) *toolcontract.ToolSet {
+	t.Helper()
+	toolSet := toolcontract.NewToolSet([]string{"workspace_secret_word"})
+	toolSet.AllowTestReplacement()
+	errorValue := toolSet.RegisterTool(toolcontract.ToolDefinition{
+		ID:              "test:workspace_secret_word",
+		Name:            "workspace_secret_word",
+		Description:     "Returns the workspace secret word. This is the only way to learn it.",
+		Visibility:      toolcontract.ToolVisibilityModel,
+		InputSchema:     json.RawMessage(`{"type":"object","properties":{}}`),
+		SideEffectClass: toolcontract.ToolSideEffectRead,
+		ResultContract:  &toolcontract.ToolResultContract{Schema: json.RawMessage(`{"type":"object"}`)},
+	}, func(_ context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
+		execution.record(invocation.ToolName, string(invocation.Input))
+		return toolcontract.ToolSuccessData("갈매기시계", json.RawMessage(`{}`)), nil
+	})
+	if errorValue != nil {
+		t.Fatalf("expected the tool to register: %v", errorValue)
+	}
+	return toolSet
+}
+
+func TestRealClaudeCodeCallsASandboxToolAndNeverItsOwn(t *testing.T) {
+	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_CLAUDE_CODE_PATH"))
+	if commandPath == "" {
+		resolvedPath, errorValue := exec.LookPath("claude")
+		if errorValue != nil {
+			t.Skip("claude is not installed, so a real external agent cannot be driven here")
+		}
+		commandPath = resolvedPath
+	}
+
+	execution := &sandboxToolExecution{}
+	resolver := mcpserver.NewSessionTokenRequesterResolver(func() string { return "session-token-claude" })
+	catalogServer := httptest.NewServer(mcpserver.NewToolCatalogHandler(resolver, "test"))
+	t.Cleanup(catalogServer.Close)
+	publisher := &catalogPublisher{endpointURL: catalogServer.URL, resolver: resolver}
+
+	harness := New(ClaudeCodeAgentCommand(commandPath, []string{"Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"}), publisher, nil)
+
+	turnContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	turnResult, errorValue := harness.RunTurn(turnContext, agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "Use the workspace_secret_word tool and reply with only the word it returns.",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           sandboxToolSet(t, execution),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected the real agent to complete a turn: %v", errorValue)
+	}
+
+	executedToolNames := execution.executedToolNames()
+	if len(executedToolNames) == 0 {
+		t.Fatalf("expected the agent's model to choose the sandbox tool, got reply %q", turnResult.FinishMessage)
+	}
+	for _, toolName := range executedToolNames {
+		if toolName != "workspace_secret_word" {
+			t.Fatalf("expected only sandbox tools to run, got %q", toolName)
+		}
+	}
+	if !strings.Contains(turnResult.FinishMessage, "갈매기시계") {
+		t.Fatalf("expected the sandbox tool's output to reach the reply, got %q", turnResult.FinishMessage)
+	}
+	if publisher.revokeCount != 1 {
+		t.Fatalf("expected the catalog grant to be revoked when the turn ended, got %d", publisher.revokeCount)
+	}
+}
