@@ -32,7 +32,7 @@ func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*m
 		if !isServable {
 			continue
 		}
-		server.AddTool(tool, invokeThroughToolSet(requesterToolSet.ToolSet, toolDescriptor.Name))
+		server.AddTool(tool, invokeThroughToolSet(requesterToolSet.ToolSet, toolDescriptor.Name, tool.OutputSchema != nil))
 	}
 	return server, nil
 }
@@ -46,7 +46,7 @@ func servableTool(toolDescriptor toolcontract.ToolDescriptor) (*mcp.Tool, bool) 
 	if json.Unmarshal(inputSchema, &decodedSchema) != nil {
 		return nil, false
 	}
-	return &mcp.Tool{
+	tool := &mcp.Tool{
 		Name:        toolDescriptor.Name,
 		Description: toolDescriptor.Description,
 		InputSchema: decodedSchema,
@@ -60,10 +60,15 @@ func servableTool(toolDescriptor toolcontract.ToolDescriptor) (*mcp.Tool, bool) 
 			"blueclaw/requiresApproval":        toolDescriptor.RequiresApproval,
 			"blueclaw/requiresRequesterDevice": toolDescriptor.RequiresRequesterDevice,
 		},
-	}, true
+	}
+	var decodedOutputSchema map[string]any
+	if len(toolDescriptor.OutputSchema) > 0 && json.Unmarshal(toolDescriptor.OutputSchema, &decodedOutputSchema) == nil {
+		tool.OutputSchema = decodedOutputSchema
+	}
+	return tool, true
 }
 
-func invokeThroughToolSet(toolSet *toolcontract.ToolSet, toolName string) mcp.ToolHandler {
+func invokeThroughToolSet(toolSet *toolcontract.ToolSet, toolName string, hasOutputSchema bool) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		toolResult, errorValue := toolSet.Invoke(ctx, toolcontract.ToolInvocation{
 			ToolName: toolName,
@@ -72,16 +77,16 @@ func invokeThroughToolSet(toolSet *toolcontract.ToolSet, toolName string) mcp.To
 		if errorValue != nil {
 			return nil, errorValue
 		}
-		return callToolResult(toolResult), nil
+		return callToolResult(toolResult, hasOutputSchema), nil
 	}
 }
 
-func callToolResult(toolResult toolcontract.ToolResult) *mcp.CallToolResult {
+func callToolResult(toolResult toolcontract.ToolResult, hasOutputSchema bool) *mcp.CallToolResult {
 	result := &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: resultText(toolResult)}},
 		IsError: toolResult.Failed(),
 	}
-	if len(toolResult.Output.Data) > 0 {
+	if hasOutputSchema && len(toolResult.Output.Data) > 0 {
 		var structuredContent any
 		if json.Unmarshal(toolResult.Output.Data, &structuredContent) == nil {
 			result.StructuredContent = structuredContent
