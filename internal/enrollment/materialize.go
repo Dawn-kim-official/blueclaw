@@ -30,7 +30,7 @@ func Materialize(home Home, enrollment Enrollment) error {
 
 func runtimeConfigurationFor(home Home, enrollment Enrollment) config.RuntimeConfiguration {
 	runtimeConfiguration := config.RuntimeConfiguration{
-		BaseURL: "http://127.0.0.1:8080",
+		BaseURL: "http://" + availableListenAddress(),
 		Database: config.DatabaseConfiguration{
 			Driver:                 "postgres",
 			ConnectionString:       enrollment.DatabaseConnectionString,

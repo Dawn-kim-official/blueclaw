@@ -27,18 +27,25 @@ type CheckResult struct {
 
 const databaseCheckTimeout = 5 * time.Second
 
-func Preflight(ctx context.Context, answers Answers) []CheckResult {
+func Preflight(ctx context.Context, home Home, answers Answers) []CheckResult {
 	return []CheckResult{
-		checkDatabase(ctx, answers.DatabaseConnectionString),
+		checkDatabase(ctx, home, answers.DatabaseConnectionString),
 		checkLanguageModel(answers.LanguageModel),
 		checkHarness(answers.Harness),
 		checkWorkspace(answers.WorkspaceRootPath),
 	}
 }
 
-func checkDatabase(ctx context.Context, connectionString string) CheckResult {
+func checkDatabase(ctx context.Context, home Home, connectionString string) CheckResult {
 	if strings.TrimSpace(connectionString) == "" {
 		return CheckResult{Name: CheckDatabase, Guidance: "blueclaw keeps every task, event and memory in Postgres, so it needs a connection string."}
+	}
+	managedPostgres := NewManagedPostgres(home)
+	if connectionString == managedPostgres.ConnectionString() {
+		if errorValue := managedPostgres.EnsureRunning(ctx); errorValue != nil {
+			return CheckResult{Name: CheckDatabase, Detail: errorValue.Error(), Guidance: "Point this line at a Postgres you already run instead."}
+		}
+		return CheckResult{Name: CheckDatabase, IsReady: true, Detail: "managed by blueclaw at " + managedPostgres.DirectoryPath()}
 	}
 	connectContext, cancel := context.WithTimeout(ctx, databaseCheckTimeout)
 	defer cancel()
