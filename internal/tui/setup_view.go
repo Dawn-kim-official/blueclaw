@@ -58,13 +58,34 @@ func (setupModel SetupModel) View() tea.View {
 		lines = append(lines, line)
 	}
 	lines = append(lines, "")
+	lines = append(lines, setupModel.renderCheckResults()...)
 	if setupModel.failureNotice != "" {
 		lines = append(lines, styleError.Render(setupModel.failureNotice), "")
 	}
-	lines = append(lines, styleFooter.Render("up/down move · type to edit · space changes a choice · enter finishes · ctrl+c quits"))
+	lines = append(lines, styleFooter.Render("up/down move · type to edit · space changes a choice · enter checks and finishes · ctrl+c quits"))
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	return view
+}
+
+func (setupModel SetupModel) renderCheckResults() []string {
+	if len(setupModel.checkResults) == 0 {
+		return []string{styleMuted.Render("  Press enter and blueclaw checks it can actually reach these before finishing."), ""}
+	}
+	lines := []string{styleSectionTitle.Render("  Checks")}
+	for _, checkResult := range setupModel.checkResults {
+		marker := styleFailure.Render("✗")
+		detail := checkResult.Guidance
+		if checkResult.IsReady {
+			marker = styleSuccess.Render("✓")
+			detail = checkResult.Detail
+		}
+		lines = append(lines, "  "+marker+" "+padFieldLabel(string(checkResult.Name))+styleMuted.Render(detail))
+		if !checkResult.IsReady && checkResult.Detail != "" {
+			lines = append(lines, "    "+styleMuted.Render(checkResult.Detail))
+		}
+	}
+	return append(lines, "")
 }
 
 func padFieldLabel(label string) string {

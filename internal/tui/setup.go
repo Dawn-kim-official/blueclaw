@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
@@ -37,6 +38,8 @@ type SetupModel struct {
 	cursor           int
 	failureNotice    string
 	isComplete       bool
+	checkResults     []enrollment.CheckResult
+	isChecking       bool
 }
 
 func NewSetupModel(home enrollment.Home) SetupModel {
@@ -181,7 +184,21 @@ func (setupModel *SetupModel) cycleSelectedChoice() {
 	}
 }
 
+func (setupModel *SetupModel) RunPreflight() {
+	setupModel.checkResults = enrollment.Preflight(context.Background(), setupModel.answers)
+	setupModel.isChecking = false
+}
+
+func (setupModel SetupModel) CheckResults() []enrollment.CheckResult {
+	return setupModel.checkResults
+}
+
 func (setupModel *SetupModel) Finish() error {
+	setupModel.RunPreflight()
+	if !enrollment.IsReadyToStart(setupModel.checkResults) {
+		setupModel.failureNotice = "blueclaw cannot start with these answers yet. Each ✗ above says what it needs."
+		return errors.New(setupModel.failureNotice)
+	}
 	enrolled, errorValue := enrollment.NewLocalProvider(setupModel.home, setupModel.answers).Enroll(context.Background())
 	if errorValue != nil {
 		setupModel.failureNotice = errorValue.Error()
