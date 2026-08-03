@@ -818,7 +818,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		TaskRunStore:      taskRunService,
 		TaskStepStore:     taskStepService,
 		TaskArtifactStore: taskArtifactService,
-		TaskTierLanguageModels: harnessdriver.TaskTierLanguageModels{
+		TaskTierLanguageModels: agentcontract.TaskTierLanguageModels{
 			Low:    lowLanguageModel,
 			XLow:   xLowLanguageModel,
 			Medium: mediumLanguageModel,

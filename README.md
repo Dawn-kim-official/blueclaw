@@ -283,11 +283,11 @@ scheduled to move to a private repository. `agentcontract` stays public because
 blueclaw cannot build without it. There is no harness selection mechanism and no
 second implementation; see Project status for what is planned.
 
-`cmd/bluecollar-acp` exposes that loop as an
-[ACP](https://agentclientprotocol.com) agent over standard input and output,
-built on `coder/acp-go-sdk`. That is the loop speaking ACP outward. blueclaw
-acting as an ACP *client* — the direction that would let you plug in an external
-harness — is not built.
+`internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an
+[ACP](https://agentclientprotocol.com) *client* — the direction that plugs an
+external agent into blueclaw's sandbox, publishing the requester's tool
+catalog over MCP and running the external agent's tool calls as the
+requester's POSIX identity.
 
 ## blueclaw versus Claude Code, Codex, opencode, and Gemini CLI
 
@@ -420,10 +420,10 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `taskstate/` | task run, step, event, and artifact stores |
 | `model/` | language model, chat completion, structured output, and embedding interfaces |
 | `agenttest/` | scripted language model for deterministic tests |
-| `cmd/` | 10 binaries; see the table below |
+| `cmd/` | 9 binaries; see the table below |
 | `internal/` | host implementation: connectors, agent runtime, security, policy, identity, memory, HTTP, storage |
 | `internal/bluecollar/` | the agent loop; scheduled to leave this repository |
-| `internal/acpagent/` | ACP agent surface for that loop |
+| `internal/acpharness/` | blueclaw as an ACP client, plugging an external agent into the sandbox |
 | `protocol/` | Zod contracts shared across processes; generates the JSON Schema artifacts |
 | `llmd/` | AI SDK sidecar: structured output and chat generation over a Unix socket |
 | `chatd/` | chat bridge and platform adapters (Mattermost, Buzz) |
@@ -445,7 +445,6 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `cmd/blueclaw-backup`, `cmd/blueclaw-restore` | workspace and database snapshot bundles |
 | `cmd/blueclaw-guest-healthd`, `cmd/blueclaw-vsock-http-proxy` | guest health and host-to-guest transport |
 | `cmd/bluecollar` | runs the agent loop alone against one directory, for benchmarking; no database, connectors, policy, or POSIX projection |
-| `cmd/bluecollar-acp` | serves that loop as an ACP agent over standard input and output |
 
 ## Development
 
@@ -495,7 +494,6 @@ Planned and **not built**. Nothing below is a feature you can use today.
 | Planned | State |
 |---|---|
 | External harnesses (Claude Code, Codex, opencode, Gemini CLI) plugging in | not built. No second `Harness` implementation exists, and no adapter speaks to any external harness. The route — ACP client versus AI SDK harness adapter — is still an open decision. |
-| blueclaw as an [ACP](https://agentclientprotocol.com) client | not built. Only the outward direction exists (`cmd/bluecollar-acp` serves the bundled loop as an ACP agent). |
 | CLI and terminal user interface | not built. Planned on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, harness selection. |
 | MCP server exposing blueclaw's tool catalog | not built. blueclaw consumes MCP servers today; it does not publish one. |
 | `internal/bluecollar` moving to its own repository | not done. The 131 files are still here. |
