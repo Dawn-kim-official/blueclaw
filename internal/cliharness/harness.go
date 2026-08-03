@@ -71,8 +71,10 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	harnessSession := harness.harnessSessionForTurn(request)
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
 		RequesterPersonID: request.RequesterPersonID,
+		TaskRunID:         request.ExistingTaskRunID,
 		ToolSet:           request.ToolSet,
 		HarnessSession:    harnessSession,
+		ToolAudience:      mcpserver.ToolAudienceSelfEquipped,
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
