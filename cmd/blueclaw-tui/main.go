@@ -34,7 +34,11 @@ func main() {
 		configurationPath = home.RuntimeConfigurationPath()
 	}
 	client := tui.NewClient(resolveBaseURL(*baseURL, configurationPath), nil)
-	program := tea.NewProgram(tui.NewModel(client, configurationPath))
+	model := tui.NewModel(client, configurationPath)
+	if operator, isFound := enrollment.OperatorPerson(home); isFound {
+		model = model.UseRequester(operator.PersonID)
+	}
+	program := tea.NewProgram(model)
 	if _, errorValue := program.Run(); errorValue != nil {
 		fmt.Fprintln(os.Stderr, "blueclaw:", errorValue)
 		os.Exit(1)
