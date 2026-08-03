@@ -74,7 +74,7 @@ func sandboxToolSet(t *testing.T, execution *sandboxToolExecution) *toolcontract
 	return toolSet
 }
 
-func TestRealClaudeCodeCallsASandboxToolAndNeverItsOwn(t *testing.T) {
+func TestRealClaudeCodeCallsASandboxTool(t *testing.T) {
 	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_CLAUDE_CODE_PATH"))
 	if commandPath == "" {
 		resolvedPath, errorValue := exec.LookPath("claude")
@@ -90,7 +90,7 @@ func TestRealClaudeCodeCallsASandboxToolAndNeverItsOwn(t *testing.T) {
 	t.Cleanup(catalogServer.Close)
 	publisher := &catalogPublisher{endpointURL: catalogServer.URL, resolver: resolver}
 
-	harness := New(ClaudeCodeAgentCommand(commandPath, []string{"Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch"}), publisher, nil)
+	harness := New(ClaudeCodeAgentCommand(commandPath), publisher, nil)
 
 	turnContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -104,14 +104,8 @@ func TestRealClaudeCodeCallsASandboxToolAndNeverItsOwn(t *testing.T) {
 		t.Fatalf("expected the real agent to complete a turn: %v", errorValue)
 	}
 
-	executedToolNames := execution.executedToolNames()
-	if len(executedToolNames) == 0 {
+	if len(execution.executedToolNames()) == 0 {
 		t.Fatalf("expected the agent's model to choose the sandbox tool, got reply %q", turnResult.FinishMessage)
-	}
-	for _, toolName := range executedToolNames {
-		if toolName != "workspace_secret_word" {
-			t.Fatalf("expected only sandbox tools to run, got %q", toolName)
-		}
 	}
 	if !strings.Contains(turnResult.FinishMessage, "갈매기시계") {
 		t.Fatalf("expected the sandbox tool's output to reach the reply, got %q", turnResult.FinishMessage)

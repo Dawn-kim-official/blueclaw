@@ -1,6 +1,8 @@
 package harnessselection
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func bundledFactory() harnessdriver.Factory {
@@ -88,25 +91,28 @@ func TestClaudeCodeIsSelectableAndDeniesItsOwnBuiltinTools(t *testing.T) {
 	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{}, SandboxProcessBoundary{}); errorValue == nil {
 		t.Fatal("expected claude-code with no tool catalog to be refused")
 	}
-	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{}); errorValue == nil {
+		t.Fatal("expected a cli harness with no POSIX boundary to be refused, because its own tools would run unconfined")
+	}
+	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{Runner: refusingProcessRunner{}, WorkspaceRootPath: "/workspace"})
 	if errorValue != nil {
 		t.Fatalf("expected a configured claude-code harness: %v", errorValue)
 	}
 	if harness, _ := selectedFactory(harnessdriver.Dependencies{}); harness == nil {
 		t.Fatal("expected the claude-code harness to be constructed")
 	}
-	for _, builtinToolName := range []string{"Bash", "Read", "Write", "Edit"} {
-		if !containsToolName(claudeCodeBuiltinToolNames, builtinToolName) {
-			t.Fatalf("expected %q to be denied so the agent cannot execute outside the sandbox", builtinToolName)
+}
+
+func TestEveryCommandHarnessRequiresTheRequesterIdentityBoundary(t *testing.T) {
+	for _, harnessName := range []string{ClaudeCodeHarnessName, CodexHarnessName} {
+		if _, errorValue := Select(config.HarnessConfiguration{Name: harnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{}); errorValue == nil {
+			t.Fatalf("expected %q to be refused without the requester identity boundary", harnessName)
 		}
 	}
 }
 
-func containsToolName(toolNames []string, candidate string) bool {
-	for _, toolName := range toolNames {
-		if toolName == candidate {
-			return true
-		}
-	}
-	return false
+type refusingProcessRunner struct{}
+
+func (refusingProcessRunner) Requester(context.Context, security.WorkspaceActorRequest) (security.WorkspaceActor, error) {
+	return nil, errors.New("not used in selection tests")
 }

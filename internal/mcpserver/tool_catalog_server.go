@@ -17,6 +17,7 @@ const toolCatalogServerName = "blueclaw-tool-catalog"
 type RequesterToolSet struct {
 	RequesterPersonID string
 	ToolSet           *toolcontract.ToolSet
+	ApprovalGate      ApprovalGate
 }
 
 func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*mcp.Server, error) {
@@ -32,7 +33,7 @@ func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*m
 		if !isServable {
 			continue
 		}
-		server.AddTool(tool, invokeThroughToolSet(requesterToolSet.ToolSet, toolDescriptor.Name, tool.OutputSchema != nil))
+		server.AddTool(tool, invokeThroughToolSet(requesterToolSet, toolDescriptor, tool.OutputSchema != nil))
 	}
 	return server, nil
 }
@@ -68,16 +69,40 @@ func servableTool(toolDescriptor toolcontract.ToolDescriptor) (*mcp.Tool, bool) 
 	return tool, true
 }
 
-func invokeThroughToolSet(toolSet *toolcontract.ToolSet, toolName string, hasOutputSchema bool) mcp.ToolHandler {
+func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, hasOutputSchema bool) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		toolResult, errorValue := toolSet.Invoke(ctx, toolcontract.ToolInvocation{
-			ToolName: toolName,
+		if toolDescriptor.RequiresApproval {
+			gateResult, isSettled := awaitApprovalBeforeInvoking(ctx, requesterToolSet, toolDescriptor, request.Params.Arguments)
+			if !isSettled {
+				return callToolResult(gateResult, hasOutputSchema), nil
+			}
+		}
+		toolResult, errorValue := requesterToolSet.ToolSet.Invoke(ctx, toolcontract.ToolInvocation{
+			ToolName: toolDescriptor.Name,
 			Input:    request.Params.Arguments,
 		})
 		if errorValue != nil {
 			return nil, errorValue
 		}
 		return callToolResult(toolResult, hasOutputSchema), nil
+	}
+}
+
+func awaitApprovalBeforeInvoking(ctx context.Context, requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, toolInput json.RawMessage) (toolcontract.ToolResult, bool) {
+	if requesterToolSet.ApprovalGate == nil {
+		return heldCallResult(errApprovalGateMissing.Error()), false
+	}
+	outcome, errorValue := requesterToolSet.ApprovalGate.AwaitApproval(ctx, approvalRequestForTool(requesterToolSet.RequesterPersonID, toolDescriptor, toolInput))
+	if errorValue != nil {
+		return heldCallResult(errorValue.Error()), false
+	}
+	switch outcome.Decision {
+	case ApprovalDecisionApproved:
+		return toolcontract.ToolResult{}, true
+	case ApprovalDecisionRejected:
+		return rejectedCallResult(outcome.Notice), false
+	default:
+		return heldCallResult(outcome.Notice), false
 	}
 }
 
