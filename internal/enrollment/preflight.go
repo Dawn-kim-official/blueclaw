@@ -71,15 +71,15 @@ func checkLanguageModel(access LanguageModelAccess) CheckResult {
 }
 
 func checkHarness(harness HarnessChoice) CheckResult {
-	if strings.TrimSpace(harness.Name) == "" || harness.Name == "bluecollar" {
-		return CheckResult{Name: CheckHarness, IsReady: true, Detail: "bluecollar (built in)"}
+	if strings.TrimSpace(harness.Name) == "" {
+		return CheckResult{Name: CheckHarness, Guidance: "blueclaw hosts an agent, it does not ship one. Install claude-code or codex and choose it here."}
 	}
 	commandPath := strings.TrimSpace(harness.AgentCommandPath)
 	if commandPath == "" {
 		return CheckResult{Name: CheckHarness, Guidance: "This harness runs a command, so blueclaw needs its path."}
 	}
 	if _, errorValue := os.Stat(commandPath); errorValue != nil {
-		return CheckResult{Name: CheckHarness, Detail: errorValue.Error(), Guidance: "Install that agent, or choose the built-in bluecollar harness."}
+		return CheckResult{Name: CheckHarness, Detail: errorValue.Error(), Guidance: "Install that agent, or choose another harness blueclaw can find on this machine."}
 	}
 	return CheckResult{Name: CheckHarness, IsReady: true, Detail: commandPath}
 }

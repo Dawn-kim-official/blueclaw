@@ -20,6 +20,9 @@ const (
 	ExternalHarnessName   = "acp"
 	ClaudeCodeHarnessName = "claude-code"
 	CodexHarnessName      = "codex"
+
+	ClaudeCodeAgentCommandName = "claude"
+	CodexAgentCommandName      = "codex"
 )
 
 type ToolCatalogEndpoint struct {
@@ -43,7 +46,7 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 	switch harnessName {
 	case "", BundledHarnessName:
 		if bundledHarnessFactory == nil {
-			return nil, fmt.Errorf("no harness is configured and this build ships none; set agent.harness.name to %q with an agent command", ExternalHarnessName)
+			return nil, fmt.Errorf("no agent harness is attached and this build ships none; install %s or %s, then set agent.harness.name to %q or %q and agent.harness.agentCommandPath to that executable", ClaudeCodeAgentCommandName, CodexAgentCommandName, ClaudeCodeHarnessName, CodexHarnessName)
 		}
 		return bundledHarnessFactory, nil
 	case ExternalHarnessName:
