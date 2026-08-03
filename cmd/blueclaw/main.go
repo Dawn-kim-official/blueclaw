@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
+	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/app"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
@@ -21,6 +23,18 @@ func main() {
 		log.Fatalf("%v\n\nThis install has no configuration at %s yet. Run blueclaw-tui to set one up.", errorValue, *runtimeConfigurationPath)
 	}
 
+	if errorValue := ensureManagedDatabase(home, runtimeConfiguration); errorValue != nil {
+		log.Fatal(errorValue)
+	}
+
 	application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
 	log.Fatal(application.Start())
+}
+
+func ensureManagedDatabase(home enrollment.Home, runtimeConfiguration config.RuntimeConfiguration) error {
+	managedPostgres := enrollment.NewManagedPostgres(home)
+	if strings.TrimSpace(runtimeConfiguration.Database.ConnectionString) != managedPostgres.ConnectionString() {
+		return nil
+	}
+	return managedPostgres.EnsureRunning(context.Background())
 }

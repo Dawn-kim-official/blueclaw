@@ -56,7 +56,7 @@ func SuggestedAnswers(home Home) Answers {
 		Email:                    accountName + "@localhost",
 		Mode:                     RunModeHost,
 		WorkspaceRootPath:        home.WorkspaceRootPath(),
-		DatabaseConnectionString: detectedDatabaseConnectionString(),
+		DatabaseConnectionString: detectedDatabaseConnectionString(home),
 		LanguageModel:            LanguageModelAccess{OpenRouterAPIKey: strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))},
 		Harness:                  detectedHarness(),
 	}
@@ -90,11 +90,11 @@ func AvailableHarnesses() []HarnessChoice {
 	return available
 }
 
-func detectedDatabaseConnectionString() string {
+func detectedDatabaseConnectionString(home Home) string {
 	if configuredURL := strings.TrimSpace(os.Getenv("DATABASE_URL")); configuredURL != "" {
 		return configuredURL
 	}
-	return "postgres://" + currentAccountName() + "@127.0.0.1:5432/blueclaw?sslmode=disable"
+	return NewManagedPostgres(home).ConnectionString()
 }
 
 func currentAccountName() string {

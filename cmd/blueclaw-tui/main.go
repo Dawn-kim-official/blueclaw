@@ -4,15 +4,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
 	"github.com/Dawn-kim-official/blueclaw/internal/tui"
 )
 
 func main() {
-	baseURL := flag.String("base-url", "http://127.0.0.1:8080", "base URL of the blueclaw admin API")
+	baseURL := flag.String("base-url", "", "base URL of the blueclaw admin API, taken from the install when empty")
 	runtimeConfigurationPath := flag.String("runtime", "", "path to the sandbox's runtime configuration JSON, used to show the configured agent harness")
 	flag.Parse()
 
@@ -31,12 +33,23 @@ func main() {
 	if configurationPath == "" {
 		configurationPath = home.RuntimeConfigurationPath()
 	}
-	client := tui.NewClient(*baseURL, nil)
+	client := tui.NewClient(resolveBaseURL(*baseURL, configurationPath), nil)
 	program := tea.NewProgram(tui.NewModel(client, configurationPath))
 	if _, errorValue := program.Run(); errorValue != nil {
 		fmt.Fprintln(os.Stderr, "blueclaw:", errorValue)
 		os.Exit(1)
 	}
+}
+
+func resolveBaseURL(configuredBaseURL string, runtimeConfigurationPath string) string {
+	if strings.TrimSpace(configuredBaseURL) != "" {
+		return configuredBaseURL
+	}
+	runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(runtimeConfigurationPath)
+	if errorValue != nil || strings.TrimSpace(runtimeConfiguration.BaseURL) == "" {
+		return "http://127.0.0.1:8080"
+	}
+	return runtimeConfiguration.BaseURL
 }
 
 func runSetup(home enrollment.Home) error {
