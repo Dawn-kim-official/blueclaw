@@ -50,7 +50,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: toolCatalogBuilder,
 		request:            request,
-		descriptors:        toolCatalogBuilder.reachableCapabilityToolDefinitions(),
+		descriptors:        withNarrowedReplyTargets(toolCatalogBuilder.reachableCapabilityToolDefinitions(), request),
 	}
 	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 		Provider: provider,
