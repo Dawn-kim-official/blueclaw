@@ -1173,11 +1173,8 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		}
 
 		if (this.botUserId && post.user_id === this.botUserId) {
-			this.emitMirrorPost(post, payload.event);
 			return;
 		}
-
-		this.emitMirrorPost(post, payload.event);
 
 		const channelType = payload.data?.channel_type;
 
@@ -1218,52 +1215,11 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 		);
 	}
 
-	private emitMirrorPost(post: MattermostPost, event: string | undefined): void {
-		const mirror = this.config.mirror;
-		if (!mirror || (event !== "posted" && event !== "post_edited")) return;
-		void this.getMattermostUser(post.user_id)
-			.then((user) => {
-				if (event === "posted") {
-					mirror.message({
-						externalId: post.id,
-						externalChannelId: post.channel_id,
-						text: post.message ?? "",
-						senderPlatformUserId: post.user_id,
-						senderEmail: user.email,
-						replyToExternalId: post.root_id || undefined,
-					});
-				} else {
-					mirror.edit({
-						externalId: post.id,
-						externalChannelId: post.channel_id,
-						text: post.message ?? "",
-						senderPlatformUserId: post.user_id,
-						senderEmail: user.email,
-					});
-				}
-			})
-			.catch((error) => this.logger.error("mirror post emit failed", error));
-	}
-
 	private async handlePostDeletedEvent(payload: MattermostWebSocketEvent): Promise<void> {
 		const post = this.parseEmbeddedJson<MattermostPost>(payload.data?.post);
 
 		if (!post) {
 			return;
-		}
-
-		const mirror = this.config.mirror;
-		if (mirror && !(this.botUserId && post.user_id === this.botUserId)) {
-			void this.getMattermostUser(post.user_id)
-				.then((user) =>
-					mirror.remove({
-						externalId: post.id,
-						externalChannelId: post.channel_id,
-						senderPlatformUserId: post.user_id,
-						senderEmail: user.email,
-					}),
-				)
-				.catch((error) => this.logger.error("mirror delete emit failed", error));
 		}
 
 		this.logger.debug(
@@ -1309,21 +1265,6 @@ export class MattermostAdapter implements Adapter<MattermostThreadId, Mattermost
 
 		if (user) {
 			this.setCachedValue(this.users, user.id, user, MAX_USER_CACHE_SIZE);
-		}
-
-		if (
-			added &&
-			this.config.mirror &&
-			post &&
-			!(this.botUserId && reaction.user_id === this.botUserId)
-		) {
-			this.config.mirror.react({
-				externalId: reaction.post_id,
-				externalChannelId: post.channel_id,
-				emoji: reaction.emoji_name,
-				senderPlatformUserId: reaction.user_id,
-				senderEmail: user?.email,
-			});
 		}
 
 		this.chat.processReaction({

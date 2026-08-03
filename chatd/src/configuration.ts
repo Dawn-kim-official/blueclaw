@@ -15,7 +15,6 @@ export type BuzzConfiguration = {
 export type ChatdConfiguration = {
   botUserName: string;
   blueclawBaseURL: string;
-  admindBaseURL: string | undefined;
   listenPort: number;
   mattermost: MattermostConfiguration | undefined;
   buzz: BuzzConfiguration | undefined;
@@ -29,7 +28,6 @@ export function loadConfiguration(environment: Record<string, string | undefined
         deriveBaseURL(environment['CHATD_BLUECLAW_INGRESS_URL']) ||
         'http://127.0.0.1:8080',
     ),
-    admindBaseURL: environment['CHATD_ADMIND_BASE_URL']?.trim() || undefined,
     listenPort: parseListenPort(environment['CHATD_LISTEN_PORT']),
     mattermost: loadMattermostConfiguration(environment),
     buzz: loadBuzzConfiguration(environment),
