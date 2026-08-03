@@ -37,7 +37,7 @@ func newPublishedToolCatalog(t *testing.T) *publishedToolCatalog {
 }
 
 func (catalog *publishedToolCatalog) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
-	sessionToken, errorValue := catalog.resolver.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	sessionToken, errorValue := catalog.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
 	}

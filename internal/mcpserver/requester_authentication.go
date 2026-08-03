@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
 var ErrUnauthenticatedRequester = errors.New("tool catalog requires a bearer token identifying the requester")
@@ -27,14 +25,14 @@ func NewSessionTokenRequesterResolver(newSessionToken func() string) *SessionTok
 	return &SessionTokenRequesterResolver{toolSetByToken: map[string]RequesterToolSet{}, newSessionToken: newSessionToken}
 }
 
-func (resolver *SessionTokenRequesterResolver) GrantSessionToken(requesterPersonID string, toolSet *toolcontract.ToolSet) (string, error) {
-	if strings.TrimSpace(requesterPersonID) == "" || toolSet == nil {
+func (resolver *SessionTokenRequesterResolver) GrantSessionToken(requesterToolSet RequesterToolSet) (string, error) {
+	if strings.TrimSpace(requesterToolSet.RequesterPersonID) == "" || requesterToolSet.ToolSet == nil {
 		return "", errors.New("a tool catalog session needs both a requester and a tool set")
 	}
 	sessionToken := resolver.newSessionToken()
 	resolver.mutex.Lock()
 	defer resolver.mutex.Unlock()
-	resolver.toolSetByToken[sessionToken] = RequesterToolSet{RequesterPersonID: requesterPersonID, ToolSet: toolSet}
+	resolver.toolSetByToken[sessionToken] = requesterToolSet
 	return sessionToken, nil
 }
 

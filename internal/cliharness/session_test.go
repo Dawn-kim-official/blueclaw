@@ -25,7 +25,7 @@ func (publisher *recordingSessionPublisher) PublishToolCatalog(requesterToolSet 
 	publisher.mutex.Lock()
 	publisher.sessions = append(publisher.sessions, requesterToolSet.HarnessSession)
 	publisher.mutex.Unlock()
-	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
 	}
