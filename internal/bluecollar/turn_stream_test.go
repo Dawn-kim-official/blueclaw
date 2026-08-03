@@ -12,15 +12,15 @@ func continueWithMessageDocument(operationName string, message string) string {
 	return `{"action":"continue","toolName":"` + operationName + `","toolInput":{},"message":"` + message + `"}`
 }
 
-func collectTurnEvents(events <-chan TurnEvent) []TurnEvent {
+func collectTurnEvents(turnStream *TurnStream) []TurnEvent {
 	collected := []TurnEvent{}
-	for turnEvent := range events {
+	for turnEvent := range turnStream.Events {
 		collected = append(collected, turnEvent)
 	}
 	return collected
 }
 
-func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
+func TestStreamTurnEmitsOrderedProgressBeforeTheResult(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		continueWithMessageDocument("alpha", "first reply"),
 		finishMessageDocument("last reply"),
@@ -31,7 +31,7 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 		return testToolSuccess("alpha result"), nil
 	})
 
-	events := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
+	turnStream := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
@@ -39,19 +39,15 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender:  func(context.Context, AgentCheckpoint) error { return nil },
 	})
-	collected := collectTurnEvents(events)
+	collected := collectTurnEvents(turnStream)
 
 	replyIndex := indexOfTurnEventKind(collected, TurnEventReply)
 	toolIndex := indexOfTurnEventKind(collected, TurnEventTool)
-	finalIndex := indexOfTurnEventKind(collected, TurnEventFinal)
-	if replyIndex < 0 || toolIndex < 0 || finalIndex < 0 {
-		t.Fatalf("expected reply, tool, and final events, got %v", collected)
+	if replyIndex < 0 || toolIndex < 0 {
+		t.Fatalf("expected reply and tool events, got %v", collected)
 	}
-	if !(replyIndex < toolIndex && toolIndex < finalIndex) {
-		t.Fatalf("expected reply before tool before final, got reply=%d tool=%d final=%d", replyIndex, toolIndex, finalIndex)
-	}
-	if finalIndex != len(collected)-1 {
-		t.Fatalf("expected final event to be last, got index %d of %d", finalIndex, len(collected))
+	if replyIndex >= toolIndex {
+		t.Fatalf("expected reply before tool, got reply=%d tool=%d", replyIndex, toolIndex)
 	}
 	if collected[replyIndex].Message != "first reply" {
 		t.Fatalf("expected reply message, got %q", collected[replyIndex].Message)
@@ -59,8 +55,30 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 	if collected[toolIndex].ToolName != "alpha" {
 		t.Fatalf("expected tool name alpha, got %q", collected[toolIndex].ToolName)
 	}
-	if collected[finalIndex].Result.FinishMessage != "last reply" {
-		t.Fatalf("expected final finish message, got %q", collected[finalIndex].Result.FinishMessage)
+	turnResult, errorValue := turnStream.Result()
+	if errorValue != nil {
+		t.Fatalf("expected the turn to finish: %v", errorValue)
+	}
+	if turnResult.FinishMessage != "last reply" {
+		t.Fatalf("expected the finished turn to carry its message, got %q", turnResult.FinishMessage)
+	}
+}
+
+func TestAFloodOfProgressNeverCostsTheTurnItsResult(t *testing.T) {
+	contents := []string{}
+	for index := 0; index < streamTurnEventBuffer*2; index++ {
+		contents = append(contents, continueWithMessageDocument("alpha", "reply"+string(rune('a'+index%26))))
+	}
+	contents = append(contents, finishMessageDocument("survived the flood"))
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{contents: contents}, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
+
+	turnStream := services.runner.StreamTurn(context.Background(), turnRequestWithTool(services))
+	turnResult, errorValue := turnStream.Result()
+	if errorValue != nil {
+		t.Fatalf("expected the turn to finish: %v", errorValue)
+	}
+	if turnResult.TaskRun.TaskRunID == "" {
+		t.Fatal("expected the finished turn to come back even when its progress overflowed, because an empty result reads exactly like a clean success")
 	}
 }
 
@@ -96,7 +114,7 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 		return testToolSuccess("alpha result"), nil
 	})
 
-	events := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
+	turnStream := services.runner.StreamTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
@@ -104,11 +122,12 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender:  func(context.Context, AgentCheckpoint) error { return nil },
 	})
-	for range events {
+	for range turnStream.Events {
 		break
 	}
-	for range events {
+	for range turnStream.Events {
 	}
+	turnStream.Result()
 }
 
 func turnRequestWithTool(services turnRunnerTestServices) AgentTurnRequest {

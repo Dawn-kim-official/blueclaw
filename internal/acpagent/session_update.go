@@ -13,6 +13,15 @@ import (
 )
 
 func sessionUpdateForTurnEvent(turnEvent bluecollar.TurnEvent, toolSet *toolcontract.ToolSet, toolCallIdentity acp.ToolCallId) acp.SessionUpdate {
+	if turnEvent.Kind == bluecollar.TurnEventApproval {
+		return acp.StartToolCall(
+			toolCallIdentity,
+			toolCallTitle(turnEvent),
+			acp.WithStartKind(toolKindForTool(toolSet, turnEvent.ToolName)),
+			acp.WithStartStatus(acp.ToolCallStatusPending),
+			acp.WithStartRawOutput(turnEvent.Message),
+		)
+	}
 	if turnEvent.Kind == bluecollar.TurnEventTool {
 		return acp.StartToolCall(
 			toolCallIdentity,
