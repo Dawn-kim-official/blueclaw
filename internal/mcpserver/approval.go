@@ -62,7 +62,7 @@ func approvalRequestForTool(requesterToolSet RequesterToolSet, toolDescriptor to
 func heldCallResult(notice string) toolcontract.ToolResult {
 	heldNotice := strings.TrimSpace(notice)
 	if heldNotice == "" {
-		heldNotice = "This call is waiting for the requester's approval. It has been recorded and will run once approved; do not retry it."
+		heldNotice = "This call is waiting for the requester's approval and has been recorded. Do not retry it now; call it again unchanged once you are told the approval arrived, and it will run."
 	}
 	return toolcontract.ToolFailureResult(toolcontract.FailureUnknown, toolcontract.FailureCodes.InteractionRequired, "approval", heldNotice)
 }
