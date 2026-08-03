@@ -168,6 +168,14 @@ type AgentConfiguration struct {
 	GenerationOptions        AgentGenerationOptions   `json:"generationOptions,omitempty"`
 	AdminTaskLinkBaseURL     string                   `json:"adminTaskLinkBaseURL,omitempty"`
 	AllowAdminTaskDiagnostic bool                     `json:"allowAdminTaskDiagnostic"`
+	Harness                  HarnessConfiguration     `json:"harness,omitempty"`
+}
+
+type HarnessConfiguration struct {
+	Name             string   `json:"name,omitempty"`
+	AgentCommandPath string   `json:"agentCommandPath,omitempty"`
+	AgentArguments   []string `json:"agentArguments,omitempty"`
+	ToolCatalogURL   string   `json:"toolCatalogURL,omitempty"`
 }
 
 type AgentIntakeConfiguration struct {
