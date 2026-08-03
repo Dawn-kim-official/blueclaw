@@ -412,6 +412,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskIntakeGate:          taskIntakeController,
 			AllowTaskDecisionPreset: runtimeConfiguration.Agent.AllowAdminTaskDiagnostic,
 		},
+		TaskApprovalHandler: adminapi.TaskApprovalHandler{
+			TaskLauncher:    taskLauncher,
+			TaskRunService:  taskRunService,
+			IdentityService: identityService,
+		},
 		QuiesceHandler: adminapi.QuiesceHandler{
 			Controller:     taskIntakeController,
 			TaskRunService: taskRunService,
