@@ -275,13 +275,14 @@ The harness is injected at the top, not constructed inside the host. `main`
 passes a factory:
 
 ```go
-application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
+application := app.NewApplication(runtimeConfiguration, *policyPath, nil)
 ```
 
-`internal/bluecollar` (131 files) is the only implementation today, and it is
-scheduled to move to a private repository. `agentcontract` stays public because
-blueclaw cannot build without it. There is no harness selection mechanism and no
-second implementation; see Project status for what is planned.
+`cmd/blueclaw` passes no bundled factory: the daemon hosts an agent, it does not
+ship one. With nothing attached, `internal/harnessselection` refuses to start and
+names the harnesses a person can install — `claude-code` or `codex` — and setup
+offers only the agents it found on this machine. `agentcontract` stays public
+because blueclaw cannot build without it. See Project status for what is planned.
 
 `internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an
 [ACP](https://agentclientprotocol.com) *client* — the direction that plugs an

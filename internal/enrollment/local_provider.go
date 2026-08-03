@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessselection"
 )
 
 type Answers struct {
@@ -66,8 +68,8 @@ var harnessCommandNames = []struct {
 	harnessName string
 	commandName string
 }{
-	{harnessName: "claude-code", commandName: "claude"},
-	{harnessName: "codex", commandName: "codex"},
+	{harnessName: harnessselection.ClaudeCodeHarnessName, commandName: harnessselection.ClaudeCodeAgentCommandName},
+	{harnessName: harnessselection.CodexHarnessName, commandName: harnessselection.CodexAgentCommandName},
 }
 
 func detectedHarness() HarnessChoice {
