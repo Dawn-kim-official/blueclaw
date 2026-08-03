@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+# ponytail: docker is the smallest thing that gives a real linux kernel here
+imageName="golang:1.26"
+scriptPath="$(mktemp)"
+cat > "$scriptPath" <<'GATE'
+set -e
+cd /src
+export GOFLAGS='-mod=mod -buildvcs=false' GOCACHE=/tmp/gocache GOMODCACHE=/tmp/gomodcache
+groupadd -f blueclaw
+useradd -m -s /bin/bash -g blueclaw blueclaw 2>/dev/null || true
+go build -o /usr/local/bin/blueclaw-posix-helper ./cmd/blueclaw-posix-helper
+chown root:root /usr/local/bin/blueclaw-posix-helper
+chmod 4755 /usr/local/bin/blueclaw-posix-helper
+go test -count=1 -c -o /tmp/integration.test ./tests/integration/
+chmod -R 777 /tmp/gocache /tmp/gomodcache 2>/dev/null || true
+su blueclaw -c "BLUECLAW_TEST_POSIX_HELPER_PATH=/usr/local/bin/blueclaw-posix-helper TMPDIR=/tmp /tmp/integration.test -test.run '${GATE_TEST_PATTERN}' -test.v"
+GATE
+
+GATE_TEST_PATTERN="${1:-Linux|TwoPeopleAskingAtOnce|HarnessProcessItselfRunsAsTheRequester|POSIX}"
+docker run --rm \
+  -e GATE_TEST_PATTERN="$GATE_TEST_PATTERN" \
+  -v "$(pwd)":/src \
+  -v "$scriptPath":/gate.sh \
+  "$imageName" sh /gate.sh

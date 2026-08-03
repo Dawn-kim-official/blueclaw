@@ -189,3 +189,62 @@ func TestAnInstallWithNoMessengerStaysLocal(t *testing.T) {
 		t.Fatal("expected an install that connected nothing to stay local")
 	}
 }
+
+func TestAColleagueBecomesAPersonTheSandboxCanRunAs(t *testing.T) {
+	home := homeFixture(t)
+	enrolled, _ := NewLocalProvider(home, completeAnswers(home)).Enroll(context.Background())
+	Materialize(home, enrolled)
+
+	wasAdded, errorValue := RegisterPerson(home, Person{DisplayName: "김예시", Email: "seeun@example.com"})
+	if errorValue != nil {
+		t.Fatalf("expected a colleague to be registered: %v", errorValue)
+	}
+	if !wasAdded {
+		t.Fatal("expected a person who was not there to be added")
+	}
+
+	operator, _ := OperatorPerson(home)
+	policyBytes, _ := os.ReadFile(home.PolicyPath())
+	if !strings.Contains(string(policyBytes), "seeun@example.com") {
+		t.Fatal("expected the colleague's email in the policy, because that is how their messages are matched to them")
+	}
+	if operator.Email == "seeun@example.com" {
+		t.Fatal("expected the operator to stay the operator")
+	}
+}
+
+func TestRegisteringTheSamePersonTwiceChangesNothing(t *testing.T) {
+	home := homeFixture(t)
+	enrolled, _ := NewLocalProvider(home, completeAnswers(home)).Enroll(context.Background())
+	Materialize(home, enrolled)
+	RegisterPerson(home, Person{DisplayName: "김예시", Email: "seeun@example.com"})
+
+	wasAdded, errorValue := RegisterPerson(home, Person{DisplayName: "김예시", Email: "SEEUN@example.com"})
+
+	if errorValue != nil {
+		t.Fatalf("expected a repeat registration to be harmless: %v", errorValue)
+	}
+	if wasAdded {
+		t.Fatal("expected somebody who already exists not to be added twice under a different capitalisation")
+	}
+}
+
+func TestAColleagueDoesNotArriveAsAnAdministrator(t *testing.T) {
+	home := homeFixture(t)
+	enrolled, _ := NewLocalProvider(home, completeAnswers(home)).Enroll(context.Background())
+	Materialize(home, enrolled)
+	RegisterPerson(home, Person{DisplayName: "김예시", Email: "seeun@example.com"})
+
+	policyBytes, _ := os.ReadFile(home.PolicyPath())
+	document := map[string]any{}
+	json.Unmarshal(policyBytes, &document)
+	people, _ := document["people"].([]any)
+	colleague, _ := people[len(people)-1].(map[string]any)
+
+	if colleague["isAdmin"] == true {
+		t.Fatal("expected somebody who simply spoke in the messenger not to arrive as an administrator")
+	}
+	if rank, _ := colleague["securityLevelRank"].(float64); rank >= 100 {
+		t.Fatalf("expected a colleague to arrive at the lowest level, got rank %v", rank)
+	}
+}
