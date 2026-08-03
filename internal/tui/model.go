@@ -200,8 +200,12 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			model.composeNotice = "could not start that: " + typedMsg.err.Error()
 			return model, nil
 		}
+		if typedMsg.submitted.TaskRun.Status == TaskStatusFailed {
+			model.composeNotice = "that did not start: " + typedMsg.submitted.TaskRun.FailureReason
+			return model, fetchTaskRunsCmd(model.client)
+		}
 		model.composedPrompt = ""
-		model.composeNotice = "started " + typedMsg.submitted.TaskRunID
+		model.composeNotice = "started " + typedMsg.submitted.TaskRun.TaskRunID
 		return model, fetchTaskRunsCmd(model.client)
 
 	case approvalSubmittedMsg:

@@ -65,8 +65,11 @@ type ApprovalResult struct {
 }
 
 type SubmittedTaskRun struct {
-	TaskRunID string `json:"taskRunID"`
-	Status    string `json:"status"`
+	TaskRun struct {
+		TaskRunID     string `json:"taskRunID"`
+		Status        string `json:"status"`
+		FailureReason string `json:"failureReason"`
+	} `json:"taskRun"`
 }
 
 type taskRunRequestBody struct {
