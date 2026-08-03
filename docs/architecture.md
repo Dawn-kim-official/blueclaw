@@ -13,7 +13,7 @@ function names beside them are the durable reference.
 | Layer | Owns | Package |
 |---|---|---|
 | Host | connectors, policy, identity, task store, approvals, tool catalog, memory, delivery, POSIX projection | `internal/`, `cmd/` |
-| Harness | the agent loop: route a turn, run it, answer, classify | `internal/bluecollar` |
+| Harness | the agent loop: route a turn, run it, answer, classify | `bluecollar` |
 | Contract | the types both compile against, and the harness port | `agentcontract/`, `toolcontract/`, `taskstate/` |
 
 The port is `agentcontract.Harness` (`agentcontract/harness.go:5`), a single
@@ -37,7 +37,7 @@ completion — it takes from `taskstate.TaskRunService` directly. Those methods
 were removed from the kernel deliberately; do not reintroduce store passthrough
 on the harness.
 
-`internal/bluecollar/contract.go` is the alias shim. `:5` asserts
+`bluecollar/contract.go` is the alias shim. `:5` asserts
 `*AgentKernel` satisfies the port; the `type (...)` block re-exports the types
 that moved to `agentcontract` so the ~130 Go files naming `AgentTurnRequest`,
 `VisibleContext`, `InstructionBundle`, `MemoryFact` and their closure did not
@@ -236,9 +236,9 @@ An inbound message becomes at most one task run. The path, end to end:
    `buildToolSetLaunchStep` (`:257`) → `auditToolRegistryLaunchStep` (`:287`) →
    `loadMemoryLaunchStep` (`:297`) → `runTurnLaunchStep` (`:347`).
 5. **Turn.** `AgentKernel.RunAgentRequest`
-   (`internal/bluecollar/agent_kernel.go:200`) plans the turn with the turn
+   (`bluecollar/agent_kernel.go:200`) plans the turn with the turn
    router, then hands execution to `AgentTurnRunner.RunTurn`
-   (`internal/bluecollar/turn_runner.go:228`).
+   (`bluecollar/turn_runner.go:228`).
 6. **Delivery.** The result enqueues into the connector outbox and is dispatched
    by `internal/connectors/task_reply_dispatch.go`.
 
@@ -284,7 +284,7 @@ stay.
 
 Tool exposure is separate from all of this. Extension tool schemas offered to
 the model are capped at `maxExtensionCallableToolCount` (15, in
-`internal/bluecollar/tool_exposure.go:9`); kernel tools are added on top of that
+`bluecollar/tool_exposure.go:9`); kernel tools are added on top of that
 cap (`toolSetForAgentTurnWithExposure:41-45`). Groups are ordered by priority —
 required interaction, recovery, pending working-set tool, required evidence,
 pinned, selected skills, evidence alternatives (`:36`) — and whatever does not
@@ -295,8 +295,8 @@ disappearing.
 
 Completion gates are independent from tool visibility. A `finish` must name the
 observations that prove the work happened
-(`internal/bluecollar/completion_gate.go`,
-`internal/bluecollar/completion_judge.go`), and draft or setup evidence such as
+(`bluecollar/completion_gate.go`,
+`bluecollar/completion_judge.go`), and draft or setup evidence such as
 site creation cannot close a publish Task without the required build, review,
 publish, and final status evidence. Contract verification runs only when the
 task has explicit outcome requirements; empty contracts stay on the fast path.
@@ -304,7 +304,7 @@ task has explicit outcome requirements; empty contracts stay on the fast path.
 ### Approvals
 
 Approval is a runtime pause and a verbatim re-execution, not a prompt
-instruction. `internal/bluecollar/approval_gate.go`:
+instruction. `bluecollar/approval_gate.go`:
 
 | Concern | Function |
 |---|---|
@@ -603,8 +603,8 @@ false delivery claim) can block a draft, while style and intent issues merely
 trigger repair. Blueclaw tries generated wording, then repair, then local
 wording, then delivers the best safety-passing draft, and only as a last resort
 sends a compact redacted raw-error notice
-(`internal/bluecollar/failure_notice.go`,
-`internal/bluecollar/failure_reply.go`). Full suppression is reserved for
+(`bluecollar/failure_notice.go`,
+`bluecollar/failure_reply.go`). Full suppression is reserved for
 duplicates, cancellations, and self or bot messages.
 
 Exact control acknowledgements for slash commands, such as stop and stop-all,
@@ -639,7 +639,7 @@ Cross-process agent, LLM, capability, task, and connector contracts live under
 `protocol/`. Zod schemas are the source for deterministic JSON Schema artifacts,
 and shared fixtures verify that the Go wire DTOs retain their behavior
 (`*_protocol_fixture_test.go` in `internal/llm`, `internal/task`,
-`internal/connectors`, `internal/bluecollar`).
+`internal/connectors`, `bluecollar`).
 
 ```bash
 cd protocol
@@ -653,7 +653,7 @@ A value list consumed by more than one language is defined once and derived
 everywhere else. Where a consumer cannot import the definition, a conformance
 test reads the canonical source and fails on drift —
 `chatd/tests/buzz-adapter.test.ts:113` reads
-`internal/bluecollar/reaction_emoji.go` this way.
+`bluecollar/reaction_emoji.go` this way.
 
 ## Admin and task surfaces
 

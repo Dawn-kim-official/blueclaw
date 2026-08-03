@@ -72,7 +72,7 @@ from policy objects to real Linux users and groups.
   blueclaw (Go daemon)
     connectors · policy · task store · approvals · tool catalog · POSIX projection
             |
-            +-- agentcontract.Harness --+-- internal/bluecollar   (Go, in-process)
+            +-- agentcontract.Harness --+-- bluecollar   (Go, in-process)
             |
             +-- tool execution --> blueclaw-posix-helper --> requester UID/GID/groups
 ```
@@ -106,7 +106,7 @@ contract between host and harness, and the host is the side that reads it.
 
 An approval gate pauses a task run before a side-effecting tool call executes,
 records `approval.pending_call` with the exact call, and re-executes that call
-verbatim when the approval arrives (`internal/bluecollar/approval_gate.go`,
+verbatim when the approval arrives (`bluecollar/approval_gate.go`,
 `taskstate.TaskRunService.PauseTaskRun`). Because the held call is persisted,
 approval survives a daemon restart and does not block a live request.
 
@@ -278,7 +278,7 @@ passes a factory:
 application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
 ```
 
-`internal/bluecollar` (131 files) is the only implementation today, and it is
+`bluecollar` (131 files) is the only implementation today, and it is
 scheduled to move to a private repository. `agentcontract` stays public because
 blueclaw cannot build without it. There is no harness selection mechanism and no
 second implementation; see Project status for what is planned.
@@ -306,7 +306,7 @@ The comparison is not "which is better"; it is "which layer owns what".
 | Work lifetime | one interactive session | durable task runs across restarts |
 
 What is true today: the harness that plugs into blueclaw is the bundled
-`internal/bluecollar` loop. Running Claude Code, Codex, opencode, or Gemini CLI
+`bluecollar` loop. Running Claude Code, Codex, opencode, or Gemini CLI
 inside blueclaw is the goal of the project, not a shipped feature. The interface
 they would satisfy exists and is asserted; the adapter that speaks to them does
 not. See Project status.
@@ -422,7 +422,7 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `agenttest/` | scripted language model for deterministic tests |
 | `cmd/` | 9 binaries; see the table below |
 | `internal/` | host implementation: connectors, agent runtime, security, policy, identity, memory, HTTP, storage |
-| `internal/bluecollar/` | the agent loop; scheduled to leave this repository |
+| `bluecollar/` | the agent loop; scheduled to leave this repository |
 | `internal/acpharness/` | blueclaw as an ACP client, plugging an external agent into the sandbox |
 | `protocol/` | Zod contracts shared across processes; generates the JSON Schema artifacts |
 | `llmd/` | AI SDK sidecar: structured output and chat generation over a Unix socket |
@@ -496,13 +496,13 @@ Planned and **not built**. Nothing below is a feature you can use today.
 | External harnesses (Claude Code, Codex, opencode, Gemini CLI) plugging in | not built. No second `Harness` implementation exists, and no adapter speaks to any external harness. The route — ACP client versus AI SDK harness adapter — is still an open decision. |
 | CLI and terminal user interface | not built. Planned on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, harness selection. |
 | MCP server exposing blueclaw's tool catalog | not built. blueclaw consumes MCP servers today; it does not publish one. |
-| `internal/bluecollar` moving to its own repository | not done. The 131 files are still here. |
+| `bluecollar` moving to its own repository | not done. The 131 files are still here. |
 | Removal of the `internal/access` Go-side ACL pre-check | not done. See Known gaps in the boundary. |
 | A harness port narrow enough for an external harness | done. Down from nine methods to one, `RunTurn`. Turn routing (deciding whether an inbound message becomes a task at all) and launch-failure completion are host policy now and live in `internal/agentruntime`. |
 
 Publishing blockers, in order: remove the Go-side ACL pre-check so the
 POSIX-only claim is true; complete a secrets and history audit; get at least one
-external harness plugging in. Until a self-hoster without `internal/bluecollar`
+external harness plugging in. Until a self-hoster without `bluecollar`
 has a working loop, this repository is a host with a hole where the agent should
 be.
 
@@ -521,7 +521,7 @@ organization `github.com/blueclaw` is not ours either.
 
 No. That is the goal of the project and the reason the harness interface exists,
 but no adapter to an external harness is written. The only working loop today is
-the bundled `internal/bluecollar`.
+the bundled `bluecollar`.
 
 ### Is blueclaw an agent?
 
