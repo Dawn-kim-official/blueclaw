@@ -86,6 +86,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 		return agentcontract.AgentTurnResult{}, errors.New("cli harness refuses a turn with no requester, because tools execute as the requester")
 	}
 	identityKey := conversationIdentityKey(request)
+	request.ExistingTaskRunID = harness.taskRunForTurn(request)
 	harnessSession := harness.harnessSessionForTurn(request, identityKey)
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
 		RequesterPersonID: request.RequesterPersonID,
@@ -132,7 +133,30 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	return harness.turnResult(request, harness.completeTurn(identityKey, standardOutput.String())), nil
 }
 
+func (harness *Harness) taskRunForTurn(request agentcontract.AgentTurnRequest) string {
+	if existingTaskRunID := strings.TrimSpace(request.ExistingTaskRunID); existingTaskRunID != "" {
+		return existingTaskRunID
+	}
+	if harness.taskRunStore == nil {
+		return ""
+	}
+	taskRun := harness.taskRunStore.CreateTaskRunWithOrigin(request.RequesterPersonID, taskstate.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
+	return taskRun.TaskRunID
+}
+
+func (harness *Harness) recordCompletion(request agentcontract.AgentTurnRequest, finishMessage string) {
+	if harness.taskRunStore == nil || strings.TrimSpace(request.ExistingTaskRunID) == "" {
+		return
+	}
+	harness.taskRunStore.CompleteTaskRun(request.ExistingTaskRunID, finishMessage)
+}
+
 func (harness *Harness) turnResult(request agentcontract.AgentTurnRequest, finishMessage string) agentcontract.AgentTurnResult {
+	harness.recordCompletion(request, finishMessage)
 	taskRun := taskstate.TaskRun{Status: taskstate.TaskStatusCompleted}
 	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
 		if existingTaskRun, isFound := harness.taskRunStore.FindTaskRun(request.ExistingTaskRunID); isFound {

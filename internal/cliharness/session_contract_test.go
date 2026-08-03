@@ -1,12 +1,14 @@
 package cliharness
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
 
 func writeFakeCodexScript(t *testing.T) string {
@@ -77,5 +79,33 @@ func TestClaudeCodeHeadlessRunPreAllowsItsOwnMCPServer(t *testing.T) {
 
 	if !strings.Contains(output, "--allowedTools mcp__"+toolCatalogServerName) {
 		t.Fatalf("expected the headless claude code run to pre-allow mcp__%s tools, got %q", toolCatalogServerName, output)
+	}
+}
+
+func TestAFinishedTurnIsRecordedSoItCanBeSeenAndAudited(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness, _ := sessionTestHarness(t, AgentCommand{
+		Path:            "/bin/sh",
+		HarnessName:     "test",
+		PromptArguments: []string{"-c", "echo done"},
+	})
+	harness.taskRunStore = taskRunService
+
+	turnResult, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "회의록 만들어줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           emptyToolSet(t),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected the turn to run: %v", errorValue)
+	}
+	if turnResult.TaskRun.TaskRunID == "" {
+		t.Fatal("expected a finished turn to carry the run it was recorded as, because a turn with no run never appears in the task list and cannot be audited")
+	}
+	if len(taskRunService.ListTaskRun()) != 1 {
+		t.Fatalf("expected exactly one recorded run, got %d", len(taskRunService.ListTaskRun()))
 	}
 }
