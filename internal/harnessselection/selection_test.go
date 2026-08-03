@@ -80,3 +80,33 @@ func TestPublishedCatalogGrantsAndRevokesPerTurn(t *testing.T) {
 		t.Fatal("expected the token to stop resolving once the turn ended")
 	}
 }
+
+func TestClaudeCodeIsSelectableAndDeniesItsOwnBuiltinTools(t *testing.T) {
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName}, bundledFactory(), publishedCatalog()); errorValue == nil {
+		t.Fatal("expected claude-code with no executable path to be refused")
+	}
+	if _, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), ToolCatalogEndpoint{}); errorValue == nil {
+		t.Fatal("expected claude-code with no tool catalog to be refused")
+	}
+	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ClaudeCodeHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog())
+	if errorValue != nil {
+		t.Fatalf("expected a configured claude-code harness: %v", errorValue)
+	}
+	if harness, _ := selectedFactory(harnessdriver.Dependencies{}); harness == nil {
+		t.Fatal("expected the claude-code harness to be constructed")
+	}
+	for _, builtinToolName := range []string{"Bash", "Read", "Write", "Edit"} {
+		if !containsToolName(claudeCodeBuiltinToolNames, builtinToolName) {
+			t.Fatalf("expected %q to be denied so the agent cannot execute outside the sandbox", builtinToolName)
+		}
+	}
+}
+
+func containsToolName(toolNames []string, candidate string) bool {
+	for _, toolName := range toolNames {
+		if toolName == candidate {
+			return true
+		}
+	}
+	return false
+}
