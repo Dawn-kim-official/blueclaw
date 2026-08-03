@@ -21,6 +21,7 @@ type Person struct {
 
 type LanguageModelAccess struct {
 	LLMDUnixSocketPath string
+	LLMDAuthKeyPath    string
 	OpenRouterAPIKey   string
 }
 

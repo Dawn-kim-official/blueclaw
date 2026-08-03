@@ -61,6 +61,13 @@ func checkLanguageModel(access LanguageModelAccess) CheckResult {
 		if _, errorValue := os.Stat(socketPath); errorValue != nil {
 			return CheckResult{Name: CheckLanguageModel, Detail: errorValue.Error(), Guidance: "Start llmd, or leave the socket empty and use an OpenRouter key instead."}
 		}
+		authKeyPath := strings.TrimSpace(access.LLMDAuthKeyPath)
+		if authKeyPath == "" {
+			return CheckResult{Name: CheckLanguageModel, Guidance: "llmd only answers callers that present its auth key, so blueclaw needs the path to it."}
+		}
+		if _, errorValue := os.Stat(authKeyPath); errorValue != nil {
+			return CheckResult{Name: CheckLanguageModel, Detail: errorValue.Error(), Guidance: "Point this at the same auth key llmd was started with."}
+		}
 		return CheckResult{Name: CheckLanguageModel, IsReady: true, Detail: socketPath}
 	}
 	if strings.TrimSpace(access.OpenRouterAPIKey) != "" {

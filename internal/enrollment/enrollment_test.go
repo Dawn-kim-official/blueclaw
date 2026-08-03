@@ -248,3 +248,37 @@ func TestAColleagueDoesNotArriveAsAnAdministrator(t *testing.T) {
 		t.Fatalf("expected a colleague to arrive at the lowest level, got rank %v", rank)
 	}
 }
+
+func TestAnInstallCanActuallyRouteItsFirstRequest(t *testing.T) {
+	home := homeFixture(t)
+	enrolled, _ := NewLocalProvider(home, completeAnswers(home)).Enroll(context.Background())
+	if errorValue := Materialize(home, enrolled); errorValue != nil {
+		t.Fatalf("expected the enrolment to be written: %v", errorValue)
+	}
+
+	runtimeConfiguration, _ := config.LoadRuntimeConfiguration(home.RuntimeConfigurationPath())
+
+	if !runtimeConfiguration.Agent.Intake.Enabled {
+		t.Fatal("expected a fresh install to route requests, because with intake off every request fails with turn router disabled")
+	}
+}
+
+func TestEveryEnrolledPersonCarriesWhatTheRecordRequires(t *testing.T) {
+	home := homeFixture(t)
+	enrolled, _ := NewLocalProvider(home, completeAnswers(home)).Enroll(context.Background())
+	Materialize(home, enrolled)
+	RegisterPerson(home, Person{DisplayName: "김예시", Email: "seeun@example.com"})
+
+	policyBytes, _ := os.ReadFile(home.PolicyPath())
+	document := map[string]any{}
+	json.Unmarshal(policyBytes, &document)
+	people, _ := document["people"].([]any)
+
+	for _, entry := range people {
+		person, _ := entry.(map[string]any)
+		grantedClasses, _ := person["grantedClasses"].([]any)
+		if len(grantedClasses) == 0 {
+			t.Fatalf("expected every person to carry a granted class, because the record refuses one without it and the first request then fails on an unknown requester: %v", person)
+		}
+	}
+}

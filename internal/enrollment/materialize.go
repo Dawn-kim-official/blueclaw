@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
 
 func Materialize(home Home, enrollment Enrollment) error {
@@ -37,11 +39,12 @@ func runtimeConfigurationFor(home Home, enrollment Enrollment) config.RuntimeCon
 			MigrationDirectoryPath: filepath.Join(home.DirectoryPath, "migrations"),
 		},
 		Terminal: config.TerminalConfiguration{
-			Mode:              "native",
+			Mode:              terminalModeForPlatform(),
 			WorkspaceRootPath: enrollment.WorkspaceRootPath,
 			TimeoutSecond:     600,
 		},
 		Agent: config.AgentConfiguration{
+			Intake: config.AgentIntakeConfiguration{Enabled: true, ExecutionMode: "auto"},
 			Harness: config.HarnessConfiguration{
 				Name:             enrollment.Harness.Name,
 				AgentCommandPath: enrollment.Harness.AgentCommandPath,
@@ -58,9 +61,17 @@ func runtimeConfigurationFor(home Home, enrollment Enrollment) config.RuntimeCon
 	if socketPath := strings.TrimSpace(enrollment.LanguageModel.LLMDUnixSocketPath); socketPath != "" {
 		runtimeConfiguration.LanguageModel.DefaultProvider = "llmd"
 		runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = socketPath
+		runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = strings.TrimSpace(enrollment.LanguageModel.LLMDAuthKeyPath)
 		runtimeConfiguration.LanguageModel.LLMD.ExecutionMode = "auto"
 	}
 	return runtimeConfiguration
+}
+
+func terminalModeForPlatform() string {
+	if runtime.GOOS == "linux" {
+		return "native"
+	}
+	return security.TerminalModeSingleUser
 }
 
 func policyDocumentFor(enrollment Enrollment) map[string]any {
@@ -71,6 +82,7 @@ func policyDocumentFor(enrollment Enrollment) map[string]any {
 			"emails":            []string{enrollment.Operator.Email},
 			"securityLevelName": "admin",
 			"securityLevelRank": 100,
+			"grantedClasses":    []string{"internal"},
 			"circles":           []string{"staff"},
 			"isAdmin":           true,
 		}},

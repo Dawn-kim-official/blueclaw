@@ -36,6 +36,7 @@ func RegisterPerson(home Home, person Person) (bool, error) {
 		"emails":            []string{normalizedEmail},
 		"securityLevelName": "member",
 		"securityLevelRank": 10,
+		"grantedClasses":    []string{"internal"},
 		"circles":           []string{"staff"},
 	})
 	return true, writeJSONDocument(home.PolicyPath(), document)

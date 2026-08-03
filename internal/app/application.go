@@ -132,7 +132,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	logger.Info("application.initializing", "stage", "project_policy")
 	if database.SQL != nil {
-		_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
+		if errorValue := postgres.NewPersonRepository(database).UpsertPeople(policyDocument); errorValue != nil && startupError == nil {
+			startupError = fmt.Errorf("the people in %s could not be recorded, so every request would fail on an unknown requester: %w", policyPath, errorValue)
+		}
 	}
 	logger.Info("application.initializing", "stage", "identity")
 	policyProjectionService := policy.PolicyProjectionService{}
