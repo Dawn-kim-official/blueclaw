@@ -1,6 +1,8 @@
 package acpagent
 
 import (
+	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+
 	"crypto/rand"
 	"encoding/hex"
 	"strconv"
@@ -16,6 +18,7 @@ type session struct {
 	sessionID         acp.SessionId
 	workspaceRootPath string
 	taskRunID         string
+	clientToolSet     *toolcontract.ToolSet
 	toolCallCount     int
 	mutex             sync.Mutex
 }
