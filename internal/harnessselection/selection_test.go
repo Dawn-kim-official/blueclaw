@@ -34,8 +34,13 @@ func TestSelectFallsBackToTheBundledHarness(t *testing.T) {
 
 func TestSelectFailsLoudlyWhenNoHarnessIsAvailable(t *testing.T) {
 	_, errorValue := Select(config.HarnessConfiguration{}, nil, publishedCatalog(), SandboxProcessBoundary{})
-	if errorValue == nil || !strings.Contains(errorValue.Error(), ExternalHarnessName) {
-		t.Fatalf("expected a build with no bundled harness to say how to configure one, got %v", errorValue)
+	if errorValue == nil {
+		t.Fatal("expected a build with no bundled harness to refuse to start")
+	}
+	for _, attachableHarnessName := range []string{ClaudeCodeHarnessName, CodexHarnessName} {
+		if !strings.Contains(errorValue.Error(), attachableHarnessName) {
+			t.Fatalf("expected a build with no bundled harness to name %q as a harness to attach, got %v", attachableHarnessName, errorValue)
+		}
 	}
 }
 

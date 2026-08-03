@@ -85,12 +85,9 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	noticeAuthoringLanguageModel := authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(noticeAuthoringLanguageModel)
-	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
+	harness := harnesstest.New(taskRunService)
 
-	launchResult, errorValue := routedTaskLauncherAuthoringNoticesWith(agentKernel, taskRunService, NewToolCatalogBuilder(), failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")}, noticeAuthoringLanguageModel).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := routedTaskLauncherAuthoringNoticesWith(harness, taskRunService, NewToolCatalogBuilder(), failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")}, noticeAuthoringLanguageModel).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceAdmin,
 		RequesterPersonID: "person-1",
 		ConversationID:    "admin:person-1",

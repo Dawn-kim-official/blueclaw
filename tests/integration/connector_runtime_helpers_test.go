@@ -1,31 +1,17 @@
 package integration
 
 import (
-	"context"
-
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 )
-
-type integrationLanguageModel struct{}
-
-func (languageModel integrationLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "ok", nil
-}
-
-func (languageModel integrationLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	return llm.StructuredResponse{Content: `{"reply":"ok"}`}, nil
-}
 
 func newIntegrationConnectorRuntime(identityService *identity.IdentityService) *connectors.ConnectorRuntime {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(integrationLanguageModel{})
+	harness := harnesstest.New(taskRunService)
 
-	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+	connectorRuntime := connectors.NewConnectorRuntime(identityService, harness, taskRunService, nil)
 	return connectorRuntime
 }

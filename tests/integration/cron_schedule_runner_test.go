@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
@@ -18,9 +18,9 @@ import (
 func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	languageModel := staticScheduleLanguageModel{content: scheduleFinishMessage("Today's research surfaced three key changes.")}
-	useScheduleTestLanguageModel(agentKernel, languageModel)
+	harness := harnesstest.New(taskRunService)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "Today's research surfaced three key changes."}
+	languageModel := staticScheduleLanguageModel{}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
@@ -28,7 +28,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 9, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
 
-	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseTurnRouter(intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true}))
 	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
 	result, errorValue := agentruntime.NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), agentruntime.TaskScheduleRunRequest{
@@ -67,9 +67,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	}
 }
 
-type staticScheduleLanguageModel struct {
-	content string
-}
+type staticScheduleLanguageModel struct{}
 
 func (languageModel staticScheduleLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
@@ -79,19 +77,9 @@ func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(_ co
 	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
 		return llm.StructuredResponse{Content: scheduleTurnRouterResponse()}, nil
 	}
-	return llm.StructuredResponse{Content: languageModel.content}, nil
+	return llm.StructuredResponse{}, nil
 }
 
 func scheduleTurnRouterResponse() string {
 	return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scheduled run","userFacingReply":""}`
-}
-
-func useScheduleTestLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel staticScheduleLanguageModel) {
-	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
-}
-
-func scheduleFinishMessage(reply string) string {
-	return `{"action":"finish","message":"` + reply + `","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`
 }

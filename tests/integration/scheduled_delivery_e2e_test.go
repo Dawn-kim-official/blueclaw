@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
@@ -39,8 +39,8 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 		NextRunAt:        &nextRunAt,
 	}}}
 	adapter := &scheduledDeliveryAdapter{}
-	connectorRuntime := newScheduledDeliveryConnectorRuntime(staticScheduleLanguageModel{content: scheduleFinishMessage("Two things are worth handling first today.")}, adapter, repository)
-	poller := newScheduledDeliveryPoller(staticScheduleLanguageModel{content: scheduleFinishMessage("Two things are worth handling first today.")}, repository)
+	connectorRuntime := newScheduledDeliveryConnectorRuntime("Two things are worth handling first today.", adapter, repository)
+	poller := newScheduledDeliveryPoller("Two things are worth handling first today.", repository)
 
 	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
 	if errorValue != nil {
@@ -73,7 +73,7 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 	}
 }
 
-func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageModel, adapter *scheduledDeliveryAdapter, repository *scheduledDeliveryRepository) *connectors.ConnectorRuntime {
+func newScheduledDeliveryConnectorRuntime(finishMessage string, adapter *scheduledDeliveryAdapter, repository *scheduledDeliveryRepository) *connectors.ConnectorRuntime {
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"person@example.com": "person-1"},
 		PersonAccessByPersonID: map[string]policy.PersonAccess{
@@ -81,15 +81,16 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 		},
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	useScheduleTestLanguageModel(agentKernel, languageModel)
-	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+	harness := harnesstest.New(taskRunService)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: finishMessage}
+	languageModel := staticScheduleLanguageModel{}
+	connectorRuntime := connectors.NewConnectorRuntime(identityService, harness, taskRunService, nil)
 	turnRouter := intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true})
 	launchFailureCompleter := launchfailure.NewCompleter(taskRunService, languageModel)
 	connectorRuntime.UseTurnRouter(turnRouter)
 	connectorRuntime.UseLaunchFailureCompleter(launchFailureCompleter)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseTurnRouter(turnRouter)
 	taskLauncher.UseLaunchFailureCompleter(launchFailureCompleter)
 	connectorRuntime.UseTaskLauncher(taskLauncher)
@@ -98,15 +99,16 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 	return connectorRuntime
 }
 
-func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
+func newScheduledDeliveryPoller(finishMessage string, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	useScheduleTestLanguageModel(agentKernel, languageModel)
+	harness := harnesstest.New(taskRunService)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: finishMessage}
+	languageModel := staticScheduleLanguageModel{}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
 	}, nil)
-	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(harness, taskRunService, toolCatalogBuilder)
 	taskLauncher.UseTurnRouter(intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true}))
 	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
 	return scheduler.TaskSchedulePoller{

@@ -8,10 +8,18 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/app"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
+	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
+
+func standaloneBootHarnessFactory(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
+	taskRunService, _ := dependencies.TaskRunStore.(*taskstate.TaskRunService)
+	return harnesstest.New(taskRunService), nil
+}
 
 // Proves the claim the standalone quickstart makes: with a database and no
 // capability service at all, Blueclaw builds its runtime, applies its schema,
@@ -25,7 +33,7 @@ func TestStandaloneRuntimeIsHealthyWithoutACapabilityService(t *testing.T) {
 	}
 
 	runtimeConfiguration := loadStandaloneRuntimeConfiguration(t, connectionString)
-	application := app.NewApplication(runtimeConfiguration, "../../config/policy.example.json", bluecollarharness.New)
+	application := app.NewApplication(runtimeConfiguration, "../../config/policy.example.json", standaloneBootHarnessFactory)
 	healthDocument := map[string]any{}
 	responseRecorder := httptest.NewRecorder()
 	application.Handler().ServeHTTP(responseRecorder, httptest.NewRequest(http.MethodGet, "/admin/api/health", nil))
