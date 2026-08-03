@@ -15,6 +15,7 @@ const (
 	taskReplyDecisionSuppressCancelled  taskReplyDecisionKind = "suppress_cancelled"
 	taskReplyDecisionSuppressSuperseded taskReplyDecisionKind = "suppress_superseded"
 	taskReplyDecisionSuppressRequested  taskReplyDecisionKind = "suppress_requested"
+	taskReplyDecisionSuppressDelivered  taskReplyDecisionKind = "suppress_already_delivered"
 	taskReplyDecisionSendUserNotice     taskReplyDecisionKind = "send_user_notice"
 	taskReplyDecisionSendFinal          taskReplyDecisionKind = "send_final"
 )
@@ -24,7 +25,7 @@ type taskReplyDecision struct {
 	Reason string
 }
 
-func decideTaskReply(turnResult agentcontract.AgentTurnResult, isCancelledBeforeSend bool) taskReplyDecision {
+func decideTaskReply(turnResult agentcontract.AgentTurnResult, isCancelledBeforeSend bool, hasAgentDeliveredReply bool) taskReplyDecision {
 	if turnResult.TurnRoute == agentcontract.TurnRouteConsume {
 		return taskReplyDecision{Kind: taskReplyDecisionConsume}
 	}
@@ -42,6 +43,9 @@ func decideTaskReply(turnResult agentcontract.AgentTurnResult, isCancelledBefore
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		return taskReplyDecision{Kind: taskReplyDecisionSendUserNotice, Reason: "task_not_completed"}
 	}
+	if hasAgentDeliveredReply {
+		return taskReplyDecision{Kind: taskReplyDecisionSuppressDelivered, Reason: "agent_already_replied_to_this_conversation"}
+	}
 	return taskReplyDecision{Kind: taskReplyDecisionSendFinal}
 }
 
@@ -56,7 +60,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	taskRunID := turnResult.TaskRun.TaskRunID
-	decision := decideTaskReply(turnResult, connectorRuntime.taskRunWasCancelled(taskRunID))
+	decision := decideTaskReply(turnResult, connectorRuntime.taskRunWasCancelled(taskRunID), connectorRuntime.agentAlreadyReplied(taskRunID, event.ConversationID))
 	switch decision.Kind {
 	case taskReplyDecisionConsume:
 		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
@@ -71,6 +75,12 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 			return result, errorValue
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
+	case taskReplyDecisionSuppressDelivered:
+		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "reply.suppressed_duplicate", marshalConnectorEventBody(map[string]string{
+			"conversationID": event.ConversationID,
+			"reason":         decision.Reason,
+		}))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	case taskReplyDecisionSuppressCancelled:
 		connectorRuntime.taskRunService.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
@@ -125,4 +135,11 @@ func (connectorRuntime *ConnectorRuntime) sendCompletedTaskReply(
 	}
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", "messageID", event.MessageID, "taskRunID", taskRunID, "replyDispatchID", dispatchID)
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) agentAlreadyReplied(taskRunID string, conversationID string) bool {
+	if connectorRuntime.taskRunService == nil || strings.TrimSpace(taskRunID) == "" {
+		return false
+	}
+	return agentAlreadyRepliedToConversation(connectorRuntime.taskRunService.ListTaskEvent(taskRunID), conversationID)
 }
