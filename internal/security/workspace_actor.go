@@ -118,6 +118,12 @@ func (factory POSIXWorkspaceActorFactory) Requester(ctx context.Context, request
 	if strings.TrimSpace(identity.UserName) == "" {
 		return nil, WorkspaceActorError{Operation: "requester", Stage: "identity", Code: ActorErrorCodeIdentityMissing, Detail: ActorErrorCodeIdentityMissing}
 	}
+	if strings.TrimSpace(factory.terminalConfiguration.Mode) == TerminalModeSingleUser {
+		return SingleUserWorkspaceActor{
+			workspaceRootPath: request.WorkspaceRootPath,
+			timeoutSecond:     factory.terminalConfiguration.TimeoutSecond,
+		}, nil
+	}
 	if factory.terminalService == nil || strings.TrimSpace(factory.terminalConfiguration.POSIXHelperPath) == "" {
 		return nil, WorkspaceActorError{Operation: "requester", Stage: "factory", ActorUser: identity.UserName, Code: ActorErrorCodeRuntimeUnavailable, Detail: "posix helper is required for requester workspace side effects"}
 	}
