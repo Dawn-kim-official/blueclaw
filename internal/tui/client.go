@@ -64,6 +64,16 @@ type ApprovalResult struct {
 	Status    string `json:"status"`
 }
 
+type SubmittedTaskRun struct {
+	TaskRunID string `json:"taskRunID"`
+	Status    string `json:"status"`
+}
+
+type taskRunRequestBody struct {
+	RequesterPersonID string `json:"requesterPersonID"`
+	Prompt            string `json:"prompt"`
+}
+
 type approvalRequestBody struct {
 	TaskRunID string `json:"taskRunID"`
 	Decision  string `json:"decision"`
@@ -139,6 +149,38 @@ func (client *Client) SubmitApproval(ctx context.Context, taskRunID string, deci
 		return ApprovalResult{}, fmt.Errorf("decode approval response: %w", errorValue)
 	}
 	return approvalResult, nil
+}
+
+func (client *Client) SubmitTaskRun(ctx context.Context, requesterPersonID string, prompt string) (SubmittedTaskRun, error) {
+	requestBody, errorValue := json.Marshal(taskRunRequestBody{RequesterPersonID: requesterPersonID, Prompt: prompt})
+	if errorValue != nil {
+		return SubmittedTaskRun{}, fmt.Errorf("encode task request: %w", errorValue)
+	}
+	httpRequest, errorValue := http.NewRequestWithContext(ctx, http.MethodPost, client.baseURL+"/admin/api/task/run", bytes.NewReader(requestBody))
+	if errorValue != nil {
+		return SubmittedTaskRun{}, fmt.Errorf("build task request: %w", errorValue)
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+
+	httpResponse, errorValue := client.httpClient.Do(httpRequest)
+	if errorValue != nil {
+		return SubmittedTaskRun{}, ConnectionError{BaseURL: client.baseURL, Cause: errorValue}
+	}
+	defer httpResponse.Body.Close()
+
+	responseBody, errorValue := io.ReadAll(httpResponse.Body)
+	if errorValue != nil {
+		return SubmittedTaskRun{}, fmt.Errorf("read task response: %w", errorValue)
+	}
+	if httpResponse.StatusCode < 200 || httpResponse.StatusCode >= 300 {
+		return SubmittedTaskRun{}, ApplicationError{StatusCode: httpResponse.StatusCode, Message: applicationErrorMessage(responseBody)}
+	}
+
+	var submittedTaskRun SubmittedTaskRun
+	if errorValue := json.Unmarshal(responseBody, &submittedTaskRun); errorValue != nil {
+		return SubmittedTaskRun{}, fmt.Errorf("decode task response: %w", errorValue)
+	}
+	return submittedTaskRun, nil
 }
 
 func (client *Client) getJSON(ctx context.Context, requestURL string, destination any) error {

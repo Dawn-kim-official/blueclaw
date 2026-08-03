@@ -20,22 +20,28 @@ func (setupModel SetupModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return setupModel, tea.Quit
 	case "up":
 		setupModel.cursor = clampInt(setupModel.cursor-1, 0, len(setupFieldOrder)-1)
+		(&setupModel).focusSelectedField()
+		return setupModel, nil
 	case "down", "tab":
 		setupModel.cursor = clampInt(setupModel.cursor+1, 0, len(setupFieldOrder)-1)
-	case "left", "right", " ":
-		(&setupModel).cycleSelectedChoice()
-	case "backspace":
-		(&setupModel).deleteFromSelectedField()
+		(&setupModel).focusSelectedField()
+		return setupModel, nil
 	case "enter":
 		if errorValue := (&setupModel).Finish(); errorValue == nil {
 			return setupModel, tea.Quit
 		}
-	default:
-		if text := keyPressMessage.String(); len(text) == 1 {
-			(&setupModel).appendToSelectedField(text)
-		}
+		return setupModel, nil
 	}
-	return setupModel, nil
+	selectedField := setupFieldOrder[setupModel.cursor]
+	if !isTextField(selectedField) {
+		if keyName := keyPressMessage.String(); keyName == "left" || keyName == "right" {
+			(&setupModel).cycleSelectedChoice()
+		}
+		return setupModel, nil
+	}
+	updatedInput, inputCommand := setupModel.textInputs[selectedField].Update(keyPressMessage)
+	setupModel.textInputs[selectedField] = updatedInput
+	return setupModel, inputCommand
 }
 
 func (setupModel SetupModel) View() tea.View {
@@ -51,9 +57,12 @@ func (setupModel SetupModel) View() tea.View {
 		if value == "" {
 			value = styleMuted.Render("(empty)")
 		}
+		if isTextField(fieldID) && fieldIndex == setupModel.cursor {
+			value = setupModel.textInputs[fieldID].View()
+		}
 		line := "  " + padFieldLabel(label) + value
 		if fieldIndex == setupModel.cursor {
-			line = styleSelected.Render("> " + padFieldLabel(label) + setupModel.fieldValue(fieldID))
+			line = styleSelected.Render("> "+padFieldLabel(label)) + value
 		}
 		lines = append(lines, line)
 	}
@@ -62,7 +71,7 @@ func (setupModel SetupModel) View() tea.View {
 	if setupModel.failureNotice != "" {
 		lines = append(lines, styleError.Render(setupModel.failureNotice), "")
 	}
-	lines = append(lines, styleFooter.Render("up/down move · type to edit · space changes a choice · enter checks and finishes · ctrl+c quits"))
+	lines = append(lines, styleFooter.Render("up/down move · type to edit · left/right changes a choice · enter checks and finishes · ctrl+c quits"))
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	return view

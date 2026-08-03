@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -41,11 +42,11 @@ func keyPressForName(keyName string) tea.KeyPressMsg {
 
 func TestSetupWillNotFinishAnInstallThatCannotStart(t *testing.T) {
 	setupModel := setupModelFixture(t)
-	setupModel.answers.LanguageModel.OpenRouterAPIKey = "test-key"
+	setupModel.setTextField(setupFieldOpenRouterAPIKey, "test-key")
 	setupModel.answers.DatabaseConnectionString = "postgres://nobody@127.0.0.1:1/blueclaw?sslmode=disable&connect_timeout=1"
 
 	if errorValue := (&setupModel).Finish(); errorValue == nil {
-		t.Fatal("expected setup to refuse while a dependency is unreachable, because the alternative is an install that only looks finished")
+		t.Fatalf("expected setup to refuse while a dependency is unreachable, because the alternative is an install that only looks finished; checks were %+v", setupModel.CheckResults())
 	}
 	if setupModel.home.IsEnrolled() {
 		t.Fatal("expected nothing to be written when the checks did not pass")
@@ -66,7 +67,7 @@ func hasFailedCheck(setupModel SetupModel, checkName enrollment.CheckName) bool 
 
 func TestSetupNamesEveryDependencyItCouldNotReach(t *testing.T) {
 	setupModel := setupModelFixture(t)
-	setupModel.answers.LanguageModel = enrollment.LanguageModelAccess{}
+	setupModel.setTextField(setupFieldOpenRouterAPIKey, "")
 	setupModel.answers.Harness = enrollment.HarnessChoice{Name: "claude-code", AgentCommandPath: "/nonexistent/claude"}
 
 	(&setupModel).RunPreflight()
@@ -81,7 +82,7 @@ func TestSetupNamesEveryDependencyItCouldNotReach(t *testing.T) {
 
 func TestSetupRefusesToFinishWithNoWayToReachAModel(t *testing.T) {
 	setupModel := setupModelFixture(t)
-	setupModel.answers.LanguageModel = enrollment.LanguageModelAccess{}
+	setupModel.setTextField(setupFieldOpenRouterAPIKey, "")
 
 	if errorValue := (&setupModel).Finish(); errorValue == nil {
 		t.Fatal("expected setup to refuse, because an install that cannot reach a model fails at the first turn instead")
@@ -96,26 +97,38 @@ func TestSetupRefusesToFinishWithNoWayToReachAModel(t *testing.T) {
 
 func TestTypingEditsTheSelectedFieldOnly(t *testing.T) {
 	setupModel := setupModelFixture(t)
-	setupModel.answers.DisplayName = ""
-	originalEmail := setupModel.answers.Email
+	setupModel.setTextField(setupFieldDisplayName, "")
+	originalEmail := setupModel.textInputs[setupFieldEmail].Value()
 
 	setupModel = typeText(setupModel, "lee")
 
-	if setupModel.answers.DisplayName != "lee" {
-		t.Fatalf("expected typing to edit the selected field, got %q", setupModel.answers.DisplayName)
+	if setupModel.textInputs[setupFieldDisplayName].Value() != "lee" {
+		t.Fatalf("expected typing to edit the selected field, got %q", setupModel.textInputs[setupFieldDisplayName].Value())
 	}
-	if setupModel.answers.Email != originalEmail {
-		t.Fatalf("expected other fields to be left alone, got %q", setupModel.answers.Email)
+	if setupModel.textInputs[setupFieldEmail].Value() != originalEmail {
+		t.Fatalf("expected other fields to be left alone, got %q", setupModel.textInputs[setupFieldEmail].Value())
+	}
+}
+
+func TestTheSetupScreenShowsEveryQuestionItWillAsk(t *testing.T) {
+	setupModel := setupModelFixture(t)
+
+	renderedScreen := setupModel.View().Content
+
+	for _, expectedLabel := range []string{"blueclaw setup", "Your name", "Workspace", "Postgres", "Harness", "Mode"} {
+		if !strings.Contains(renderedScreen, expectedLabel) {
+			t.Fatalf("expected the setup screen to show %q, got:\n%s", expectedLabel, renderedScreen)
+		}
 	}
 }
 
 func TestTheKeyIsNeverShownBackInFull(t *testing.T) {
 	setupModel := setupModelFixture(t)
-	setupModel.answers.LanguageModel.OpenRouterAPIKey = "sk-or-v1-secret-value"
+	setupModel.setTextField(setupFieldOpenRouterAPIKey, "sk-or-v1-secret-value")
 
 	shownValue := setupModel.fieldValue(setupFieldOpenRouterAPIKey)
 
-	if shownValue == setupModel.answers.LanguageModel.OpenRouterAPIKey {
+	if shownValue == "sk-or-v1-secret-value" {
 		t.Fatal("expected the key to be masked on screen, because setup runs where people can see the terminal")
 	}
 	if shownValue == "" {

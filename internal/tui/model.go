@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -49,6 +50,11 @@ type Model struct {
 	approvalSubmittingID string
 
 	harnessInfo HarnessInfo
+
+	composedPrompt    string
+	isComposing       bool
+	composeNotice     string
+	requesterPersonID string
 }
 
 func NewModel(client *Client, runtimeConfigPath string) Model {
@@ -62,6 +68,11 @@ func NewModel(client *Client, runtimeConfigPath string) Model {
 		approvalStatusByID: map[string]string{},
 		harnessInfo:        LoadHarnessInfo(runtimeConfigPath),
 	}
+}
+
+func (model Model) UseRequester(requesterPersonID string) Model {
+	model.requesterPersonID = requesterPersonID
+	return model
 }
 
 func (model Model) Init() tea.Cmd {
@@ -88,6 +99,11 @@ type approvalDetailLoadedMsg struct {
 type approvalSubmittedMsg struct {
 	taskRunID string
 	result    ApprovalResult
+	err       error
+}
+
+type taskSubmittedMsg struct {
+	submitted SubmittedTaskRun
 	err       error
 }
 
@@ -118,6 +134,13 @@ func submitApprovalCmd(client *Client, taskRunID string, decision string) tea.Cm
 	return func() tea.Msg {
 		result, errorValue := client.SubmitApproval(context.Background(), taskRunID, decision)
 		return approvalSubmittedMsg{taskRunID: taskRunID, result: result, err: errorValue}
+	}
+}
+
+func submitTaskRunCmd(client *Client, requesterPersonID string, prompt string) tea.Cmd {
+	return func() tea.Msg {
+		submitted, errorValue := client.SubmitTaskRun(context.Background(), requesterPersonID, prompt)
+		return taskSubmittedMsg{submitted: submitted, err: errorValue}
 	}
 }
 
@@ -171,6 +194,16 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		model.approvalDetailByID[typedMsg.taskRunID] = typedMsg.detail
 		return model, nil
 
+	case taskSubmittedMsg:
+		model.isComposing = false
+		if typedMsg.err != nil {
+			model.composeNotice = "could not start that: " + typedMsg.err.Error()
+			return model, nil
+		}
+		model.composedPrompt = ""
+		model.composeNotice = "started " + typedMsg.submitted.TaskRunID
+		return model, fetchTaskRunsCmd(model.client)
+
 	case approvalSubmittedMsg:
 		model.approvalSubmittingID = ""
 		if typedMsg.err != nil {
@@ -185,7 +218,16 @@ func (model Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model *Model) handleKeyPress(keyPressMsg tea.KeyPressMsg) tea.Cmd {
+	if model.isComposing {
+		return model.handleComposeKeyPress(keyPressMsg)
+	}
 	switch keyPressMsg.String() {
+	case "n":
+		if model.screen == screenTasks {
+			model.isComposing = true
+			model.composeNotice = ""
+			return nil
+		}
 	case "ctrl+c", "q":
 		return tea.Quit
 	case "1":
@@ -233,6 +275,30 @@ func (model *Model) handleKeyPress(keyPressMsg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	return nil
+}
+
+func (model *Model) handleComposeKeyPress(keyPressMsg tea.KeyPressMsg) tea.Cmd {
+	switch keyPressMsg.String() {
+	case "esc", "ctrl+c":
+		model.isComposing = false
+		return nil
+	case "enter":
+		prompt := strings.TrimSpace(model.composedPrompt)
+		if prompt == "" {
+			model.isComposing = false
+			return nil
+		}
+		return submitTaskRunCmd(model.client, model.requesterPersonID, prompt)
+	case "backspace":
+		if model.composedPrompt != "" {
+			model.composedPrompt = model.composedPrompt[:len(model.composedPrompt)-1]
+		}
+		return nil
+	}
+	if text, isText := typedText(keyPressMsg); isText {
+		model.composedPrompt += text
+	}
 	return nil
 }
 
@@ -343,6 +409,11 @@ func maximumInt(leftValue int, rightValue int) int {
 
 type harnessStatusMessage struct {
 	harnessInfo HarnessInfo
+
+	composedPrompt    string
+	isComposing       bool
+	composeNotice     string
+	requesterPersonID string
 }
 
 func (model Model) refreshHarnessCmd() tea.Cmd {

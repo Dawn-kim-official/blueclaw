@@ -47,6 +47,9 @@ func (model Model) renderTabBar() string {
 }
 
 func (model Model) renderScreenBody() string {
+	if model.isComposing {
+		return model.renderComposeScreen()
+	}
 	switch model.screen {
 	case screenTasks:
 		return model.renderTasksScreen()
@@ -61,14 +64,31 @@ func (model Model) renderScreenBody() string {
 	}
 }
 
+func (model Model) renderComposeScreen() string {
+	lines := []string{
+		styleSectionTitle.Render("New request"),
+		"",
+		"  " + model.composedPrompt + styleSelected.Render(" "),
+		"",
+		styleMuted.Render("  The harness picks this up as a task. enter starts it, esc goes back."),
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (model Model) renderFooter() string {
+	if model.isComposing {
+		return styleFooter.Render("type your request · enter starts it · esc cancels")
+	}
 	connectionNotice := ""
 	if model.taskRunsError != nil {
 		connectionNotice = styleError.Render("connection: " + model.taskRunsError.Error())
 	}
-	helpText := styleFooter.Render("1-4 screens · tab/shift+tab cycle · up/down select · enter open · r refresh · q quit")
+	helpText := styleFooter.Render("1-4 screens · n new request · tab cycles · up/down select · enter open · r refresh · q quit")
 	if model.screen == screenApprovals {
 		helpText = styleFooter.Render("1-4 screens · up/down select · y confirm · a confirm task · n cancel · r refresh · q quit")
+	}
+	if model.composeNotice != "" {
+		helpText = styleMuted.Render(model.composeNotice) + "\n" + helpText
 	}
 	if connectionNotice != "" {
 		return connectionNotice + "\n" + helpText
