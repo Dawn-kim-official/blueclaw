@@ -39,15 +39,43 @@ func keyPressForName(keyName string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: tea.KeySpace}
 }
 
-func TestSetupWritesAConfigurationTheRuntimeCanStartFrom(t *testing.T) {
+func TestSetupWillNotFinishAnInstallThatCannotStart(t *testing.T) {
 	setupModel := setupModelFixture(t)
 	setupModel.answers.LanguageModel.OpenRouterAPIKey = "test-key"
+	setupModel.answers.DatabaseConnectionString = "postgres://nobody@127.0.0.1:1/blueclaw?sslmode=disable&connect_timeout=1"
 
-	if errorValue := (&setupModel).Finish(); errorValue != nil {
-		t.Fatalf("expected setup to finish from its own suggestions: %v", errorValue)
+	if errorValue := (&setupModel).Finish(); errorValue == nil {
+		t.Fatal("expected setup to refuse while a dependency is unreachable, because the alternative is an install that only looks finished")
 	}
-	if !setupModel.home.IsEnrolled() {
-		t.Fatal("expected setup to leave the install ready to start")
+	if setupModel.home.IsEnrolled() {
+		t.Fatal("expected nothing to be written when the checks did not pass")
+	}
+	if !hasFailedCheck(setupModel, enrollment.CheckDatabase) {
+		t.Fatalf("expected the unreachable database to be named, got %+v", setupModel.CheckResults())
+	}
+}
+
+func hasFailedCheck(setupModel SetupModel, checkName enrollment.CheckName) bool {
+	for _, checkResult := range setupModel.CheckResults() {
+		if checkResult.Name == checkName && !checkResult.IsReady {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSetupNamesEveryDependencyItCouldNotReach(t *testing.T) {
+	setupModel := setupModelFixture(t)
+	setupModel.answers.LanguageModel = enrollment.LanguageModelAccess{}
+	setupModel.answers.Harness = enrollment.HarnessChoice{Name: "claude-code", AgentCommandPath: "/nonexistent/claude"}
+
+	(&setupModel).RunPreflight()
+
+	if !hasFailedCheck(setupModel, enrollment.CheckLanguageModel) {
+		t.Fatal("expected a missing model path to be reported")
+	}
+	if !hasFailedCheck(setupModel, enrollment.CheckHarness) {
+		t.Fatal("expected a harness command that is not installed to be reported")
 	}
 }
 

@@ -1,0 +1,97 @@
+package enrollment
+
+import (
+	"context"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
+)
+
+type CheckName string
+
+const (
+	CheckDatabase      CheckName = "postgres"
+	CheckLanguageModel CheckName = "language model"
+	CheckHarness       CheckName = "harness"
+	CheckWorkspace     CheckName = "workspace"
+)
+
+type CheckResult struct {
+	Name     CheckName
+	IsReady  bool
+	Detail   string
+	Guidance string
+}
+
+const databaseCheckTimeout = 5 * time.Second
+
+func Preflight(ctx context.Context, answers Answers) []CheckResult {
+	return []CheckResult{
+		checkDatabase(ctx, answers.DatabaseConnectionString),
+		checkLanguageModel(answers.LanguageModel),
+		checkHarness(answers.Harness),
+		checkWorkspace(answers.WorkspaceRootPath),
+	}
+}
+
+func checkDatabase(ctx context.Context, connectionString string) CheckResult {
+	if strings.TrimSpace(connectionString) == "" {
+		return CheckResult{Name: CheckDatabase, Guidance: "blueclaw keeps every task, event and memory in Postgres, so it needs a connection string."}
+	}
+	connectContext, cancel := context.WithTimeout(ctx, databaseCheckTimeout)
+	defer cancel()
+	database, errorValue := postgres.OpenDatabase(connectContext, connectionString)
+	if errorValue != nil {
+		return CheckResult{Name: CheckDatabase, Detail: errorValue.Error(), Guidance: "Start a Postgres and create a database blueclaw can reach, then correct this line."}
+	}
+	database.Close()
+	return CheckResult{Name: CheckDatabase, IsReady: true}
+}
+
+func checkLanguageModel(access LanguageModelAccess) CheckResult {
+	if socketPath := strings.TrimSpace(access.LLMDUnixSocketPath); socketPath != "" {
+		if _, errorValue := os.Stat(socketPath); errorValue != nil {
+			return CheckResult{Name: CheckLanguageModel, Detail: errorValue.Error(), Guidance: "Start llmd, or leave the socket empty and use an OpenRouter key instead."}
+		}
+		return CheckResult{Name: CheckLanguageModel, IsReady: true, Detail: socketPath}
+	}
+	if strings.TrimSpace(access.OpenRouterAPIKey) != "" {
+		return CheckResult{Name: CheckLanguageModel, IsReady: true, Detail: "OpenRouter"}
+	}
+	return CheckResult{Name: CheckLanguageModel, Guidance: "Give blueclaw an OpenRouter key, or point it at a running llmd socket."}
+}
+
+func checkHarness(harness HarnessChoice) CheckResult {
+	if strings.TrimSpace(harness.Name) == "" || harness.Name == "bluecollar" {
+		return CheckResult{Name: CheckHarness, IsReady: true, Detail: "bluecollar (built in)"}
+	}
+	commandPath := strings.TrimSpace(harness.AgentCommandPath)
+	if commandPath == "" {
+		return CheckResult{Name: CheckHarness, Guidance: "This harness runs a command, so blueclaw needs its path."}
+	}
+	if _, errorValue := os.Stat(commandPath); errorValue != nil {
+		return CheckResult{Name: CheckHarness, Detail: errorValue.Error(), Guidance: "Install that agent, or choose the built-in bluecollar harness."}
+	}
+	return CheckResult{Name: CheckHarness, IsReady: true, Detail: commandPath}
+}
+
+func checkWorkspace(workspaceRootPath string) CheckResult {
+	if strings.TrimSpace(workspaceRootPath) == "" {
+		return CheckResult{Name: CheckWorkspace, Guidance: "The agent's work has to live somewhere."}
+	}
+	if errorValue := os.MkdirAll(workspaceRootPath, 0o755); errorValue != nil {
+		return CheckResult{Name: CheckWorkspace, Detail: errorValue.Error(), Guidance: "Choose a directory this account may write to."}
+	}
+	return CheckResult{Name: CheckWorkspace, IsReady: true, Detail: workspaceRootPath}
+}
+
+func IsReadyToStart(checkResults []CheckResult) bool {
+	for _, checkResult := range checkResults {
+		if !checkResult.IsReady {
+			return false
+		}
+	}
+	return true
+}

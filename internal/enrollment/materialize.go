@@ -19,6 +19,9 @@ func Materialize(home Home, enrollment Enrollment) error {
 	if errorValue := os.MkdirAll(enrollment.WorkspaceRootPath, 0o755); errorValue != nil {
 		return errorValue
 	}
+	if errorValue := writeMigrations(filepath.Join(home.DirectoryPath, "migrations")); errorValue != nil {
+		return errorValue
+	}
 	if errorValue := writeJSONDocument(home.RuntimeConfigurationPath(), runtimeConfigurationFor(home, enrollment)); errorValue != nil {
 		return errorValue
 	}
