@@ -16,9 +16,11 @@ const toolCatalogServerName = "blueclaw-tool-catalog"
 
 type RequesterToolSet struct {
 	RequesterPersonID string
+	TaskRunID         string
 	ToolSet           *toolcontract.ToolSet
 	ApprovalGate      ApprovalGate
 	HarnessSession    HarnessSession
+	ToolAudience      ToolAudience
 }
 
 func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*mcp.Server, error) {
@@ -30,6 +32,9 @@ func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*m
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: toolCatalogServerName, Version: version}, nil)
 	for _, toolDescriptor := range requesterToolSet.ToolSet.ListDescribedToolDefinitions() {
+		if !isPublishedToAudience(toolDescriptor, requesterToolSet.ToolAudience) {
+			continue
+		}
 		tool, isServable := servableTool(toolDescriptor)
 		if !isServable {
 			continue
