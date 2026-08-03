@@ -16,18 +16,21 @@ function names beside them are the durable reference.
 | Harness | the agent loop: route a turn, run it, answer, classify | `internal/bluecollar` |
 | Contract | the types both compile against, and the harness port | `agentcontract/`, `toolcontract/`, `taskstate/` |
 
-The port is `agentcontract.Harness` (`agentcontract/harness.go:5`):
+The port is `agentcontract.Harness` (`agentcontract/harness.go:5`), a single
+method:
 
 | Method | Called from |
 |---|---|
-| `RunTurn` | `internal/agentruntime/task_launcher.go` (`runTurnLaunchStep.Run:351`) |
-| `RouteTurn` | `internal/connectors/runtime.go:1245`, `:1287`, `:1325`; `internal/connectors/busy_message.go:31` |
-| `RunAgentRequest` | `internal/bluecollar/agent_kernel.go:200`; `RunTurn` delegates to it (`:115`) |
-| `CompleteLaunchFailure` | `internal/agentruntime/task_launcher.go` failure paths |
-| `GenerateReply`, `GenerateReplyWithContext` | connector reply paths |
-| `ClassifyAddressing` | `internal/connectors/inbound_engagement.go:33` |
-| `ClassifyActiveTaskFollowUp` | `internal/connectors/busy_message.go:278`, `internal/connectors/task_control.go:174` |
-| `RefreshSkillIndex` | `internal/app/application.go:195` |
+| `RunTurn` | `internal/agentruntime/task_launcher.go` (`runTurnLaunchStep.Run`) |
+
+Turn routing, which used to be a harness method (`RouteTurn`), is now host
+policy: `ConnectorRuntime.planTurn` (`internal/connectors/runtime.go`) and
+`TaskLauncher.routedTurnDecision` (`internal/agentruntime/task_launcher.go`)
+both drive an `intake.TurnRouter` directly instead of asking the harness to
+route. Addressing and active-task-follow-up classification moved the same
+way, behind the host's own `IntakeClassifier` port
+(`internal/connectors/runtime.go`), implemented by `intake.NewClassifier`
+(wired in `internal/app/application.go`).
 
 Everything else the host needs from a task — events, cancellation, run lookup,
 completion — it takes from `taskstate.TaskRunService` directly. Those methods
@@ -215,14 +218,15 @@ An inbound message becomes at most one task run. The path, end to end:
 1. **Ingress.** `ConnectorRuntime.HandleInboundEvent`
    (`internal/connectors/runtime.go:598`) persists the raw event, resolves the
    sender to a policy person, and refuses uninvited accounts.
-2. **Addressing.** For channel messages the runtime asks the harness whether the
-   bot was addressed at all — `ClassifyAddressing`
-   (`internal/connectors/inbound_engagement.go:33` →
-   `internal/bluecollar/addressing_classifier.go:53`). The decision is a
-   four-outcome choice: ignore, react only, reply, or react and reply.
-3. **Busy routing.** If the person already has an active task, `RouteTurn`
-   (`internal/connectors/busy_message.go:31`) and
-   `ClassifyActiveTaskFollowUp` (`:278`) decide between steering the running
+2. **Addressing.** For channel messages the runtime asks its `IntakeClassifier`
+   whether the bot was addressed at all — `ClassifyAddressing`
+   (`internal/connectors/inbound_engagement.go`, implemented by
+   `intake.NewClassifier`). The decision is a four-outcome choice: ignore,
+   react only, reply, or react and reply.
+3. **Busy routing.** If the person already has an active task,
+   `ConnectorRuntime.planTurn` (`internal/connectors/runtime.go`) and
+   `ClassifyActiveTaskFollowUp` (`internal/connectors/busy_message.go`,
+   `internal/connectors/task_control.go`) decide between steering the running
    task, replacing it, answering status, or starting a second one.
    `BusyRoute*` constants are in `agentcontract/turn_decision.go`.
 4. **Launch.** `TaskLauncher.Launch`

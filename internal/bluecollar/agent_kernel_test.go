@@ -614,77 +614,6 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPersistsTurnRouterLLMCall(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
-		decision: TurnDecision{
-			Route:            TurnRouteStartTask,
-			Classification:   IntakeClassificationQuickReply,
-			TaskShape:        TaskShapeImmediateReply,
-			TaskLevel:        TaskLevelXLow,
-			EstimatedMinutes: 1,
-			ResponseLanguage: "ko",
-			Reason:           "direct answer",
-		},
-		response: model.StructuredResponse{
-			ProviderName: "llmd",
-			ModelName:    "router-model",
-			ModelTier:    "xlow",
-			Usage: model.Usage{
-				PromptTokens:     11,
-				CompletionTokens: 7,
-				TotalTokens:      18,
-			},
-		},
-	})
-	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}})
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("오늘 무슨 요일이야?")))
-	if errorValue != nil {
-		t.Fatalf("expected bounded run to complete: %v", errorValue)
-	}
-	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
-	if len(records) != 1 {
-		t.Fatalf("expected one persisted router call, got %+v", records)
-	}
-	if records[0].Provider != "llmd" || records[0].Model != "router-model" || records[0].ModelTier != "xlow" || records[0].UsedFallback {
-		t.Fatalf("expected LLMD router metadata without fallback, got %+v", records[0])
-	}
-	if records[0].PromptTokens != 11 || records[0].CompletionTokens != 7 || records[0].TotalTokens != 18 {
-		t.Fatalf("expected router token metadata, got %+v", records[0])
-	}
-}
-
-func TestAgentKernelPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseIntakeLanguageModelProvider(&routerLedgerLanguageModel{
-		response: model.StructuredResponse{
-			ProviderName: "llmd",
-			ModelName:    "router-model",
-		},
-		errorValue: errors.New("router unavailable"),
-	})
-	agentKernel.UseLanguageModelProvider(&recoveryChatNoticeProvider{chatReply: "요청을 분류하지 못해 이번 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, kernelTestRequest("오늘 무슨 요일이야?")))
-	if errorValue != nil {
-		t.Fatalf("expected persisted router failure result: %v", errorValue)
-	}
-	if result.TaskRun.Status != taskstate.TaskStatusFailed || result.FailureNotice.Source != "generated" {
-		t.Fatalf("expected LLM-authored failed task, got %+v", result)
-	}
-	if !strings.Contains(result.FailureNotice.SendableMessage(), "분류하지 못해") {
-		t.Fatalf("expected authored failure notice, got %+v", result.FailureNotice)
-	}
-	records := persistedTurnRouterCallRecords(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID))
-	if len(records) != 1 || !records[0].IsError || !strings.Contains(records[0].Error, "router unavailable") {
-		t.Fatalf("expected persisted router error call, got %+v", records)
-	}
-	if taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "") {
-		t.Fatal("router failure must not invent an intake decision")
-	}
-}
-
 func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	siteToolSet := newTestToolSetWithDefinitions([]toolcontract.ToolDefinition{{
@@ -728,37 +657,6 @@ func TestHumanEstimateDoesNotShrinkTaskWorkDuration(t *testing.T) {
 
 	if shortEstimate.MaxElapsedSecond != expectedSeconds || longEstimate.MaxElapsedSecond != expectedSeconds {
 		t.Fatalf("expected low work duration %d regardless of human estimate, got short=%d long=%d", expectedSeconds, shortEstimate.MaxElapsedSecond, longEstimate.MaxElapsedSecond)
-	}
-}
-
-func TestAgentKernelRouterDeadlinePersistsOneBlockedTask(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
-	agentKernel.UseTurnOptions(TurnOptions{MaxElapsedSecond: 1})
-	agentKernel.UseIntakeLanguageModelProvider(deadlineBlockingRouterLanguageModel{})
-	request := kernelTestRequest("고객지원 업무를 정리해줘")
-	request.TurnStartedAt = time.Now().Add(-2 * time.Second)
-
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), routedRequest(t, context.Background(), agentKernel, request))
-
-	if errorValue != nil {
-		t.Fatalf("expected persisted max elapsed result: %v", errorValue)
-	}
-	taskRuns := taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
-	if len(taskRuns) != 1 || result.TaskRun.TaskRunID != taskRuns[0].TaskRunID {
-		t.Fatalf("expected exactly one persisted task, got %+v", taskRuns)
-	}
-	if result.TaskRun.Status != taskstate.TaskStatusBlocked || result.TaskRun.FailureReason != "max_elapsed" {
-		t.Fatalf("expected blocked max elapsed task, got %+v", result.TaskRun)
-	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.limit_stop", `"phase":"intake"`) {
-		t.Fatal("expected observable intake max elapsed event")
-	}
-	if taskEventNameCount(taskEvents, "agent.limit_stop") != 1 || taskEventNameCount(taskEvents, "agent.goal.blocked") != 1 {
-		t.Fatalf("expected one limit and goal event, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "agent.intake", "") {
-		t.Fatal("router deadline must not invent an intake decision")
 	}
 }
 

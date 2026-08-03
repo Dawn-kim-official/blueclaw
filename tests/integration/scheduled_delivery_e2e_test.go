@@ -9,10 +9,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/scheduler"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
@@ -81,6 +84,15 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
+	turnRouter := intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true})
+	launchFailureCompleter := launchfailure.NewCompleter(taskRunService, languageModel)
+	connectorRuntime.UseTurnRouter(turnRouter)
+	connectorRuntime.UseLaunchFailureCompleter(launchFailureCompleter)
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseTurnRouter(turnRouter)
+	taskLauncher.UseLaunchFailureCompleter(launchFailureCompleter)
+	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.RegisterAdapter(adapter)
 	connectorRuntime.UseEventRepository(repository)
 	return connectorRuntime
@@ -94,10 +106,13 @@ func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repos
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
 	}, nil)
+	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher.UseTurnRouter(intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true}))
+	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
 	return scheduler.TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     repository,
-		TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)),
+		TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(taskLauncher),
 		PersonAccessResolver:   scheduledDeliveryAccessResolver{},
 		WorkspaceID:            "workspace-1",
 		WorkerID:               "test-worker",

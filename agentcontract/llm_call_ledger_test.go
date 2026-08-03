@@ -1,4 +1,4 @@
-package bluecollar
+package agentcontract
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 )
 
 func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(staticReplyProvider{content: `{"reply":"ok"}`}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(staticReplyProvider{content: `{"reply":"ok"}`}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 
@@ -36,21 +36,21 @@ func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
 }
 
 func TestTurnRouterCallLedgerPreservesMissingModelTier(t *testing.T) {
-	ledger := &turnRouterCallLedger{}
-	ledger.observe(llmCallRecord{SchemaName: turnRouterSchemaName})
+	ledger := &TurnRouterCallLedger{}
+	ledger.Observe(LLMCallRecord{SchemaName: TurnRouterSchemaName})
 
-	if len(ledger.records) != 1 || ledger.records[0].IsError || ledger.records[0].ModelTier != "" {
-		t.Fatalf("expected missing router tier to remain observational, got %+v", ledger.records)
+	if len(ledger.Records) != 1 || ledger.Records[0].IsError || ledger.Records[0].ModelTier != "" {
+		t.Fatalf("expected missing router tier to remain observational, got %+v", ledger.Records)
 	}
 }
 
 func TestObserveLanguageModelRecordsSafeStructuredDiagnosticsAndRequestSizes(t *testing.T) {
-	records := []llmCallRecord{}
+	records := []LLMCallRecord{}
 	failingProvider := diagnosticFailingProvider{errorValue: structuredOutputDiagnosticError{
 		message:    "PRIVATE_GENERATED_CONTENT",
 		diagnostic: model.StructuredOutputDiagnostic{Category: model.StructuredOutputDiagnosticFinishReason, FinishReason: model.StructuredOutputDiagnosticFinishLength},
 	}}
-	observed := observeLanguageModel(failingProvider, func(record llmCallRecord) {
+	observed := ObserveLanguageModel(failingProvider, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	request := model.StructuredResponseRequest{
@@ -75,7 +75,7 @@ func TestObserveLanguageModelRecordsSafeStructuredDiagnosticsAndRequestSizes(t *
 }
 
 func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
-	records := []llmCallRecord{}
+	records := []LLMCallRecord{}
 	failingProvider := diagnosticFailingProvider{errorValue: structuredOutputDiagnosticError{
 		message: "PRIVATE_GENERATED_CONTENT",
 		diagnostic: model.StructuredOutputDiagnostic{
@@ -85,7 +85,7 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 			RepairStatus:     model.StructuredOutputRepairFailed,
 		},
 	}}
-	observed := observeLanguageModel(failingProvider, func(record llmCallRecord) {
+	observed := ObserveLanguageModel(failingProvider, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
@@ -115,8 +115,8 @@ func TestObserveLanguageModelRecordsSafeChatToolDiagnostics(t *testing.T) {
 }
 
 func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(recoveryCapableTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
@@ -139,7 +139,7 @@ func TestObserveLanguageModelRecordsExplicitChatSchemaOnly(t *testing.T) {
 
 func nativeActionChatRequest() model.ChatCompletionRequest {
 	return model.ChatCompletionRequest{
-		SchemaName: agentActionSchemaName,
+		SchemaName: AgentActionSchemaName,
 		Tools: []model.ChatCompletionTool{{
 			Type:     "function",
 			Function: model.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
@@ -163,8 +163,8 @@ func TestChatCallRecordPreservesActionRoutingMetadata(t *testing.T) {
 }
 
 func TestObserveLanguageModelRecordsTokenCounts(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(tokenReportingProvider{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(tokenReportingProvider{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 
@@ -203,8 +203,8 @@ func (tokenReportingProvider) GenerateStructuredResponse(context.Context, model.
 }
 
 func TestObserveLanguageModelRecordsErrors(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(failingLanguageModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(failingLanguageModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 
@@ -212,14 +212,14 @@ func TestObserveLanguageModelRecordsErrors(t *testing.T) {
 	if errorValue == nil {
 		t.Fatal("expected text call error")
 	}
-	if len(records) != 1 || !records[0].IsError || records[0].Error != "model failed" {
+	if len(records) != 1 || !records[0].IsError || records[0].Error != "language model unavailable" {
 		t.Fatalf("expected error record, got %+v", records)
 	}
 }
 
 func TestObserveLanguageModelProvidesObservedChatCapability(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(recoveryCapableTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	if _, isDirectChat := observed.(model.ChatCompleter); isDirectChat {
@@ -242,7 +242,7 @@ func TestObserveLanguageModelProvidesObservedChatCapability(t *testing.T) {
 
 func TestObserveLanguageModelResolvesNestedChatAccessors(t *testing.T) {
 	inner := nestedChatAccessorTestModel{provider: recoveryCapableTestModel{}}
-	observed := observeLanguageModel(inner, func(llmCallRecord) {})
+	observed := ObserveLanguageModel(inner, func(LLMCallRecord) {})
 	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
 	if !isAvailable {
 		t.Fatal("expected nested observed chat capability")
@@ -254,8 +254,8 @@ func TestObserveLanguageModelResolvesNestedChatAccessors(t *testing.T) {
 }
 
 func TestObserveLanguageModelRecordsChatErrorsAndMetadata(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(chatErrorTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(chatErrorTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	chatCompleter, isAvailable := model.ResolveTextChatCompleter(observed)
@@ -274,8 +274,8 @@ func TestObserveLanguageModelRecordsChatErrorsAndMetadata(t *testing.T) {
 }
 
 func TestObserveLanguageModelRecordsRecoveryChatErrorsAndMetadata(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(chatErrorTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(chatErrorTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 	recoveryProvider, isAvailable := model.ResolveRecoveryChatCompleter(observed)
@@ -292,7 +292,7 @@ func TestObserveLanguageModelRecordsRecoveryChatErrorsAndMetadata(t *testing.T) 
 }
 
 func TestObserveLanguageModelPreservesMissingRecoveryCapability(t *testing.T) {
-	observed := observeLanguageModel(staticReplyProvider{content: "ok"}, func(llmCallRecord) {})
+	observed := ObserveLanguageModel(staticReplyProvider{content: "ok"}, func(LLMCallRecord) {})
 
 	if _, hasRecovery := observed.(model.RecoveryResponder); hasRecovery {
 		t.Fatal("expected wrapper without recovery capability for plain provider")
@@ -325,7 +325,7 @@ func (legacyRecoveryTestModel) GenerateLocalRecoveryResponse(context.Context, st
 }
 
 func TestObserveLanguageModelDoesNotInventChatCapability(t *testing.T) {
-	observed := observeLanguageModel(legacyRecoveryTestModel{}, func(llmCallRecord) {})
+	observed := ObserveLanguageModel(legacyRecoveryTestModel{}, func(LLMCallRecord) {})
 
 	if _, hasRecovery := observed.(model.RecoveryResponder); !hasRecovery {
 		t.Fatal("expected recovery capability to be preserved")
@@ -437,8 +437,8 @@ func (languageModel nestedChatAccessorTestModel) TextChatCompleter() (model.Chat
 }
 
 func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(recoveryCapableTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 
@@ -453,7 +453,7 @@ func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
 	if len(records) != 1 || records[0].Kind != "recovery_text" {
 		t.Fatalf("expected recovery call record, got %+v", records)
 	}
-	rewrapped := observeLanguageModel(observed, func(llmCallRecord) {
+	rewrapped := ObserveLanguageModel(observed, func(LLMCallRecord) {
 		t.Fatal("expected double wrapping to be skipped")
 	})
 	if _, errorValue := rewrapped.GenerateResponse(context.Background(), "prompt"); errorValue != nil {
@@ -465,8 +465,8 @@ func TestObserveLanguageModelKeepsRecoveryCapabilityAndRecords(t *testing.T) {
 }
 
 func TestObserveLanguageModelKeepsRecoveryChatCapabilityAndRecords(t *testing.T) {
-	records := []llmCallRecord{}
-	observed := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+	records := []LLMCallRecord{}
+	observed := ObserveLanguageModel(recoveryCapableTestModel{}, func(record LLMCallRecord) {
 		records = append(records, record)
 	})
 
@@ -489,12 +489,12 @@ func TestObserveLanguageModelKeepsRecoveryChatCapabilityAndRecords(t *testing.T)
 }
 
 func TestObserveLanguageModelPreservesNestedRecoveryChatCapabilities(t *testing.T) {
-	innerRecords := []llmCallRecord{}
-	outerRecords := []llmCallRecord{}
-	inner := observeLanguageModel(recoveryCapableTestModel{}, func(record llmCallRecord) {
+	innerRecords := []LLMCallRecord{}
+	outerRecords := []LLMCallRecord{}
+	inner := ObserveLanguageModel(recoveryCapableTestModel{}, func(record LLMCallRecord) {
 		innerRecords = append(innerRecords, record)
 	})
-	outer := observedLanguageModel{provider: inner, observe: func(record llmCallRecord) {
+	outer := observedLanguageModel{provider: inner, observe: func(record LLMCallRecord) {
 		outerRecords = append(outerRecords, record)
 	}}
 
@@ -517,7 +517,7 @@ func TestObserveLanguageModelPreservesNestedRecoveryChatCapabilities(t *testing.
 	assertRecoveryChatRecords(t, outerRecords, "nested outer")
 }
 
-func assertRecoveryChatRecords(t *testing.T, records []llmCallRecord, label string) {
+func assertRecoveryChatRecords(t *testing.T, records []LLMCallRecord, label string) {
 	t.Helper()
 	if len(records) != 2 {
 		t.Fatalf("expected two %s recovery chat records, got %+v", label, records)

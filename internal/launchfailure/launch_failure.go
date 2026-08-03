@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/model"
@@ -109,4 +110,87 @@ func marshalEventBody(value any) string {
 		return ""
 	}
 	return string(body)
+}
+
+type IntakeLimit struct {
+	TaskLevel         string
+	MaxIterationCount int
+	MaxToolCallCount  int
+	MaxElapsedSecond  int
+	TurnStartedAt     time.Time
+	WorkDeadline      time.Time
+}
+
+func (completer *Completer) CompleteIntakeElapsed(responseContext context.Context, request agentcontract.AgentTurnRequest, intakeLimit IntakeLimit) agentcontract.AgentTurnResult {
+	taskRun := completer.taskRunForIntakeLimit(request)
+	completer.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_stop", marshalEventBody(intakeLimitEventBody(intakeLimit)))
+	blockedTaskRun, errorValue := completer.taskRunService.PauseTaskRun(taskRun.TaskRunID, taskstate.TaskStatusBlocked, "max_elapsed")
+	if errorValue != nil {
+		taskRun.Status = taskstate.TaskStatusBlocked
+		taskRun.FailureReason = "max_elapsed"
+		blockedTaskRun = taskRun
+	}
+	failureNotice, noticeStatus := (agentcontract.FailureNoticeGenerator{LanguageModel: completer.languageModel}).Generate(responseContext, agentcontract.FailureReport{
+		Phase:              "limit",
+		StopReason:         "max_elapsed",
+		SafeFailureSummary: agentcontract.ElapsedLimitRawErrorSummary,
+		RawError:           agentcontract.ElapsedLimitRawErrorSummary,
+		OriginalRequest:    request.Prompt,
+		ResponseLanguage:   request.ResponseLanguage,
+		DiagnosticEventID:  taskRun.TaskRunID + ":intake_limit",
+	})
+	completer.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.limit_reply", marshalEventBody(map[string]any{
+		"source":            noticeStatus.Source,
+		"reason":            noticeStatus.Reason,
+		"textRecoveryError": noticeStatus.TextRecoveryError,
+	}))
+	blockedTaskRun = persistTaskRunResult(completer.taskRunService, blockedTaskRun, failureNotice.SendableMessage())
+	completer.taskRunService.AppendTaskEvent(blockedTaskRun.TaskRunID, "agent.goal.blocked", marshalEventBody(agentcontract.ActiveGoal{
+		GoalID:              blockedTaskRun.TaskRunID,
+		TaskRunID:           blockedTaskRun.TaskRunID,
+		OriginalInstruction: strings.TrimSpace(request.Prompt),
+		Status:              agentcontract.ActiveGoalStatusBlocked,
+	}))
+	return agentcontract.AgentTurnResult{
+		TaskRun:       blockedTaskRun,
+		UserNotice:    failureNotice.SendableMessage(),
+		FailureNotice: failureNotice,
+		ToolNames:     toolNamesForEvent(request.ToolSet),
+	}
+}
+
+func (completer *Completer) taskRunForIntakeLimit(request agentcontract.AgentTurnRequest) taskstate.TaskRun {
+	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
+		if taskRun, isFound := completer.taskRunService.FindTaskRun(taskRunID); isFound {
+			return taskRun
+		}
+	}
+	taskRun, _ := completer.taskRunService.CreateTaskRunWithOriginAndError(request.RequesterPersonID, taskstate.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
+	return taskRun
+}
+
+func intakeLimitEventBody(intakeLimit IntakeLimit) map[string]any {
+	body := map[string]any{
+		"phase":              "intake",
+		"taskLevel":          intakeLimit.TaskLevel,
+		"maxIterationCount":  intakeLimit.MaxIterationCount,
+		"maxElapsedSecond":   intakeLimit.MaxElapsedSecond,
+		"maxToolCallCount":   intakeLimit.MaxToolCallCount,
+		"usedIterationCount": 0,
+		"usedToolCallCount":  0,
+		"limitStopReason":    "max_elapsed",
+		"anchorClamped":      false,
+		"nowUnixMs":          time.Now().UnixMilli(),
+	}
+	if !intakeLimit.TurnStartedAt.IsZero() {
+		body["turnStartedAtUnixMs"] = intakeLimit.TurnStartedAt.UnixMilli()
+	}
+	if !intakeLimit.WorkDeadline.IsZero() {
+		body["workDeadlineUnixMs"] = intakeLimit.WorkDeadline.UnixMilli()
+	}
+	return body
 }
