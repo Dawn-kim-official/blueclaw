@@ -65,6 +65,14 @@ func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request age
 	return turnDecision.IntakeDecision(), errorValue
 }
 
+func (turnRouter TurnRouter) PlanObserved(ctx context.Context, request agentcontract.AgentRequest, callLedger *agentcontract.TurnRouterCallLedger) (agentcontract.TurnDecision, error) {
+	if callLedger == nil {
+		return turnRouter.Plan(ctx, request)
+	}
+	observedRouter := TurnRouter{languageModel: callLedger.LanguageModel(turnRouter.languageModel), options: turnRouter.options}
+	return observedRouter.Plan(ctx, request)
+}
+
 func (turnRouter TurnRouter) Plan(ctx context.Context, request agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
 	if request.PrecomputedTurnDecision != nil {
 		if request.IsPrecomputedDecisionExact {

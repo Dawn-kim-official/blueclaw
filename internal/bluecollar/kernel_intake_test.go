@@ -449,11 +449,23 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	})
 	checkpoints := []AgentCheckpoint{}
 
+	precomputedDecision := TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 1,
+		Reason:           "needs tool",
+		UserFacingReply:  "",
+		InitialToolNames: []string{"alpha"},
+	}
 	result, errorValue := services.kernel.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "확인해줘",
-		ToolSet:           toolRegistry,
+		RequesterPersonID:         "person-1",
+		ConversationID:            "conversation-1",
+		Prompt:                    "확인해줘",
+		ToolSet:                   toolRegistry,
+		PrecomputedTurnDecision:   &precomputedDecision,
+		IsPrecomputedDecisionExact: true,
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -532,7 +544,7 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 	if strings.Contains(strings.ToLower(result.UserNotice), "calculation tool") || strings.Contains(strings.ToLower(result.UserNotice), "data processing") {
 		t.Fatalf("expected no invented tool failure, got %q", result.UserNotice)
 	}
-	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "llm action failed: model failed") {
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "llm action failed: language model unavailable") {
 		t.Fatalf("expected raw model error reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "raw_error") {

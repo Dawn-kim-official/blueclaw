@@ -22,6 +22,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
 	"github.com/Dawn-kim-official/blueclaw/internal/memory"
@@ -1889,8 +1890,7 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."})
-	connectorRuntimeAgentKernel(connectorRuntime).UseIntakeLanguageModelProvider(testLanguageModel{errorValue: errors.New("provider unavailable")})
+	connectorRuntime, adapter := newTestConnectorRuntimeRoutingWith(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}, testLanguageModel{errorValue: errors.New("provider unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -1971,7 +1971,7 @@ func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testin
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(connectorRuntime.routedTaskLauncherForTest(toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -2003,7 +2003,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
-	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, toolCatalogBuilder))
+	connectorRuntime.UseTaskLauncher(connectorRuntime.routedTaskLauncherForTest(toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 	if errorValue != nil {
@@ -4150,8 +4150,14 @@ func connectorRuntimeAgentKernel(connectorRuntime *ConnectorRuntime) *bluecollar
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
+	return newTestConnectorRuntimeRoutingWith(t, languageModel, languageModel)
+}
+
+func newTestConnectorRuntimeRoutingWith(t *testing.T, languageModel llm.LanguageModelProvider, routerLanguageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
+	t.Helper()
+
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), taskRunService)
+	return connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), intake.NewTurnRouter(routerLanguageModel, agentcontract.IntakeOptions{IsEnabled: true}), taskRunService, languageModel)
 }
 
 func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapter, *harnesstest.Harness) {
@@ -4159,17 +4165,19 @@ func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapt
 
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, harness, taskRunService, testLanguageModel{reply: "stub"})
 	return connectorRuntime, adapter, harness
 }
 
-func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, intakeClassifier IntakeClassifier, replyGenerator ReplyGenerator, taskRunService *task.TaskRunService) (*ConnectorRuntime, *testAdapter) {
+func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, intakeClassifier IntakeClassifier, replyGenerator ReplyGenerator, turnRouter TurnRouter, taskRunService *task.TaskRunService, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
 	connectorRuntime := NewConnectorRuntime(testConnectorIdentityService(), harness, taskRunService, nil)
 	connectorRuntime.UseIntakeClassifier(intakeClassifier)
 	connectorRuntime.UseReplyGenerator(replyGenerator)
 	connectorRuntime.UseTaskRunService(taskRunService)
+	connectorRuntime.UseTurnRouter(turnRouter)
+	connectorRuntime.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
@@ -4222,7 +4230,7 @@ func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.Language
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
 
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, testConnectorAgentKernel(taskRunService, languageModel), intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true}), taskRunService, languageModel)
 	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
 	return connectorRuntime, adapter, taskRunService, taskWaitRepository
 }
@@ -4295,7 +4303,7 @@ func newStubbedRepositoryBackedTestConnectorRuntime(t *testing.T, taskRunReposit
 	taskRunService.UseRepository(taskRunRepository)
 
 	harness := harnesstest.New(taskRunService)
-	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, harness, taskRunService, testLanguageModel{reply: "stub"})
 	return connectorRuntime, adapter, taskEventService, harness
 }
 
@@ -4586,4 +4594,11 @@ func TestConnectorRuntimeSkipsEngagedAckForDirectMessages(t *testing.T) {
 	if len(adapter.reactions) != 0 {
 		t.Fatalf("expected no acknowledgement reaction for a direct message, got %+v", adapter.reactions)
 	}
+}
+
+func (connectorRuntime *ConnectorRuntime) routedTaskLauncherForTest(toolCatalogBuilder *agentruntime.ToolCatalogBuilder) *agentruntime.TaskLauncher {
+	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, toolCatalogBuilder)
+	taskLauncher.UseTurnRouter(connectorRuntime.turnRouter)
+	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
+	return taskLauncher
 }

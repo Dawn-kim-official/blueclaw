@@ -552,6 +552,21 @@ func (connectorRuntime *ConnectorRuntime) UseReplyGenerator(replyGenerator Reply
 
 type TurnRouter interface {
 	Plan(context.Context, agentcontract.AgentRequest) (agentcontract.TurnDecision, error)
+	PlanObserved(context.Context, agentcontract.AgentRequest, *agentcontract.TurnRouterCallLedger) (agentcontract.TurnDecision, error)
+}
+
+func (connectorRuntime *ConnectorRuntime) planTurn(ctx context.Context, taskRunID string, request agentcontract.AgentRequest) (agentcontract.TurnDecision, error) {
+	if connectorRuntime.turnRouter == nil {
+		return agentcontract.TurnDecision{}, errors.New("connector runtime has no turn router configured")
+	}
+	callLedger := &agentcontract.TurnRouterCallLedger{}
+	turnDecision, errorValue := connectorRuntime.turnRouter.PlanObserved(ctx, request, callLedger)
+	if trimmedTaskRunID := strings.TrimSpace(taskRunID); trimmedTaskRunID != "" && connectorRuntime.taskRunService != nil {
+		for _, callRecord := range callLedger.Records {
+			connectorRuntime.taskRunService.AppendTaskEvent(trimmedTaskRunID, "llm.call", marshalConnectorEventBody(callRecord))
+		}
+	}
+	return turnDecision, errorValue
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTurnRouter(turnRouter TurnRouter) {
@@ -1280,7 +1295,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 			return approval, agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationQuickReply, TaskShape: agentcontract.TaskShapeImmediateReply, TaskLevel: agentcontract.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
 		}
 	}
-	decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.planTurn(ctx, approval.TaskRun.TaskRunID, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -1322,7 +1337,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		return resolveAskInteractiveReply(event, pendingInteraction, action), decision, true, nil
 	}
 	if pendingInteraction.Kind == "ask_input" {
-		decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
+		decision, errorValue := connectorRuntime.planTurn(ctx, pendingInteraction.TaskRunID, agentcontract.AgentRequest{
 			RequesterPersonID: personID,
 			ConversationID:    event.ConversationID,
 			Prompt:            event.Prompt,
@@ -1360,7 +1375,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 		return event, decision, true, nil
 	}
-	decision, errorValue := connectorRuntime.turnRouter.Plan(ctx, agentcontract.AgentRequest{
+	decision, errorValue := connectorRuntime.planTurn(ctx, pendingInteraction.TaskRunID, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
 		Prompt:            event.Prompt,
@@ -3289,6 +3304,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 	}
 	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
 	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
+	taskLauncher.UseTurnRouter(connectorRuntime.turnRouter)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
 	return taskLauncher
 }

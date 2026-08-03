@@ -75,7 +75,7 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory_search"},
 	}, nil)
-	taskLauncher := NewTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder)
+	taskLauncher := routedTaskLauncher(agentKernel, taskRunService, toolCatalogBuilder, languageModel)
 	nextRunAt := time.Date(2026, 6, 15, 23, 0, 0, 0, time.UTC)
 
 	result, errorValue := NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), TaskScheduleRunRequest{
@@ -135,7 +135,7 @@ func TestTaskScheduleRunnerPreservesScheduledArtifactRouting(t *testing.T) {
 		routerContent: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"high","estimatedMinutes":45,"requestedOutputFormats":["pptx"],"requestedOutputEvidence":"발표자료","expectedResults":[{"id":"presentation","type":"file","description":"PPTX 발표자료","required":true}],"requiredEvidence":["file_deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled presentation","userFacingReply":"","initialToolNames":["file_deliver"],"priorTaskReference":"none"}`,
 	}
 	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
-	taskLauncher := NewTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder())
+	taskLauncher := routedTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder(), languageModel)
 	runAt := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
 
 	result, errorValue := NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), TaskScheduleRunRequest{
