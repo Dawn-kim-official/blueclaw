@@ -136,10 +136,10 @@ func writeToolCatalogConfiguration(endpointURL string, bearerToken string) (stri
 	return configurationFile.Name(), nil
 }
 
-func ClaudeCodeAgentCommand(commandPath string, disallowedToolNames []string) AgentCommand {
+func ClaudeCodeAgentCommand(commandPath string) AgentCommand {
 	return AgentCommand{
 		Path:            commandPath,
-		PromptArguments: []string{"--print", "--strict-mcp-config", "--disallowedTools", strings.Join(disallowedToolNames, ",")},
+		PromptArguments: []string{"--print", "--strict-mcp-config"},
 		ToolCatalogArguments: func(toolCatalogConfigurationPath string) []string {
 			return []string{"--mcp-config", toolCatalogConfigurationPath}
 		},

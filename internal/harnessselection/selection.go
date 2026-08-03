@@ -22,8 +22,6 @@ const (
 	CodexHarnessName      = "codex"
 )
 
-var claudeCodeBuiltinToolNames = []string{"Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"}
-
 type ToolCatalogEndpoint struct {
 	URL      string
 	Resolver *mcpserver.SessionTokenRequesterResolver
@@ -50,7 +48,7 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 	case ExternalHarnessName:
 		return externalHarnessFactory(harnessConfiguration, toolCatalogEndpoint)
 	case ClaudeCodeHarnessName:
-		return commandHarnessFactory(ClaudeCodeHarnessName, cliharness.ClaudeCodeAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath), claudeCodeBuiltinToolNames), harnessConfiguration, toolCatalogEndpoint, processBoundary)
+		return commandHarnessFactory(ClaudeCodeHarnessName, cliharness.ClaudeCodeAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	case CodexHarnessName:
 		return commandHarnessFactory(CodexHarnessName, cliharness.CodexAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	default:
@@ -95,8 +93,8 @@ func commandHarnessFactory(harnessName string, agentCommand cliharness.AgentComm
 	if toolCatalogEndpoint.Resolver == nil || strings.TrimSpace(toolCatalogEndpoint.URL) == "" {
 		return nil, fmt.Errorf("harness %q needs a published tool catalog; without one the agent would have no tools it may run as the requester", harnessName)
 	}
-	if harnessName == CodexHarnessName && processBoundary.Runner == nil {
-		return nil, fmt.Errorf("harness %q may only run inside the requester's POSIX identity, because its own shell cannot be turned off; configure the terminal boundary first", harnessName)
+	if processBoundary.Runner == nil {
+		return nil, fmt.Errorf("harness %q may only run inside the requester's POSIX identity, because it brings tools of its own that the kernel rather than a deny list has to confine; configure the terminal boundary first", harnessName)
 	}
 	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {

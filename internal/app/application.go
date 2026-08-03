@@ -118,6 +118,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if errorValue := posixSynchronizer.Synchronize(context.Background()); errorValue != nil && startupError == nil {
 		startupError = errorValue
 	}
+	logger.Info("application.initializing", "stage", "capability_socket_invariant")
+	capabilitySocketInvariantResult, capabilitySocketInvariantError := security.EnsureCapabilitySocketInvariant(runtimeConfiguration.Capabilities.UnixSocketPath, policyDocument)
+	if capabilitySocketInvariantError != nil && startupError == nil {
+		startupError = capabilitySocketInvariantError
+	}
+	if capabilitySocketInvariantResult.Skipped {
+		logger.Info("application.capability_socket_invariant.skipped", "reason", capabilitySocketInvariantResult.SkipReason)
+	} else if capabilitySocketInvariantError == nil {
+		logger.Info("application.capability_socket_invariant.passed", "socketPath", capabilitySocketInvariantResult.SocketPath, "group", capabilitySocketInvariantResult.GroupName)
+	}
 	logger.Info("application.initializing", "stage", "project_policy")
 	if database.SQL != nil {
 		_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
