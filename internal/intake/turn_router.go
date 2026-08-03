@@ -554,10 +554,15 @@ func turnRouterSchema(request agentcontract.AgentRequest) string {
 	return string(document)
 }
 
+const namedStringEnumLimit = 40
+
 func boundedNamedStringArraySchema(values []string) map[string]any {
 	itemSchema := map[string]any{"type": "string"}
-	if len(values) > 0 {
+	if len(values) > 0 && len(values) <= namedStringEnumLimit {
 		itemSchema["enum"] = values
+	}
+	if len(values) > namedStringEnumLimit {
+		itemSchema["description"] = "Use exact names from Available tools: " + strings.Join(values, ", ")
 	}
 	maximumItems := len(values)
 	if maximumItems > 16 {
