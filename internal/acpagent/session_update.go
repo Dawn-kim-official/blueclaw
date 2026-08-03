@@ -7,13 +7,13 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnstream"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 	"github.com/Dawn-kim-official/blueclaw/toolcontract"
 )
 
-func sessionUpdateForTurnEvent(turnEvent bluecollar.TurnEvent, toolSet *toolcontract.ToolSet, toolCallIdentity acp.ToolCallId) acp.SessionUpdate {
-	if turnEvent.Kind == bluecollar.TurnEventApproval {
+func sessionUpdateForTurnEvent(turnEvent turnstream.Event, toolSet *toolcontract.ToolSet, toolCallIdentity acp.ToolCallId) acp.SessionUpdate {
+	if turnEvent.Kind == turnstream.EventApproval {
 		return acp.StartToolCall(
 			toolCallIdentity,
 			toolCallTitle(turnEvent),
@@ -22,7 +22,7 @@ func sessionUpdateForTurnEvent(turnEvent bluecollar.TurnEvent, toolSet *toolcont
 			acp.WithStartRawOutput(turnEvent.Message),
 		)
 	}
-	if turnEvent.Kind == bluecollar.TurnEventTool {
+	if turnEvent.Kind == turnstream.EventTool {
 		return acp.StartToolCall(
 			toolCallIdentity,
 			toolCallTitle(turnEvent),
@@ -34,7 +34,7 @@ func sessionUpdateForTurnEvent(turnEvent bluecollar.TurnEvent, toolSet *toolcont
 	return acp.UpdateAgentMessageText(turnEvent.Message)
 }
 
-func toolCallTitle(turnEvent bluecollar.TurnEvent) string {
+func toolCallTitle(turnEvent turnstream.Event) string {
 	toolName := strings.TrimSpace(turnEvent.ToolName)
 	if toolName == "" {
 		return "tool call"
