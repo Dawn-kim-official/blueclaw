@@ -19,6 +19,7 @@ const (
 
 type ApprovalRequest struct {
 	RequesterPersonID string
+	TaskRunID         string
 	ToolName          string
 	ToolInput         json.RawMessage
 	ApprovalScope     string
@@ -49,6 +50,7 @@ var errApprovalGateMissing = errors.New("this tool needs approval and the catalo
 func approvalRequestForTool(requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, toolInput json.RawMessage) ApprovalRequest {
 	return ApprovalRequest{
 		RequesterPersonID: requesterToolSet.RequesterPersonID,
+		TaskRunID:         requesterToolSet.TaskRunID,
 		HarnessSession:    requesterToolSet.HarnessSession,
 		ToolName:          toolDescriptor.Name,
 		ToolInput:         toolInput,

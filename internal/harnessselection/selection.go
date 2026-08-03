@@ -23,9 +23,10 @@ const (
 )
 
 type ToolCatalogEndpoint struct {
-	URL      string
-	Resolver *mcpserver.SessionTokenRequesterResolver
-	Handler  http.Handler
+	URL          string
+	Resolver     *mcpserver.SessionTokenRequesterResolver
+	Handler      http.Handler
+	ApprovalGate mcpserver.ApprovalGate
 }
 
 type RequesterProcessRunner interface {
@@ -67,19 +68,21 @@ func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, to
 		Path:      harnessConfiguration.AgentCommandPath,
 		Arguments: append([]string{}, harnessConfiguration.AgentArguments...),
 	}
-	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver}
+	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver, approvalGate: toolCatalogEndpoint.ApprovalGate}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 		return acpharness.New(agentCommand, publisher, dependencies.TaskRunStore), nil
 	}, nil
 }
 
 type sessionTokenPublisher struct {
-	endpointURL string
-	resolver    *mcpserver.SessionTokenRequesterResolver
+	endpointURL  string
+	resolver     *mcpserver.SessionTokenRequesterResolver
+	approvalGate mcpserver.ApprovalGate
 }
 
 func (publisher sessionTokenPublisher) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
-	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	requesterToolSet.ApprovalGate = publisher.approvalGate
+	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
 	}
@@ -96,7 +99,7 @@ func commandHarnessFactory(harnessName string, agentCommand cliharness.AgentComm
 	if processBoundary.Runner == nil {
 		return nil, fmt.Errorf("harness %q may only run inside the requester's POSIX identity, because it brings tools of its own that the kernel rather than a deny list has to confine; configure the terminal boundary first", harnessName)
 	}
-	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver}
+	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver, approvalGate: toolCatalogEndpoint.ApprovalGate}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 		harness := cliharness.New(agentCommand, publisher, dependencies.TaskRunStore)
 		if processBoundary.Runner != nil {

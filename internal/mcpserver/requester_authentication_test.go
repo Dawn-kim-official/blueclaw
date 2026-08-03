@@ -21,7 +21,7 @@ func sequentialSessionTokens() func() string {
 func TestToolCatalogHandlerRefusesAConnectionWithoutABearerToken(t *testing.T) {
 	invokedTool := ""
 	resolver := NewSessionTokenRequesterResolver(sequentialSessionTokens())
-	if _, errorValue := resolver.GrantSessionToken("person-1", testToolSet(t, &invokedTool)); errorValue != nil {
+	if _, errorValue := resolver.GrantSessionToken(RequesterToolSet{RequesterPersonID: "person-1", ToolSet: testToolSet(t, &invokedTool)}); errorValue != nil {
 		t.Fatalf("expected a session grant: %v", errorValue)
 	}
 	server := httptest.NewServer(NewToolCatalogHandler(resolver, "test"))
@@ -57,8 +57,8 @@ func TestToolCatalogHandlerServesTheToolSetTheTokenWasGrantedFor(t *testing.T) {
 	resolver := NewSessionTokenRequesterResolver(sequentialSessionTokens())
 	firstToolSet := testToolSet(t, &firstInvokedTool)
 	secondToolSet := testToolSet(t, &secondInvokedTool)
-	firstToken, _ := resolver.GrantSessionToken("person-1", firstToolSet)
-	secondToken, _ := resolver.GrantSessionToken("person-2", secondToolSet.WithAllowedToolNames([]string{"file_read"}))
+	firstToken, _ := resolver.GrantSessionToken(RequesterToolSet{RequesterPersonID: "person-1", ToolSet: firstToolSet})
+	secondToken, _ := resolver.GrantSessionToken(RequesterToolSet{RequesterPersonID: "person-2", ToolSet: secondToolSet.WithAllowedToolNames([]string{"file_read"})})
 
 	server := httptest.NewServer(NewToolCatalogHandler(resolver, "test"))
 	t.Cleanup(server.Close)

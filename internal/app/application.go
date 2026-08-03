@@ -21,6 +21,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
+	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/auth"
 	"github.com/Dawn-kim-official/blueclaw/internal/backup"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
@@ -199,10 +200,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	toolCatalogResolver := mcpserver.NewSessionTokenRequesterResolver(newToolCatalogSessionToken)
 	toolCatalogHandler := mcpserver.NewToolCatalogHandler(toolCatalogResolver, "1")
+	toolCatalogApprovalGate := approvalgate.New(taskRunService)
 	selectedHarnessFactory, harnessSelectionError := harnessselection.Select(runtimeConfiguration.Agent.Harness, agentHarnessFactory, harnessselection.ToolCatalogEndpoint{
-		URL:      toolCatalogURL(runtimeConfiguration),
-		Resolver: toolCatalogResolver,
-		Handler:  toolCatalogHandler,
+		URL:          toolCatalogURL(runtimeConfiguration),
+		Resolver:     toolCatalogResolver,
+		Handler:      toolCatalogHandler,
+		ApprovalGate: toolCatalogApprovalGate,
 	}, harnessselection.SandboxProcessBoundary{
 		Runner:            terminalService.WorkspaceActorFactory(),
 		WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,

@@ -58,7 +58,7 @@ type countingToolCatalogPublisher struct {
 }
 
 func (publisher *countingToolCatalogPublisher) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
-	sessionToken, errorValue := publisher.inner.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	sessionToken, errorValue := publisher.inner.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
 	}

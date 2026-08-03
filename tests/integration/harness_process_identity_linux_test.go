@@ -29,7 +29,7 @@ type identityCatalogPublisher struct {
 }
 
 func (publisher identityCatalogPublisher) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
-	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet.RequesterPersonID, requesterToolSet.ToolSet)
+	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
 	}

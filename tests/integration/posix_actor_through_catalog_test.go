@@ -87,7 +87,7 @@ func TestAToolCalledThroughTheCatalogReachesTheRequesterPOSIXActor(t *testing.T)
 	})
 
 	resolver := mcpserver.NewSessionTokenRequesterResolver(func() string { return "session-token" })
-	sessionToken, errorValue := resolver.GrantSessionToken("person-1", toolSet)
+	sessionToken, errorValue := resolver.GrantSessionToken(mcpserver.RequesterToolSet{RequesterPersonID: "person-1", ToolSet: toolSet})
 	if errorValue != nil {
 		t.Fatalf("expected a catalog grant: %v", errorValue)
 	}
