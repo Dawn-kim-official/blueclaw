@@ -12,11 +12,27 @@ import (
 // file passed via --runtime; it is not a live report from the sandbox
 // process.
 type HarnessInfo struct {
-	Name              string
-	AgentCommandPath  string
-	IsKnown           bool
-	RuntimeConfigPath string
-	UnknownReason     string
+	Name                    string
+	AgentCommandPath        string
+	IsKnown                 bool
+	RuntimeConfigPath       string
+	UnknownReason           string
+	IsLiveReport            bool
+	RunsAsRequesterIdentity bool
+	ToolCatalogURL          string
+}
+
+// HarnessInfoFromStatus describes the harness the running sandbox reports,
+// rather than the one a configuration file happens to name.
+func HarnessInfoFromStatus(harnessStatus HarnessStatus) HarnessInfo {
+	return HarnessInfo{
+		Name:                    harnessStatus.Name,
+		AgentCommandPath:        harnessStatus.AgentCommandPath,
+		IsKnown:                 strings.TrimSpace(harnessStatus.Name) != "",
+		IsLiveReport:            true,
+		RunsAsRequesterIdentity: harnessStatus.RunsAsRequesterIdentity,
+		ToolCatalogURL:          harnessStatus.ToolCatalogURL,
+	}
 }
 
 // UnknownHarnessInfo describes a harness that could not be determined, along

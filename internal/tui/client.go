@@ -203,3 +203,18 @@ type ApplicationError struct {
 func (applicationError ApplicationError) Error() string {
 	return fmt.Sprintf("admin API returned %d: %s", applicationError.StatusCode, applicationError.Message)
 }
+
+type HarnessStatus struct {
+	Name                    string `json:"name"`
+	AgentCommandPath        string `json:"agentCommandPath,omitempty"`
+	RunsAsRequesterIdentity bool   `json:"runsAsRequesterIdentity"`
+	ToolCatalogURL          string `json:"toolCatalogURL,omitempty"`
+}
+
+func (client *Client) GetHarnessStatus(ctx context.Context) (HarnessStatus, error) {
+	var harnessStatus HarnessStatus
+	if errorValue := client.getJSON(ctx, client.baseURL+"/admin/api/harness", &harnessStatus); errorValue != nil {
+		return HarnessStatus{}, errorValue
+	}
+	return harnessStatus, nil
+}

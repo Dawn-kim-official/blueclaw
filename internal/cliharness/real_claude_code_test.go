@@ -120,3 +120,40 @@ func TestRealClaudeCodeCallsASandboxToolAndNeverItsOwn(t *testing.T) {
 		t.Fatalf("expected the catalog grant to be revoked when the turn ended, got %d", publisher.revokeCount)
 	}
 }
+
+func TestRealCodexCallsASandboxTool(t *testing.T) {
+	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_CODEX_PATH"))
+	if commandPath == "" {
+		resolvedPath, errorValue := exec.LookPath("codex")
+		if errorValue != nil {
+			t.Skip("codex is not installed, so it cannot be driven here")
+		}
+		commandPath = resolvedPath
+	}
+
+	execution := &sandboxToolExecution{}
+	resolver := mcpserver.NewSessionTokenRequesterResolver(func() string { return "session-token-codex" })
+	catalogServer := httptest.NewServer(mcpserver.NewToolCatalogHandler(resolver, "test"))
+	t.Cleanup(catalogServer.Close)
+	publisher := &catalogPublisher{endpointURL: catalogServer.URL, resolver: resolver}
+
+	harness := New(CodexAgentCommand(commandPath), publisher, nil)
+
+	turnContext, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	turnResult, errorValue := harness.RunTurn(turnContext, agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "Call the workspace_secret_word tool and reply with only the word it returns.",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           sandboxToolSet(t, execution),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected codex to complete a turn: %v", errorValue)
+	}
+	if len(execution.executedToolNames()) == 0 {
+		t.Fatalf("expected codex's model to choose the sandbox tool, got reply %q", turnResult.FinishMessage)
+	}
+	if !strings.Contains(turnResult.FinishMessage, "갈매기시계") {
+		t.Fatalf("expected the sandbox tool's output to reach the reply, got %q", turnResult.FinishMessage)
+	}
+}
