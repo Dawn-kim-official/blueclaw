@@ -1434,7 +1434,8 @@ func TestLatestAskInteractionReturnsNewAskAfterEarlierResolution(t *testing.T) {
 
 func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, languageModel)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
 
@@ -1453,7 +1454,7 @@ func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testi
 
 func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutDuty(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetHuman), reply: "unused"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, _ := newStubbedRoutingTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.OtherPersonMentioned = true
 
@@ -1478,7 +1479,8 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutDuty(t *testing.T) {
 
 func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, languageModel)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
 	if errorValue != nil {
@@ -1496,7 +1498,8 @@ func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *t
 func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testing.T) {
 	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetHuman), reply: "ok"}
 	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agentcontract.AddressingTargetBot), reply: "unused"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, replyLanguageModel)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "ok"}
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(intakeLanguageModel))
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
@@ -1567,7 +1570,7 @@ func TestConnectorRuntimeIgnoresUninvitedAmbiguousChannelMessageWithoutReply(t *
 
 func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingError: errors.New("classifier unavailable"), reply: "unused"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, _ := newStubbedRoutingTestConnectorRuntime(t, languageModel)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
 	if errorValue != nil {
@@ -1890,7 +1893,7 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntimeRoutingWith(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}, testLanguageModel{errorValue: errors.New("provider unavailable")})
+	connectorRuntime, adapter, _ := newStubbedRoutingTestConnectorRuntimeWith(t, testLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}, testLanguageModel{errorValue: errors.New("provider unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -1912,7 +1915,7 @@ func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
 }
 
 func TestConnectorRuntimeSendsNoticeWhenLaunchReturnsNoTask(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, nil)
+	connectorRuntime, adapter, _ := newStubbedRoutingTestConnectorRuntime(t, nil)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -1964,7 +1967,7 @@ func TestConnectorRuntimeStartsDirectProgressBeforeInitialHistoryFetch(t *testin
 
 func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "기억했습니다"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, languageModel)
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 Graphiti 메모리 설계를 선택했다."); errorValue != nil {
 		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
@@ -1978,12 +1981,22 @@ func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testin
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	if len(languageModel.request.Messages) < 2 {
-		t.Fatalf("expected memory context message, got %+v", languageModel.request.Messages)
+	memoryFacts := harness.LastTurnRequest().MemoryFacts
+	if len(memoryFacts) == 0 {
+		t.Fatal("expected requester memory facts on the agent turn request")
 	}
-	if !structuredMessagesContain(languageModel.request.Messages, "Graphiti 메모리 설계") {
-		t.Fatalf("expected requester memory in model context, got %+v", languageModel.request.Messages)
+	if !memoryFactsContain(memoryFacts, "Graphiti 메모리 설계") {
+		t.Fatalf("expected requester memory on the agent turn request, got %+v", memoryFacts)
 	}
+}
+
+func memoryFactsContain(memoryFacts []agentcontract.MemoryFact, text string) bool {
+	for _, memoryFact := range memoryFacts {
+		if strings.Contains(memoryFact.Content, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
@@ -2323,7 +2336,7 @@ func TestConnectorAttachmentMaterialResolverRefreshesStaleMaterialPath(t *testin
 
 func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
 	event.Context.HasMoreBefore = true
 	event.Context.HistoryCursor = "cursor-1"
@@ -2336,8 +2349,9 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "cursor-1" {
 		t.Fatalf("expected initial history fetch, got %+v", adapter.historyCursors)
 	}
-	if !structuredMessagesContain(languageModel.request.Messages, "admin: older message") {
-		t.Fatalf("expected fetched visible context in model messages, got %+v", languageModel.request.Messages)
+	visibleContextDescription := agentcontract.BuildVisibleContextDescription(harness.LastTurnRequest().VisibleContext)
+	if !strings.Contains(visibleContextDescription, "admin: older message") {
+		t.Fatalf("expected fetched visible context on the agent turn request, got %q", visibleContextDescription)
 	}
 }
 
@@ -3412,7 +3426,7 @@ func TestConnectorProgressHeartbeatIntervalMaintainsTypingIndicator(t *testing.T
 
 func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryButInjectsGraphMemoryAtLaunch(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime, adapter, harness := newStubbedRoutingTestConnectorRuntime(t, languageModel)
 	graphStore := &fakeGraphMemoryStore{
 		facts: []memory.MemoryFact{
 			{ScopeType: memory.ScopeTypeUser, NamespaceID: "user:person-1", Content: "사용자의 이름은 민수다."},
@@ -3441,8 +3455,8 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryButInjectsGraphMemoryAt
 	if len(graphStore.episodes) != 0 {
 		t.Fatalf("expected no automatic Graphiti episode ingestion, got %d", len(graphStore.episodes))
 	}
-	if !structuredMessagesContain(languageModel.request.Messages, "민수") {
-		t.Fatalf("expected launch-time graph memory injection to surface stored facts, got %+v", languageModel.request.Messages)
+	if !memoryFactsContain(harness.LastTurnRequest().MemoryFacts, "민수") {
+		t.Fatalf("expected launch-time graph memory injection to surface stored facts, got %+v", harness.LastTurnRequest().MemoryFacts)
 	}
 }
 
@@ -4166,6 +4180,21 @@ func newStubbedTestConnectorRuntime(t *testing.T) (*ConnectorRuntime, *testAdapt
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	harness := harnesstest.New(taskRunService)
 	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, harness, harness, harness, taskRunService, testLanguageModel{reply: "stub"})
+	return connectorRuntime, adapter, harness
+}
+
+func newStubbedRoutingTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter, *harnesstest.Harness) {
+	t.Helper()
+
+	return newStubbedRoutingTestConnectorRuntimeWith(t, languageModel, languageModel)
+}
+
+func newStubbedRoutingTestConnectorRuntimeWith(t *testing.T, languageModel llm.LanguageModelProvider, routerLanguageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter, *harnesstest.Harness) {
+	t.Helper()
+
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness := harnesstest.New(taskRunService)
+	connectorRuntime, adapter := connectorRuntimeForHarness(t, harness, intake.NewClassifier(languageModel), reply.NewGenerator(languageModel, nil), intake.NewTurnRouter(routerLanguageModel, agentcontract.IntakeOptions{IsEnabled: true}), taskRunService, languageModel)
 	return connectorRuntime, adapter, harness
 }
 
