@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/blueclaw/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/model"
@@ -51,8 +51,8 @@ func persistedTurnRouterCallRecords(taskEvents []task.TaskEvent) []agentcontract
 func TestTaskLauncherPersistsTurnRouterLLMCall(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("완료했습니다.")})
+	harness := harnesstest.New(taskRunService)
+	harness.TurnResult = agentcontract.AgentTurnResult{FinishMessage: "완료했습니다."}
 
 	routerLanguageModel := &routerLedgerLanguageModel{
 		decision: agentcontract.TurnDecision{
@@ -76,7 +76,7 @@ func TestTaskLauncherPersistsTurnRouterLLMCall(t *testing.T) {
 		},
 	}
 
-	launchResult, errorValue := routedTaskLauncher(agentKernel, taskRunService, NewToolCatalogBuilder(), routerLanguageModel).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := routedTaskLauncher(harness, taskRunService, NewToolCatalogBuilder(), routerLanguageModel).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
