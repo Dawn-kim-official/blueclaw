@@ -86,6 +86,23 @@ export type NormalizedPlatformAdapter = ContextCapableAdapter & {
 	addressingOf(raw: unknown): AddressingDocument;
 };
 
+const NO_MENTIONS: AddressingDocument = { botMentioned: false, otherPersonMentioned: false };
+
+export function normalizePlatformAdapter(adapter: ContextCapableAdapter): NormalizedPlatformAdapter {
+	const candidate = adapter as Partial<NormalizedPlatformAdapter> & ContextCapableAdapter;
+	if (
+		typeof candidate.historyScopeThreadId === "function" &&
+		typeof candidate.addressingOf === "function"
+	) {
+		return candidate as NormalizedPlatformAdapter;
+	}
+	return Object.assign(Object.create(adapter) as ContextCapableAdapter, {
+		historyScopeThreadId:
+			candidate.historyScopeThreadId?.bind(adapter) ?? ((threadId: string): string => threadId),
+		addressingOf: candidate.addressingOf?.bind(adapter) ?? ((): AddressingDocument => NO_MENTIONS),
+	});
+}
+
 export type HistoryCursorState = {
 	threadId: string;
 	cursor?: string;

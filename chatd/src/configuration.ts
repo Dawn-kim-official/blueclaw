@@ -15,7 +15,6 @@ export type BuzzConfiguration = {
 export type ChatdConfiguration = {
   botUserName: string;
   blueclawBaseURL: string;
-  blueclawIngressURL: string | undefined;
   admindBaseURL: string | undefined;
   listenPort: number;
   mattermost: MattermostConfiguration | undefined;
@@ -30,7 +29,6 @@ export function loadConfiguration(environment: Record<string, string | undefined
         deriveBaseURL(environment['CHATD_BLUECLAW_INGRESS_URL']) ||
         'http://127.0.0.1:8080',
     ),
-    blueclawIngressURL: environment['CHATD_BLUECLAW_INGRESS_URL']?.trim() || undefined,
     admindBaseURL: environment['CHATD_ADMIND_BASE_URL']?.trim() || undefined,
     listenPort: parseListenPort(environment['CHATD_LISTEN_PORT']),
     mattermost: loadMattermostConfiguration(environment),
@@ -38,9 +36,6 @@ export function loadConfiguration(environment: Record<string, string | undefined
   };
   if (!configuration.mattermost && !configuration.buzz) {
     throw new Error('chatd needs at least one platform: set CHATD_MATTERMOST_* or CHATD_BUZZ_* variables');
-  }
-  if (configuration.mattermost && !configuration.blueclawIngressURL) {
-    throw new Error('CHATD_BLUECLAW_INGRESS_URL is required when mattermost is enabled');
   }
   return configuration;
 }

@@ -6,7 +6,11 @@ import { loadConfiguration } from './configuration.ts';
 import { createBridge } from './bridge.ts';
 import { createOutboundHandler } from './outbound.ts';
 import { createMirror, type MirrorWiring } from './mirror/wire.ts';
-import type { NormalizedPlatformAdapter } from './visible-context.ts';
+import {
+  normalizePlatformAdapter,
+  type ContextCapableAdapter,
+  type NormalizedPlatformAdapter,
+} from './visible-context.ts';
 
 const configuration = loadConfiguration(process.env);
 
@@ -30,25 +34,35 @@ if (configuration.admindBaseURL && configuration.buzz) {
 
 const adapters: Record<string, Adapter> = {};
 const normalizedAdapters: Record<string, NormalizedPlatformAdapter> = {};
+
+function registerAdapter(platform: string, adapter: Adapter): void {
+  adapters[platform] = adapter;
+  normalizedAdapters[platform] = normalizePlatformAdapter(adapter as unknown as ContextCapableAdapter);
+}
+
 if (configuration.mattermost) {
-  adapters.mattermost = createMattermostAdapter({
-    baseUrl: configuration.mattermost.baseURL,
-    botToken: configuration.mattermost.botToken,
-    callbackUrl: configuration.mattermost.actionCallbackURL,
-    mirror: mirror?.mattermost,
-  });
+  registerAdapter(
+    'mattermost',
+    createMattermostAdapter({
+      baseUrl: configuration.mattermost.baseURL,
+      botToken: configuration.mattermost.botToken,
+      callbackUrl: configuration.mattermost.actionCallbackURL,
+      mirror: mirror?.mattermost,
+    }),
+  );
 }
 if (configuration.buzz) {
-  const buzzAdapter = createBuzzAdapter({
-    relayURL: configuration.buzz.relayURL,
-    privateKeyHex: configuration.buzz.privateKeyHex,
-    botDisplayName: configuration.botUserName,
-    accountLinksPath: configuration.buzz.accountLinksPath,
-    authTagJSON: configuration.buzz.authTagJSON,
-    mirror: mirror?.buzz,
-  });
-  adapters.buzz = buzzAdapter;
-  normalizedAdapters.buzz = buzzAdapter;
+  registerAdapter(
+    'buzz',
+    createBuzzAdapter({
+      relayURL: configuration.buzz.relayURL,
+      privateKeyHex: configuration.buzz.privateKeyHex,
+      botDisplayName: configuration.botUserName,
+      accountLinksPath: configuration.buzz.accountLinksPath,
+      authTagJSON: configuration.buzz.authTagJSON,
+      mirror: mirror?.buzz,
+    }),
+  );
 }
 
 const chat = new Chat({
@@ -69,8 +83,12 @@ Bun.serve({
   hostname: '127.0.0.1',
   fetch: async (request) => {
     const requestUrl = new URL(request.url);
-    if (requestUrl.pathname === '/webhooks/mattermost' && adapters.mattermost) {
-      return chat.webhooks.mattermost?.(request) ?? new Response('Not Found', { status: 404 });
+    const webhookPlatform = requestUrl.pathname.startsWith('/webhooks/')
+      ? requestUrl.pathname.slice('/webhooks/'.length)
+      : '';
+    if (webhookPlatform && adapters[webhookPlatform]) {
+      const webhooks = chat.webhooks as Record<string, ((request: Request) => Response | Promise<Response>) | undefined>;
+      return webhooks[webhookPlatform]?.(request) ?? new Response('Not Found', { status: 404 });
     }
     if (requestUrl.pathname.startsWith('/v1/platform/')) {
       return outboundHandler(request);
