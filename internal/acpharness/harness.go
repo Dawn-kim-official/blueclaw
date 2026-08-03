@@ -10,6 +10,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/taskstate"
 )
@@ -59,8 +60,12 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 
 	turnObserver := &sessionObserver{}
 	connection := acp.NewClientSideConnection(turnObserver, agentInput, agentOutput)
-	if _, errorValue := connection.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); errorValue != nil {
+	initializeResponse, errorValue := connection.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
+	}
+	if !initializeResponse.AgentCapabilities.McpCapabilities.Http {
+		return agentcontract.AgentTurnResult{}, errors.New("this agent does not accept http mcp servers, which is the only way it can reach tools that run as the requester; running it without them would answer from no tools at all")
 	}
 	newSession, errorValue := connection.NewSession(ctx, acp.NewSessionRequest{
 		Cwd: request.WorkspaceRootPath,
@@ -76,7 +81,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	}
 	promptResponse, errorValue := connection.Prompt(ctx, acp.PromptRequest{
 		SessionId: newSession.SessionId,
-		Prompt:    []acp.ContentBlock{acp.TextBlock(request.Prompt)},
+		Prompt:    []acp.ContentBlock{acp.TextBlock(harness.promptForTurn(request))},
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -173,6 +178,27 @@ func (observer *sessionObserver) WaitForTerminalExit(context.Context, acp.WaitFo
 	return acp.WaitForTerminalExitResponse{}, errFilesystemAndTerminalGoThroughTheToolCatalog
 }
 
-func (observer *sessionObserver) RequestPermission(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	return acp.RequestPermissionResponse{}, errors.New("approval is the sandbox's durable task gate, not an in-turn protocol request")
+func (observer *sessionObserver) RequestPermission(_ context.Context, request acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	for _, permissionOption := range request.Options {
+		if permissionOption.Kind != acp.PermissionOptionKindRejectOnce {
+			continue
+		}
+		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
+			Selected: &acp.RequestPermissionOutcomeSelected{Outcome: "selected", OptionId: permissionOption.OptionId},
+		}}, nil
+	}
+	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
+		Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
+	}}, nil
+}
+
+func (harness *Harness) promptForTurn(request agentcontract.AgentTurnRequest) string {
+	if harness.taskRunStore == nil || strings.TrimSpace(request.ExistingTaskRunID) == "" {
+		return request.Prompt
+	}
+	continuationNote := approvalgate.ApprovalContinuationNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID))
+	if continuationNote == "" {
+		return request.Prompt
+	}
+	return request.Prompt + "\n\n" + continuationNote
 }

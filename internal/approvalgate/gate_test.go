@@ -118,3 +118,45 @@ func TestACallWithNoTaskRunToAnswerOnIsHeldRatherThanRun(t *testing.T) {
 		t.Fatalf("expected a call the requester cannot be asked about to be held, got %+v", outcome)
 	}
 }
+
+func recordDecision(taskRunService *task.TaskRunService, taskRunID string, decision string) {
+	taskRunService.AppendTaskEvent(taskRunID, "approval.decided", `{"decision":"`+decision+`"}`)
+}
+
+func TestTheSameCallRunsOnceTheRequesterHasApprovedIt(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	heldOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	if heldOutcome.Decision != mcpserver.ApprovalDecisionHeld {
+		t.Fatalf("expected the first call to be held, got %+v", heldOutcome)
+	}
+
+	recordDecision(taskRunService, taskRun.TaskRunID, "confirm")
+
+	approvedOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	if approvedOutcome.Decision != mcpserver.ApprovalDecisionApproved {
+		t.Fatalf("expected the approved call to run when the agent reissues it, got %+v", approvedOutcome)
+	}
+}
+
+func TestAnApprovalIsSpentOnTheCallItAnsweredAndNotTheNextOne(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	recordDecision(taskRunService, taskRun.TaskRunID, "confirm")
+	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+
+	repeatedOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	if repeatedOutcome.Decision == mcpserver.ApprovalDecisionApproved {
+		t.Fatal("expected one approval to authorise one call, so a second identical call is asked about again")
+	}
+}
+
+func TestADeclinedCallComesBackRejectedRatherThanHeldForever(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	recordDecision(taskRunService, taskRun.TaskRunID, "cancel")
+
+	declinedOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	if declinedOutcome.Decision != mcpserver.ApprovalDecisionRejected {
+		t.Fatalf("expected a declined call to be told so, got %+v", declinedOutcome)
+	}
+}
