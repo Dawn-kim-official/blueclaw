@@ -2,6 +2,8 @@ package enrollment
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -19,6 +21,7 @@ const (
 	managedPassword     = "blueclaw"
 	managedPortEnvName  = "BLUECLAW_MANAGED_POSTGRES_PORT"
 	defaultManagedPort  = 25432
+	managedPortRange    = 1000
 )
 
 type ManagedPostgres struct {
@@ -39,7 +42,12 @@ func (managed ManagedPostgres) Port() uint32 {
 			return uint32(parsedPort)
 		}
 	}
-	return defaultManagedPort
+	return defaultManagedPort + portOffsetForHome(managed.home.DirectoryPath)
+}
+
+func portOffsetForHome(directoryPath string) uint32 {
+	digest := sha256.Sum256([]byte(directoryPath))
+	return uint32(binary.BigEndian.Uint16(digest[:2])) % managedPortRange
 }
 
 func (managed ManagedPostgres) ConnectionString() string {

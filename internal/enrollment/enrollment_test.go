@@ -103,3 +103,18 @@ func TestHomeFollowsTheEnvironmentSoOneMachineCanHoldSeveralInstalls(t *testing.
 		t.Fatalf("expected the configured home to win, got %q", home.DirectoryPath)
 	}
 }
+
+func TestTwoInstallsOnOneMachineDoNotFightOverThePort(t *testing.T) {
+	firstHome := Home{DirectoryPath: filepath.Join(t.TempDir(), "first")}
+	secondHome := Home{DirectoryPath: filepath.Join(t.TempDir(), "second")}
+
+	firstPort := NewManagedPostgres(firstHome).Port()
+	secondPort := NewManagedPostgres(secondHome).Port()
+
+	if firstPort == secondPort {
+		t.Fatalf("expected each install to manage its own database on its own port, both got %d", firstPort)
+	}
+	if firstPort != NewManagedPostgres(firstHome).Port() {
+		t.Fatal("expected an install's port to stay the same across restarts")
+	}
+}

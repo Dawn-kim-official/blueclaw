@@ -10,9 +10,13 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
 )
 
+const unreachableDatabase = "postgres:///blueclaw?host=/nonexistent/blueclaw-test-socket&sslmode=disable"
+
 func setupModelFixture(t *testing.T) SetupModel {
 	t.Helper()
-	return NewSetupModel(enrollment.Home{DirectoryPath: filepath.Join(t.TempDir(), "blueclaw")})
+	setupModel := NewSetupModel(enrollment.Home{DirectoryPath: filepath.Join(t.TempDir(), "blueclaw")})
+	setupModel.setTextField(setupFieldDatabaseConnectionString, unreachableDatabase)
+	return setupModel
 }
 
 func typeText(setupModel SetupModel, text string) SetupModel {
@@ -43,7 +47,6 @@ func keyPressForName(keyName string) tea.KeyPressMsg {
 func TestSetupWillNotFinishAnInstallThatCannotStart(t *testing.T) {
 	setupModel := setupModelFixture(t)
 	setupModel.setTextField(setupFieldOpenRouterAPIKey, "test-key")
-	setupModel.answers.DatabaseConnectionString = "postgres://nobody@127.0.0.1:1/blueclaw?sslmode=disable&connect_timeout=1"
 
 	if errorValue := (&setupModel).Finish(); errorValue == nil {
 		t.Fatalf("expected setup to refuse while a dependency is unreachable, because the alternative is an install that only looks finished; checks were %+v", setupModel.CheckResults())
