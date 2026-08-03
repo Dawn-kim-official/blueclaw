@@ -185,7 +185,7 @@ func (setupModel *SetupModel) cycleSelectedChoice() {
 }
 
 func (setupModel *SetupModel) RunPreflight() {
-	setupModel.checkResults = enrollment.Preflight(context.Background(), setupModel.answers)
+	setupModel.checkResults = enrollment.Preflight(context.Background(), setupModel.home, setupModel.answers)
 	setupModel.isChecking = false
 }
 
