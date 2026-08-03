@@ -84,19 +84,18 @@ func negotiatedProtocolVersion(requestedVersion acp.ProtocolVersion) acp.Protoco
 	return acp.ProtocolVersionNumber
 }
 
-func (agent *Agent) NewSession(_ context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	if len(request.McpServers) > 0 {
-		return acp.NewSessionResponse{}, acp.NewInvalidParams(map[string]any{
-			"reason": "this agent runs the tools its host registered and does not connect to client-supplied MCP servers",
-		})
-	}
+func (agent *Agent) NewSession(ctx context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	workspaceRootPath := strings.TrimSpace(request.Cwd)
 	if workspaceRootPath == "" {
 		return acp.NewSessionResponse{}, acp.NewInvalidParams(map[string]any{"reason": "cwd is required and must be an absolute path"})
 	}
+	clientToolSet, errorValue := clientSuppliedToolSet(ctx, request.McpServers)
+	if errorValue != nil {
+		return acp.NewSessionResponse{}, acp.NewInvalidParams(map[string]any{"reason": errorValue.Error()})
+	}
 	sessionID := acp.SessionId(agent.options.NewSessionIdentity())
 	agent.mutex.Lock()
-	agent.sessions[sessionID] = &session{sessionID: sessionID, workspaceRootPath: workspaceRootPath}
+	agent.sessions[sessionID] = &session{sessionID: sessionID, workspaceRootPath: workspaceRootPath, clientToolSet: clientToolSet}
 	agent.mutex.Unlock()
 	return acp.NewSessionResponse{SessionId: sessionID}, nil
 }
@@ -120,11 +119,14 @@ func (agent *Agent) runTurn(ctx context.Context, sessionID acp.SessionId, prompt
 	promptSession.mutex.Lock()
 	defer promptSession.mutex.Unlock()
 
-	toolSet := agent.options.BuildToolSet(ToolSetRequest{
-		WorkspaceRootPath: promptSession.workspaceRootPath,
-		RequesterPersonID: agent.options.RequesterPersonID,
-		Prompt:            promptText,
-	})
+	toolSet := promptSession.clientToolSet
+	if toolSet == nil {
+		toolSet = agent.options.BuildToolSet(ToolSetRequest{
+			WorkspaceRootPath: promptSession.workspaceRootPath,
+			RequesterPersonID: agent.options.RequesterPersonID,
+			Prompt:            promptText,
+		})
+	}
 	turnResult, errorValue := agent.streamTurnEvents(ctx, sessionID, promptSession, toolSet, promptText)
 	if errorValue != nil {
 		return acp.PromptResponse{}, errorValue
@@ -302,4 +304,11 @@ func unadvertisedPromptContent(capabilityName string) *acp.RequestError {
 		"capability": capabilityName,
 		"reason":     "this agent reports " + capabilityName + " as unsupported in its prompt capabilities",
 	})
+}
+
+func clientSuppliedToolSet(ctx context.Context, mcpServers []acp.McpServer) (*toolcontract.ToolSet, error) {
+	if len(mcpServers) == 0 {
+		return nil, nil
+	}
+	return toolSetFromClientCatalogs(ctx, mcpServers)
 }
