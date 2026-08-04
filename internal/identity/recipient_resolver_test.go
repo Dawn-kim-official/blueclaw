@@ -10,7 +10,7 @@ func testPeople() []policy.PersonPolicy {
 	return []policy.PersonPolicy{
 		{PersonID: "person-rain", DisplayName: "김테스트", Emails: []string{"rain@example.com"}},
 		{PersonID: "person-lee", DisplayName: "이샘플", Emails: []string{"lee@example.com"}},
-		{PersonID: "person-chanhee", DisplayName: "최견본", Emails: []string{"gyeonbon@example.com"}},
+		{PersonID: "person-gyeonbon", DisplayName: "최견본", Emails: []string{"gyeonbon@example.com"}},
 	}
 }
 
@@ -51,7 +51,7 @@ func TestResolveRecipientByLearnedAccountAlias(test *testing.T) {
 }
 
 func TestResolveRecipientByExactPersonIDAndEmail(test *testing.T) {
-	for _, hint := range []string{"person-rain", "RAIN@DAWN.KIM"} {
+	for _, hint := range []string{"person-rain", "RAIN@EXAMPLE.COM"} {
 		resolution := ResolveRecipient("mattermost", hint, testPeople(), testAccounts())
 		if resolution.Status != RecipientResolved || resolution.Recipient.PersonID != "person-rain" {
 			test.Fatalf("hint %q resolution = %+v", hint, resolution)

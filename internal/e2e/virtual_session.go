@@ -2759,8 +2759,8 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 			Sender: connectors.VisibleContextSender{
 				Platform:    "virtual",
 				SenderID:    "user-1",
-				Handle:      "dongha",
-				Email:       "dongha@example.com",
+				Handle:      "sample",
+				Email:       "sample@example.com",
 				Name:        "샘플",
 				CallingName: "샘플 님",
 			},
@@ -2865,7 +2865,7 @@ func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex 
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
-	harness.adapter.RememberMessage(connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt})
+	harness.adapter.RememberMessage(connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "sample", Text: virtualTurn.Prompt})
 	if !turnResult.DidReply {
 		return
 	}
@@ -3622,7 +3622,7 @@ func testPolicyProjection() policy.PolicyProjection {
 		People: []policy.PersonPolicy{{
 			PersonID:          "person-1",
 			DisplayName:       "샘플",
-			Emails:            []string{"dongha@example.com"},
+			Emails:            []string{"sample@example.com"},
 			Circles:           []string{"staff"},
 			SecurityLevelRank: 0,
 			GrantedClasses:    []string{},
@@ -3674,7 +3674,7 @@ func (adapter *virtualAdapter) ResolveIdentity(context.Context, string) (identit
 	return identity.PlatformAccountIdentity{
 		Platform:       "virtual",
 		ExternalUserID: "user-1",
-		Email:          "dongha@example.com",
+		Email:          "sample@example.com",
 		DisplayName:    "샘플",
 	}, nil
 }

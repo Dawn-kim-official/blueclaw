@@ -284,7 +284,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "샘플",
 				SpeakerCallingName: "샘플 님",
-				SpeakerHandle:      "dongha",
+				SpeakerHandle:      "sample",
 				Text:               "이거 뭔지 알아?",
 				InputAttachments:   []connectors.InputAttachment{attachment},
 			}},
@@ -367,7 +367,7 @@ func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string)
 			ContextMessages: []connectors.VisibleContextMessage{{
 				Speaker:            "샘플",
 				SpeakerCallingName: "샘플 님",
-				SpeakerHandle:      "dongha",
+				SpeakerHandle:      "sample",
 				Text:               "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
 				InputAttachments:   []connectors.InputAttachment{attachment},
 			}},

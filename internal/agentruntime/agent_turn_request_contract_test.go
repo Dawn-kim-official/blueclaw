@@ -39,9 +39,9 @@ func TestLaunchedAgentTurnRequestCarriesHostAssembledContext(t *testing.T) {
 		SourceReference:      "mattermost:post-1",
 		RequesterPersonID:    "person-1",
 		RequesterName:        "김샘플",
-		RequesterEmail:       "dongha@example.com",
+		RequesterEmail:       "sample@example.com",
 		RequesterCallingName: "샘플 님",
-		RequesterHandle:      "dongha",
+		RequesterHandle:      "sample",
 		ProfileName:          "default",
 		Platform:             "mattermost",
 		ConversationID:       "channel-1",
@@ -64,7 +64,7 @@ func TestLaunchedAgentTurnRequestCarriesHostAssembledContext(t *testing.T) {
 	}
 
 	turnRequest := harness.LastTurnRequest()
-	if turnRequest.RequesterPersonID != "person-1" || turnRequest.RequesterEmail != "dongha@example.com" || turnRequest.RequesterName != "김샘플" {
+	if turnRequest.RequesterPersonID != "person-1" || turnRequest.RequesterEmail != "sample@example.com" || turnRequest.RequesterName != "김샘플" {
 		t.Fatalf("expected requester identity on the turn request, got %+v", turnRequest)
 	}
 	if turnRequest.Prompt != "이 파일 요약해줘" || turnRequest.ProfileName != "default" || turnRequest.ConversationID != "channel-1" {
