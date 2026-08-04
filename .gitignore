@@ -10,3 +10,11 @@ default.profraw
 node_modules/
 .svelte-kit/
 web/admin/
+/bin/
+*.test
+*.out
+.env
+.env.*
+!.env.example
+*.pem
+*.key
