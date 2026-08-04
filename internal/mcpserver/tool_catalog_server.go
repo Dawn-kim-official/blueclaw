@@ -21,6 +21,8 @@ type RequesterToolSet struct {
 	ApprovalGate      ApprovalGate
 	HarnessSession    HarnessSession
 	ToolAudience      ToolAudience
+
+	ObserveToolInvocation func(toolName string, isSucceeded bool)
 }
 
 func NewToolCatalogServer(requesterToolSet RequesterToolSet, version string) (*mcp.Server, error) {
@@ -101,6 +103,9 @@ func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor tool
 			ToolName: toolDescriptor.Name,
 			Input:    request.Params.Arguments,
 		})
+		if requesterToolSet.ObserveToolInvocation != nil {
+			requesterToolSet.ObserveToolInvocation(toolDescriptor.Name, errorValue == nil && toolResult.Failure == nil)
+		}
 		if errorValue != nil {
 			return nil, errorValue
 		}

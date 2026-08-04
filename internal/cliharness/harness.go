@@ -20,6 +20,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnoutcome"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
@@ -61,6 +62,7 @@ type Harness struct {
 	taskRunStore                   taskstate.TaskRunStore
 	requesterProcessRunner         RequesterProcessRunner
 	workspaceRootPath              string
+	outcomeClassifier              turnoutcome.Classifier
 	agentTimeoutSecond             int
 	conversationStateMutex         sync.Mutex
 	conversationStateByIdentityKey map[string]*conversationState
@@ -74,6 +76,10 @@ func New(agentCommand AgentCommand, toolCatalogPublisher ToolCatalogPublisher, t
 		agentTimeoutSecond:             600,
 		conversationStateByIdentityKey: map[string]*conversationState{},
 	}
+}
+
+func (harness *Harness) UseOutcomeClassifier(outcomeClassifier turnoutcome.Classifier) {
+	harness.outcomeClassifier = outcomeClassifier
 }
 
 func (harness *Harness) UseRequesterProcessRunner(requesterProcessRunner RequesterProcessRunner, workspaceRootPath string) {
@@ -90,7 +96,9 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	}
 	identityKey := conversationIdentityKey(request)
 	harnessSession := harness.harnessSessionForTurn(request, identityKey)
+	succeededToolRecorder := &turnoutcome.SucceededToolRecorder{}
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
+		ObserveToolInvocation: succeededToolRecorder.Observe,
 		RequesterPersonID: request.RequesterPersonID,
 		TaskRunID:         request.ExistingTaskRunID,
 		ToolSet:           request.ToolSet,
@@ -128,7 +136,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 		agentStandardInput = ""
 	}
 	if harness.requesterProcessRunner != nil {
-		return harness.runAsRequester(ctx, request, identityKey, arguments, agentStandardInput, endpointURL, bearerToken)
+		return harness.runAsRequester(ctx, request, identityKey, arguments, agentStandardInput, endpointURL, bearerToken, succeededToolRecorder)
 	}
 	if errorValue := harness.writeToolCatalogWorkspaceFile(request.WorkspaceRootPath, endpointURL, bearerToken, nil); errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -144,17 +152,29 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if errorValue := command.Run(); errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errors.New(strings.TrimSpace(standardError.String()) + " (" + errorValue.Error() + ")")
 	}
-	return harness.turnResult(request, harness.completeTurn(identityKey, standardOutput.String())), nil
+	return harness.turnResult(ctx, request, harness.completeTurn(identityKey, standardOutput.String()), succeededToolRecorder), nil
 }
 
-func (harness *Harness) turnResult(request agentcontract.AgentTurnRequest, finishMessage string) agentcontract.AgentTurnResult {
-	taskRun := taskstate.TaskRun{Status: taskstate.TaskStatusCompleted}
+func (harness *Harness) turnResult(ctx context.Context, request agentcontract.AgentTurnRequest, finishMessage string, succeededToolRecorder *turnoutcome.SucceededToolRecorder) agentcontract.AgentTurnResult {
+	taskStatus, failureReason := harness.outcomeForEndedTurn(ctx, request, finishMessage, succeededToolRecorder.SucceededToolNames())
+	taskRun := taskstate.TaskRun{Status: taskStatus, FailureReason: failureReason}
 	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
 		if existingTaskRun, isFound := harness.taskRunStore.FindTaskRun(request.ExistingTaskRunID); isFound {
 			taskRun = existingTaskRun
 		}
 	}
 	return agentcontract.AgentTurnResult{TaskRun: taskRun, FinishMessage: finishMessage, UserNotice: finishMessage}
+}
+
+func (harness *Harness) outcomeForEndedTurn(ctx context.Context, request agentcontract.AgentTurnRequest, finishMessage string, succeededToolNames []string) (taskstate.TaskStatus, string) {
+	if !harness.outcomeClassifier.IsConfigured() {
+		return taskstate.TaskStatusCompleted, ""
+	}
+	verdict, errorValue := harness.outcomeClassifier.Classify(ctx, request.Prompt, finishMessage, succeededToolNames)
+	if errorValue != nil {
+		return taskstate.TaskStatusFailed, "the runtime could not determine what this turn achieved: " + errorValue.Error()
+	}
+	return verdict.Status, verdict.Reason
 }
 
 func writeToolCatalogConfiguration(endpointURL string, bearerToken string) (string, error) {
@@ -220,7 +240,7 @@ func (harness *Harness) writeToolCatalogWorkspaceFile(workspaceRootPath string, 
 	return requesterActor.WriteFile(context.Background(), configurationPath, encodedDocument)
 }
 
-func (harness *Harness) runAsRequester(ctx context.Context, request agentcontract.AgentTurnRequest, identityKey string, arguments []string, agentStandardInput string, endpointURL string, bearerToken string) (agentcontract.AgentTurnResult, error) {
+func (harness *Harness) runAsRequester(ctx context.Context, request agentcontract.AgentTurnRequest, identityKey string, arguments []string, agentStandardInput string, endpointURL string, bearerToken string, succeededToolRecorder *turnoutcome.SucceededToolRecorder) (agentcontract.AgentTurnResult, error) {
 	workspaceRootPath := harness.workspaceRootPath
 	if strings.TrimSpace(workspaceRootPath) == "" {
 		workspaceRootPath = request.WorkspaceRootPath
@@ -249,7 +269,7 @@ func (harness *Harness) runAsRequester(ctx context.Context, request agentcontrac
 	if commandResult.ExitCode != 0 {
 		return agentcontract.AgentTurnResult{}, errors.New(strings.TrimSpace(commandResult.Stderr))
 	}
-	return harness.turnResult(request, harness.completeTurn(identityKey, commandResult.Stdout)), nil
+	return harness.turnResult(ctx, request, harness.completeTurn(identityKey, commandResult.Stdout), succeededToolRecorder), nil
 }
 
 // Antigravity has no way to allow only the catalog's tools the way claude-code
