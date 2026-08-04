@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 const ambientDutyLaunchConfidenceThreshold = 0.7

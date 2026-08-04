@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
@@ -32,7 +32,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessselection"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/blueclaw/internal/intake"
+	"github.com/Dawn-kim-official/bluecollar/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
@@ -49,7 +49,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/internal/userapi"
-	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/bluecollar/model"
 	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
 )
 

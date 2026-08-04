@@ -1,6 +1,6 @@
 package task
 
-import "github.com/Dawn-kim-official/blueclaw/taskstate"
+import "github.com/Dawn-kim-official/bluecollar/taskstate"
 
 type (
 	ErrIllegalTransition           = taskstate.ErrIllegalTransition

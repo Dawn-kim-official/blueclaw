@@ -17,7 +17,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
 func requireUnprivilegedSandboxProcess(t *testing.T) string {

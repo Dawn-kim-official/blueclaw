@@ -2,7 +2,7 @@ package agentruntime
 
 import (
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"strings"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"

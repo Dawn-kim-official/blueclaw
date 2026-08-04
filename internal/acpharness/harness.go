@@ -9,10 +9,10 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/blueclaw/taskstate"
+	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
 const toolCatalogServerName = "blueclaw"

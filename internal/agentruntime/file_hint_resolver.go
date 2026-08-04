@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func resolveFileHintReference(request ToolCatalogRequest, path string, materialID string, fileHint string) (string, string, error) {

@@ -13,10 +13,10 @@ function names beside them are the durable reference.
 | Layer | Owns | Package |
 |---|---|---|
 | Host | connectors, policy, identity, task store, approvals, tool catalog, memory, delivery, POSIX projection | `internal/`, `cmd/` |
-| Harness | the agent loop: route a turn, run it, answer, classify | `internal/bluecollar` |
-| Contract | the types both compile against, and the harness port | `agentcontract/`, `toolcontract/`, `taskstate/` |
+| Harness | the agent loop: route a turn, run it, answer, classify | `.dependency/bluecollar` |
+| Contract | the types both compile against, and the harness port | `.dependency/bluecollar/agentcontract/`, `.dependency/bluecollar/toolcontract/`, `.dependency/bluecollar/taskstate/` |
 
-The port is `agentcontract.Harness` (`agentcontract/harness.go:5`), a single
+The port is `agentcontract.Harness` (`.dependency/bluecollar/agentcontract/harness.go:5`), a single
 method:
 
 | Method | Called from |
@@ -37,7 +37,7 @@ completion — it takes from `taskstate.TaskRunService` directly. Those methods
 were removed from the kernel deliberately; do not reintroduce store passthrough
 on the harness.
 
-`internal/bluecollar/contract.go` is the alias shim. `:5` asserts
+`.dependency/bluecollar/contract.go` is the alias shim. `:5` asserts
 `*AgentKernel` satisfies the port; the `type (...)` block re-exports the types
 that moved to `agentcontract` so the ~130 Go files naming `AgentTurnRequest`,
 `VisibleContext`, `InstructionBundle`, `MemoryFact` and their closure did not
@@ -228,7 +228,7 @@ An inbound message becomes at most one task run. The path, end to end:
    `ClassifyActiveTaskFollowUp` (`internal/connectors/busy_message.go`,
    `internal/connectors/task_control.go`) decide between steering the running
    task, replacing it, answering status, or starting a second one.
-   `BusyRoute*` constants are in `agentcontract/turn_decision.go`.
+   `BusyRoute*` constants are in `.dependency/bluecollar/agentcontract/turn_decision.go`.
 4. **Launch.** `TaskLauncher.Launch`
    (`internal/agentruntime/task_launcher.go:160`) runs an ordered pipeline of
    launch steps, each recorded as an event so a failure names its step:
@@ -236,9 +236,9 @@ An inbound message becomes at most one task run. The path, end to end:
    `buildToolSetLaunchStep` (`:257`) → `auditToolRegistryLaunchStep` (`:287`) →
    `loadMemoryLaunchStep` (`:297`) → `runTurnLaunchStep` (`:347`).
 5. **Turn.** `AgentKernel.RunAgentRequest`
-   (`internal/bluecollar/agent_kernel.go:200`) plans the turn with the turn
+   (`.dependency/bluecollar/agent_kernel.go:200`) plans the turn with the turn
    router, then hands execution to `AgentTurnRunner.RunTurn`
-   (`internal/bluecollar/turn_runner.go:228`).
+   (`.dependency/bluecollar/turn_runner.go:228`).
 6. **Delivery.** The result enqueues into the connector outbox and is dispatched
    by `internal/connectors/task_reply_dispatch.go`.
 
@@ -284,7 +284,7 @@ stay.
 
 Tool exposure is separate from all of this. Extension tool schemas offered to
 the model are capped at `maxExtensionCallableToolCount` (15, in
-`internal/bluecollar/tool_exposure.go:9`); kernel tools are added on top of that
+`.dependency/bluecollar/tool_exposure.go:9`); kernel tools are added on top of that
 cap (`toolSetForAgentTurnWithExposure:41-45`). Groups are ordered by priority —
 required interaction, recovery, pending working-set tool, required evidence,
 pinned, selected skills, evidence alternatives (`:36`) — and whatever does not
@@ -295,8 +295,8 @@ disappearing.
 
 Completion gates are independent from tool visibility. A `finish` must name the
 observations that prove the work happened
-(`internal/bluecollar/completion_gate.go`,
-`internal/bluecollar/completion_judge.go`), and draft or setup evidence such as
+(`.dependency/bluecollar/completion_gate.go`,
+`.dependency/bluecollar/completion_judge.go`), and draft or setup evidence such as
 site creation cannot close a publish Task without the required build, review,
 publish, and final status evidence. Contract verification runs only when the
 task has explicit outcome requirements; empty contracts stay on the fast path.
@@ -304,7 +304,7 @@ task has explicit outcome requirements; empty contracts stay on the fast path.
 ### Approvals
 
 Approval is a runtime pause and a verbatim re-execution, not a prompt
-instruction. `internal/bluecollar/approval_gate.go`:
+instruction. `.dependency/bluecollar/approval_gate.go`:
 
 | Concern | Function |
 |---|---|
@@ -314,7 +314,7 @@ instruction. `internal/bluecollar/approval_gate.go`:
 | task-scoped reuse | `taskAlreadyApprovedScope:215`, `taskApprovedScopes:223` |
 
 The scope comes from the tool descriptor's `ApprovalScope`
-(`toolcontract/registry.go:35`), not from the tool's name. An approved call is
+(`.dependency/bluecollar/toolcontract/registry.go:35`), not from the tool's name. An approved call is
 re-executed exactly as it was held; a modified call is a new approval.
 
 `ask_input`, `ask_confirm`, and `ask_choice` are outside grant reuse — they are
@@ -322,15 +322,15 @@ questions, not grants.
 
 ## Task store
 
-`taskstate/` is the durable state of a run and is host-owned, not harness-owned.
+`.dependency/bluecollar/taskstate/` is the durable state of a run and is host-owned, not harness-owned.
 
 | Type | File |
 |---|---|
-| `TaskRunStore`, `TaskStepStore`, `TaskArtifactStore` interfaces | `taskstate/store.go:7`, `:30`, `:34` |
-| run lifecycle | `taskstate/task_run_service.go` |
-| event ledger | `taskstate/task_event_service.go` |
-| steps | `taskstate/task_step_service.go` |
-| artifacts | `taskstate/task_artifact_service.go` |
+| `TaskRunStore`, `TaskStepStore`, `TaskArtifactStore` interfaces | `.dependency/bluecollar/taskstate/store.go:7`, `:30`, `:34` |
+| run lifecycle | `.dependency/bluecollar/taskstate/task_run_service.go` |
+| event ledger | `.dependency/bluecollar/taskstate/task_event_service.go` |
+| steps | `.dependency/bluecollar/taskstate/task_step_service.go` |
+| artifacts | `.dependency/bluecollar/taskstate/task_artifact_service.go` |
 
 Transitions go through one function, `TransitionTaskRun`
 (`task_run_service.go:247`), which records a transition event; `AdvanceTaskRun`
@@ -350,13 +350,13 @@ exposure decision, and launch step lands there, and
 
 ### Description
 
-A tool is a `toolcontract.ToolDescriptor` (`toolcontract/registry.go:16`) bound
+A tool is a `toolcontract.ToolDescriptor` (`.dependency/bluecollar/toolcontract/registry.go:16`) bound
 to a handler. Behavior lives on the descriptor, never on the name:
 
 | Field | Decides |
 |---|---|
 | `Namespace`, `PolicyResource` | grouping and policy resource for access checks |
-| `SideEffectClass` | blast radius; the valid set is enumerated at `toolcontract/provider.go:370-386` |
+| `SideEffectClass` | blast radius; the valid set is enumerated at `.dependency/bluecollar/toolcontract/provider.go:370-386` |
 | `RequiresApproval`, `ApprovalScope` | whether the runtime pauses, and what a grant covers |
 | `RequiresUserPresence`, `RequiresRequesterDevice` | routes execution to the user's own machine rather than the appliance |
 | `Visibility` | `visible` / `hidden` / `control` |
@@ -366,13 +366,13 @@ to a handler. Behavior lives on the descriptor, never on the name:
 
 Do not branch on a tool's name prefix or suffix. A rename silently kills that
 kind of dispatch; the descriptor fields survive it. Kernel tool names are
-constants in `toolcontract/kernel_tools.go:5-21` and the full kernel set is
+constants in `.dependency/bluecollar/toolcontract/kernel_tools.go:5-21` and the full kernel set is
 `KernelToolNames()` (`:23`).
 
 ### Registration and validation
 
 Tools arrive from providers implementing `toolcontract.ToolProvider`
-(`toolcontract/provider.go:46`), registered through `RegisterProviders`
+(`.dependency/bluecollar/toolcontract/provider.go:46`), registered through `RegisterProviders`
 (`:96`). Providers in this repository:
 
 | Provider | File |
@@ -603,8 +603,8 @@ false delivery claim) can block a draft, while style and intent issues merely
 trigger repair. Blueclaw tries generated wording, then repair, then local
 wording, then delivers the best safety-passing draft, and only as a last resort
 sends a compact redacted raw-error notice
-(`internal/bluecollar/failure_notice.go`,
-`internal/bluecollar/failure_reply.go`). Full suppression is reserved for
+(`.dependency/bluecollar/failure_notice.go`,
+`.dependency/bluecollar/failure_reply.go`). Full suppression is reserved for
 duplicates, cancellations, and self or bot messages.
 
 Exact control acknowledgements for slash commands, such as stop and stop-all,
@@ -639,7 +639,7 @@ Cross-process agent, LLM, capability, task, and connector contracts live under
 `protocol/`. Zod schemas are the source for deterministic JSON Schema artifacts,
 and shared fixtures verify that the Go wire DTOs retain their behavior
 (`*_protocol_fixture_test.go` in `internal/llm`, `internal/task`,
-`internal/connectors`, `internal/bluecollar`).
+`internal/connectors`, `.dependency/bluecollar`).
 
 ```bash
 cd protocol
@@ -653,7 +653,7 @@ A value list consumed by more than one language is defined once and derived
 everywhere else. Where a consumer cannot import the definition, a conformance
 test reads the canonical source and fails on drift —
 `chatd/tests/buzz-adapter.test.ts:113` reads
-`internal/bluecollar/reaction_emoji.go` this way.
+`.dependency/bluecollar/reaction_emoji.go` this way.
 
 ## Admin and task surfaces
 

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"

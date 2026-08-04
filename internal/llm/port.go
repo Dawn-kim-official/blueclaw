@@ -1,6 +1,6 @@
 package llm
 
-import "github.com/Dawn-kim-official/blueclaw/model"
+import "github.com/Dawn-kim-official/bluecollar/model"
 
 type (
 	ChatCompleterAccessor              = model.ChatCompleterAccessor
