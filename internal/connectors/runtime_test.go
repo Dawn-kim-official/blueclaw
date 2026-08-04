@@ -3158,7 +3158,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 		t.Fatal("expected task run id")
 	}
 	requests := languageModel.Requests()
-	if connectorContainsSchemaName(requests, "blueclaw_confirmation_reply_decision") {
+	if connectorContainsSchemaName(requests, "bluecollar_choice_reply_decision") {
 		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(requests))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar_add/invoke" {
