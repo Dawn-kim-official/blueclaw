@@ -11,15 +11,31 @@ import (
 	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
-const replySystemInstruction = "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided context only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed. If the user message only mentions you, answer or continue the recent visible conversation instead of asking what is needed. Treat jokes and playful addressed remarks as real conversational turns, and respond briefly like a good-humored coworker."
+const replySystemInstructionSuffix = ". Reply helpfully and concisely to the user message. Use the provided context only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed. If the user message only mentions you, answer or continue the recent visible conversation instead of asking what is needed. Treat jokes and playful addressed remarks as real conversational turns, and respond briefly like a good-humored coworker."
 
 type Generator struct {
 	languageModel           model.LanguageModelProvider
 	instructionBundleLoader func() agentcontract.InstructionBundle
+	agentIdentityProvider   func() agentcontract.AgentIdentity
 }
 
 func NewGenerator(languageModel model.LanguageModelProvider, instructionBundleLoader func() agentcontract.InstructionBundle) *Generator {
 	return &Generator{languageModel: languageModel, instructionBundleLoader: instructionBundleLoader}
+}
+
+func (generator *Generator) UseAgentIdentityProvider(agentIdentityProvider func() agentcontract.AgentIdentity) {
+	generator.agentIdentityProvider = agentIdentityProvider
+}
+
+func (generator *Generator) replySystemInstruction() string {
+	return generator.agentIdentity().DisplayName() + replySystemInstructionSuffix
+}
+
+func (generator *Generator) agentIdentity() agentcontract.AgentIdentity {
+	if generator.agentIdentityProvider == nil {
+		return agentcontract.AgentIdentity{}
+	}
+	return generator.agentIdentityProvider()
 }
 
 func (generator *Generator) GenerateReply(responseContext context.Context, prompt string) (string, error) {
@@ -54,7 +70,7 @@ func (generator *Generator) GenerateReplyWithContext(responseContext context.Con
 
 func (generator *Generator) chatMessages(prompt string, visibleContext agentcontract.VisibleContext, memoryFacts []agentcontract.MemoryFact) []model.ChatCompletionMessage {
 	return []model.ChatCompletionMessage{
-		{Role: "system", Content: replySystemInstruction},
+		{Role: "system", Content: generator.replySystemInstruction()},
 		{Role: "system", Content: generator.replyContext(visibleContext, memoryFacts, "")},
 		{Role: "user", Content: prompt},
 	}

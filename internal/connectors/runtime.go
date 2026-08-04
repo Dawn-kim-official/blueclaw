@@ -360,6 +360,7 @@ type ConnectorRuntime struct {
 	taskLauncher           *agentruntime.TaskLauncher
 	toolCatalogBuilder     *agentruntime.ToolCatalogBuilder
 	memoryService          *memory.MemoryService
+	agentIdentityProvider  func() agentcontract.AgentIdentity
 	workspaceID            string
 	adminTaskLinkBaseURL   string
 	logger                 *slog.Logger
@@ -584,6 +585,17 @@ func (connectorRuntime *ConnectorRuntime) UseIntakeClassifier(intakeClassifier I
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {
 	connectorRuntime.taskLauncher = taskLauncher
+}
+
+func (connectorRuntime *ConnectorRuntime) UseAgentIdentityProvider(agentIdentityProvider func() agentcontract.AgentIdentity) {
+	connectorRuntime.agentIdentityProvider = agentIdentityProvider
+}
+
+func (connectorRuntime *ConnectorRuntime) agentIdentity() agentcontract.AgentIdentity {
+	if connectorRuntime.agentIdentityProvider == nil {
+		return agentcontract.AgentIdentity{}
+	}
+	return connectorRuntime.agentIdentityProvider()
 }
 
 func (connectorRuntime *ConnectorRuntime) Start(ctx context.Context) {
@@ -3306,6 +3318,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
 	taskLauncher.UseTurnRouter(connectorRuntime.turnRouter)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
+	taskLauncher.UseAgentIdentityProvider(connectorRuntime.agentIdentityProvider)
 	return taskLauncher
 }
 

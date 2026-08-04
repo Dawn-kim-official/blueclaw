@@ -328,6 +328,32 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	}
 }
 
+func TestLoadAgentIdentityReadsBotProfile(t *testing.T) {
+	workspacePath := t.TempDir()
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.yaml"), []byte("username: internkim\ndisplayName: 김인턴\n"), 0o600); errorValue != nil {
+		t.Fatalf("expected bot profile file: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
+
+	agentIdentity := loadAgentIdentity(runtimeConfiguration)
+
+	if agentIdentity.Name != "김인턴" || agentIdentity.Handle != "internkim" {
+		t.Fatalf("expected the bot profile identity, got %+v", agentIdentity)
+	}
+}
+
+func TestRenderBotProfileInstructionOmitsUnconfiguredUsername(t *testing.T) {
+	instruction := renderBotProfileInstruction([]byte("displayName: 김인턴\n"))
+
+	if strings.Contains(instruction, "internal username") {
+		t.Fatalf("expected no username line without a configured username, got %q", instruction)
+	}
+	if !strings.Contains(instruction, "current displayName: 김인턴") {
+		t.Fatalf("expected the configured displayName, got %q", instruction)
+	}
+}
+
 func TestLoadAgentInstructionBundleDiscoversAddedUserSkill(t *testing.T) {
 	workspacePath := t.TempDir()
 	skillDirectoryPath := filepath.Join(workspacePath, ".agents", "skills", "research-helper")

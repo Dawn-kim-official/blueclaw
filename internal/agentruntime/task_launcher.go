@@ -33,6 +33,7 @@ type TaskLauncher struct {
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
 	requesterEmailResolver        RequesterEmailResolver
+	agentIdentityProvider         func() agentcontract.AgentIdentity
 }
 
 type RequesterWorkspaceProvisioner interface {
@@ -183,6 +184,17 @@ func (taskLauncher *TaskLauncher) UseRequesterWorkspaceProvisioner(provisioner R
 
 func (taskLauncher *TaskLauncher) UseRequesterEmailResolver(resolver RequesterEmailResolver) {
 	taskLauncher.requesterEmailResolver = resolver
+}
+
+func (taskLauncher *TaskLauncher) UseAgentIdentityProvider(agentIdentityProvider func() agentcontract.AgentIdentity) {
+	taskLauncher.agentIdentityProvider = agentIdentityProvider
+}
+
+func (taskLauncher *TaskLauncher) agentIdentity() agentcontract.AgentIdentity {
+	if taskLauncher.agentIdentityProvider == nil {
+		return agentcontract.AgentIdentity{}
+	}
+	return taskLauncher.agentIdentityProvider()
 }
 
 func (taskLauncher *TaskLauncher) resolveRequesterEmail(request TaskLaunchRequest) string {
@@ -491,6 +503,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		WorkspaceRootPath:          taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath:       conversationScope.DefaultDirectoryPath,
 		WorkspaceGuidance:          workspaceGuidance(taskLauncher.toolCatalogBuilder.WorkspaceRootPath()),
+		AgentIdentity:              taskLauncher.agentIdentity(),
 		CheckpointSender:           request.CheckpointSender,
 	}
 }
