@@ -68,6 +68,39 @@ The subject line is a claim about the code, not a description of the work:
 than `fix: fixed the status bug`. The body exists to answer *why*; a commit
 whose body only repeats the subject should not have one.
 
+### Prose in documents
+
+The README and the docs are read by people deciding whether to trust this
+thing. Prose that reads as machine-written costs that trust, and it drifts back
+in every time someone lets a model write a paragraph. Grep for it before
+committing.
+
+- **One negative-parallel construction per 500 words.** `X, not Y` ·
+  `rather than` · `not merely … but`. Keep the ones where the alternative is
+  what a reader would actually assume; cut the rest. They stop registering when
+  they repeat, which wastes the ones that matter.
+- **Under three em dashes per 500 words.** An em dash that bolts an appositive
+  onto a finished sentence should be a period.
+- **No sentence praising the document's own honesty.** "worth stating plainly",
+  "to be clear", "honest list". Be plain and say nothing about it.
+- **No section-closing restatement.** If the last sentence of a section adds no
+  fact, delete it.
+- **Three or more `A X is a Y that …` in a row is a definition list.**
+- **A fact stated in a table is not restated in prose.**
+- **Bold whole blocks, never words inside a sentence.**
+
+Check with:
+
+```bash
+python3 - <<'EOF'
+import re, pathlib
+text = pathlib.Path("README.md").read_text()
+words = len(text.split())
+negations = len(re.findall(r", not |rather than |not merely", text))
+print(f"{words} words · {negations} negations (1 per {words // max(negations, 1)}) · {text.count(chr(8212))} em dashes")
+EOF
+```
+
 ### Pull requests
 
 One reviewable change per pull request. The description says what the reader
