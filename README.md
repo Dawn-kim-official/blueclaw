@@ -412,12 +412,20 @@ Neither runs before the kernel decides.
 - `cmd/bluecollar` deliberately uses `DirectWorkspaceActorFactory`
   (`internal/security/direct_workspace_actor.go`), which has no projection at
   all. It is a single-directory batch runner, not a multi-person host.
-- `internal/access/access.go` still exposes `CanAccess`, a Go-side ACL check
-  consulted before exposing capability and MCP tools and before memory reads. It
-  is a migration leftover: the intended boundary is the POSIX actor, and this
-  pre-check is slated for removal rather than extension. It is a hard blocker on
-  publishing, because the POSIX-only claim above is not fully true while it
-  exists.
+- `internal/access/access.go` exposes `CanAccess`, consulted before exposing
+  capability and MCP tools and before memory reads. It was described here as a
+  migration leftover awaiting deletion; that was wrong, and deleting it would
+  have removed a live control. POSIX confines what a process may touch on this
+  machine. It says nothing about whether a person may send a message as the
+  company, change a shared calendar, or read a memory — those effects happen in
+  another service, over a socket, with that service's authority.
+  `capabilityd` receives the requester's person identifier but uses it for
+  attribution, not authorization, so this check is currently the only thing
+  deciding which capability operations a requester may invoke.
+  The POSIX-only claim above is about file and process access, and it holds
+  there. What is genuinely unfinished is that authorization for outward effects
+  is enforced by the caller rather than by the service performing them, which is
+  the wrong side of the wire — but that is work to move, not to delete.
 - The POSIX separation tests are Linux-only through the `_linux` filename
   constraint (`tests/integration/posix_separation_linux_test.go`). A green suite
   on macOS says nothing about the isolation boundary.
@@ -538,7 +546,7 @@ terminal user interface, and five selectable harnesses.
 | MCP server exposing blueclaw's tool catalog | done. `internal/mcpserver` publishes a per-requester catalog at `/harness/tool-catalog`, authenticated by a session token that is revoked when the turn ends. It is how an external harness reaches tools it may not execute itself. |
 | CLI and terminal user interface | done. `cmd/blueclaw-tui` on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, and the enrollment flow. |
 | bluecollar moving to its own repository | done. The loop, its routing, the turn stream, and the contract packages live in the bluecollar repository and are pinned here as a submodule. |
-| Removal of the `internal/access` Go-side ACL pre-check | not done. See Known gaps in the boundary. |
+| Removal of the `internal/access` Go-side ACL pre-check | withdrawn. It is not a POSIX duplicate; it is the only per-person authorization for capability operations, and nothing downstream repeats it. See Known gaps in the boundary. |
 
 Publishing blockers, in order:
 
@@ -547,8 +555,10 @@ Publishing blockers, in order:
    outside the organization. Publishing both together is what makes the
    submodule checkout — here and in CI — need no token at all. Everything else
    is secondary to this.
-2. Remove the Go-side ACL pre-check so the POSIX-only claim is true.
-3. Complete a secrets and history audit.
+2. Complete a secrets and history audit.
+3. Move authorization for capability operations to the service that performs
+   them. Not a publishing blocker — the check exists and works — but it belongs
+   behind the socket rather than in front of it.
 
 ## FAQ
 
