@@ -6,7 +6,11 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
+
+const requesterAgentTimeoutSecond = 3600
 
 type AgentCommand struct {
 	Path             string
@@ -37,4 +41,41 @@ func (agentCommand AgentCommand) Start(ctx context.Context) (io.Writer, io.Reade
 		_ = agentInput.Close()
 		return command.Wait()
 	}, nil
+}
+
+func (agentCommand AgentCommand) StartAsRequester(ctx context.Context, processStarter security.WorkspaceProcessStarter, workspaceRootPath string) (io.Writer, io.Reader, func() error, error) {
+	if strings.TrimSpace(agentCommand.Path) == "" {
+		return nil, nil, nil, errors.New("acp harness needs an agent command to run")
+	}
+	workingDirectoryPath := agentCommand.WorkingDirectory
+	if strings.TrimSpace(workingDirectoryPath) == "" {
+		workingDirectoryPath = workspaceRootPath
+	}
+	streamingProcess, errorValue := processStarter.StartProcess(ctx, security.CommandRequest{
+		ExecutableName:       agentCommand.Path,
+		Arguments:            agentCommand.Arguments,
+		WorkingDirectoryPath: workingDirectoryPath,
+		EnvironmentVariables: environmentVariableMap(agentCommand.Environment),
+		TimeoutSecond:        requesterAgentTimeoutSecond,
+		IsInteractive:        true,
+	})
+	if errorValue != nil {
+		return nil, nil, nil, errorValue
+	}
+	return streamingProcess.Input, streamingProcess.Output, streamingProcess.Wait, nil
+}
+
+func environmentVariableMap(environment []string) map[string]string {
+	if len(environment) == 0 {
+		return nil
+	}
+	environmentVariables := map[string]string{}
+	for _, entry := range environment {
+		name, value, hasValue := strings.Cut(entry, "=")
+		if !hasValue || strings.TrimSpace(name) == "" {
+			continue
+		}
+		environmentVariables[name] = value
+	}
+	return environmentVariables
 }
