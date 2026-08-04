@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,8 @@ type AgentCommand struct {
 	PromptArguments                 []string
 	ToolCatalogArguments            func(toolCatalogConfigurationPath string) []string
 	ToolCatalogInlineArguments      func(endpointURL string, bearerTokenEnvironmentName string) []string
+	PromptArgumentsWithPrompt       func(prompt string) []string
+	ToolCatalogWorkspaceFile        func(endpointURL string, bearerToken string) (relativePath string, document any)
 	Environment                     []string
 }
 
@@ -99,28 +102,40 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	}
 	defer revokeToolCatalog()
 
-	configurationPath, errorValue := writeToolCatalogConfiguration(endpointURL, bearerToken)
-	if errorValue != nil {
-		return agentcontract.AgentTurnResult{}, errorValue
+	configurationPath := ""
+	if harness.agentCommand.ToolCatalogWorkspaceFile == nil {
+		configurationPath, errorValue = writeToolCatalogConfiguration(endpointURL, bearerToken)
+		if errorValue != nil {
+			return agentcontract.AgentTurnResult{}, errorValue
+		}
+		defer os.Remove(configurationPath)
 	}
-	defer os.Remove(configurationPath)
 
 	arguments := append([]string{}, harness.agentCommand.PromptArguments...)
 	if harness.agentCommand.SessionArguments != nil && harnessSession.IsResumable {
 		arguments = append(arguments, harness.agentCommand.SessionArguments(harnessSession.SessionID, harness.isResumingTurn(request, identityKey))...)
 	}
-	if harness.agentCommand.ToolCatalogArguments != nil {
+	if harness.agentCommand.ToolCatalogArguments != nil && configurationPath != "" {
 		arguments = append(arguments, harness.agentCommand.ToolCatalogArguments(configurationPath)...)
 	}
 	if harness.agentCommand.ToolCatalogInlineArguments != nil {
 		arguments = append(arguments, harness.agentCommand.ToolCatalogInlineArguments(endpointURL, toolCatalogTokenEnvironmentName)...)
 	}
+	agentPrompt := harness.promptForTurn(request)
+	agentStandardInput := agentPrompt
+	if harness.agentCommand.PromptArgumentsWithPrompt != nil {
+		arguments = append(arguments, harness.agentCommand.PromptArgumentsWithPrompt(agentPrompt)...)
+		agentStandardInput = ""
+	}
 	if harness.requesterProcessRunner != nil {
-		return harness.runAsRequester(ctx, request, identityKey, arguments)
+		return harness.runAsRequester(ctx, request, identityKey, arguments, agentStandardInput, endpointURL, bearerToken)
+	}
+	if errorValue := harness.writeToolCatalogWorkspaceFile(request.WorkspaceRootPath, endpointURL, bearerToken, nil); errorValue != nil {
+		return agentcontract.AgentTurnResult{}, errorValue
 	}
 	command := exec.CommandContext(ctx, harness.agentCommand.Path, arguments...)
 	command.Dir = request.WorkspaceRootPath
-	command.Stdin = strings.NewReader(harness.promptForTurn(request))
+	command.Stdin = strings.NewReader(agentStandardInput)
 	command.Env = append(harness.commandEnvironment(), toolCatalogTokenEnvironmentName+"="+bearerToken)
 	standardOutput := &bytes.Buffer{}
 	standardError := &bytes.Buffer{}
@@ -183,7 +198,29 @@ func ClaudeCodeAgentCommand(commandPath string) AgentCommand {
 	}
 }
 
-func (harness *Harness) runAsRequester(ctx context.Context, request agentcontract.AgentTurnRequest, identityKey string, arguments []string) (agentcontract.AgentTurnResult, error) {
+func (harness *Harness) writeToolCatalogWorkspaceFile(workspaceRootPath string, endpointURL string, bearerToken string, requesterActor security.WorkspaceActor) error {
+	if harness.agentCommand.ToolCatalogWorkspaceFile == nil {
+		return nil
+	}
+	relativePath, document := harness.agentCommand.ToolCatalogWorkspaceFile(endpointURL, bearerToken)
+	encodedDocument, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return errorValue
+	}
+	configurationPath := filepath.Join(workspaceRootPath, relativePath)
+	if requesterActor == nil {
+		if errorValue := os.MkdirAll(filepath.Dir(configurationPath), 0o755); errorValue != nil {
+			return errorValue
+		}
+		return os.WriteFile(configurationPath, encodedDocument, 0o600)
+	}
+	if errorValue := requesterActor.MkdirAll(context.Background(), filepath.Dir(configurationPath)); errorValue != nil {
+		return errorValue
+	}
+	return requesterActor.WriteFile(context.Background(), configurationPath, encodedDocument)
+}
+
+func (harness *Harness) runAsRequester(ctx context.Context, request agentcontract.AgentTurnRequest, identityKey string, arguments []string, agentStandardInput string, endpointURL string, bearerToken string) (agentcontract.AgentTurnResult, error) {
 	workspaceRootPath := harness.workspaceRootPath
 	if strings.TrimSpace(workspaceRootPath) == "" {
 		workspaceRootPath = request.WorkspaceRootPath
@@ -195,10 +232,13 @@ func (harness *Harness) runAsRequester(ctx context.Context, request agentcontrac
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
 	}
+	if errorValue := harness.writeToolCatalogWorkspaceFile(request.WorkspaceRootPath, endpointURL, bearerToken, requesterActor); errorValue != nil {
+		return agentcontract.AgentTurnResult{}, errorValue
+	}
 	commandResult, errorValue := requesterActor.Run(ctx, security.CommandRequest{
 		ExecutableName:       harness.agentCommand.Path,
 		Arguments:            arguments,
-		Stdin:                harness.promptForTurn(request),
+		Stdin:                agentStandardInput,
 		WorkingDirectoryPath: request.WorkspaceRootPath,
 		TimeoutSecond:        harness.agentTimeoutSecond,
 		OutputMaximumBytes:   1 << 20,
@@ -210,6 +250,55 @@ func (harness *Harness) runAsRequester(ctx context.Context, request agentcontrac
 		return agentcontract.AgentTurnResult{}, errors.New(strings.TrimSpace(commandResult.Stderr))
 	}
 	return harness.turnResult(request, harness.completeTurn(identityKey, commandResult.Stdout)), nil
+}
+
+// Antigravity has no way to allow only the catalog's tools the way claude-code
+// does, and its headless mode cancels any tool call rather than asking a person
+// who is not there. The requester's POSIX identity is the boundary either way.
+const antigravityHeadlessPermissionFlag = "--dangerously-skip-permissions"
+
+func AntigravityAgentCommand(commandPath string) AgentCommand {
+	return AgentCommand{
+		Path:                            commandPath,
+		HarnessName:                     "antigravity",
+		RequiresCapturedSessionIdentity: true,
+		SessionArguments: func(sessionID string, isResuming bool) []string {
+			if isResuming {
+				return []string{"--conversation", sessionID}
+			}
+			return nil
+		},
+		ParseAgentOutput: parseAntigravityAgentOutput,
+		PromptArguments:  []string{"--output-format", "json", "--new-project", antigravityHeadlessPermissionFlag},
+		PromptArgumentsWithPrompt: func(prompt string) []string {
+			return []string{"-p", prompt}
+		},
+		ToolCatalogWorkspaceFile: func(endpointURL string, bearerToken string) (string, any) {
+			return ".agents/mcp_config.json", map[string]any{
+				"mcpServers": map[string]any{
+					toolCatalogServerName: map[string]any{
+						"serverUrl": endpointURL,
+						"headers":   map[string]string{"Authorization": "Bearer " + bearerToken},
+					},
+				},
+			}
+		},
+	}
+}
+
+func parseAntigravityAgentOutput(standardOutput string) (string, string) {
+	var envelope struct {
+		ConversationID string `json:"conversation_id"`
+		Response       string `json:"response"`
+	}
+	if errorValue := json.Unmarshal([]byte(strings.TrimSpace(standardOutput)), &envelope); errorValue != nil {
+		return strings.TrimSpace(standardOutput), ""
+	}
+	finishMessage := strings.TrimSpace(envelope.Response)
+	if finishMessage == "" {
+		finishMessage = strings.TrimSpace(standardOutput)
+	}
+	return finishMessage, envelope.ConversationID
 }
 
 func CodexAgentCommand(commandPath string) AgentCommand {
