@@ -57,7 +57,7 @@ func TestASelfEquippedHarnessIsNotHandedTheToolsItAlreadyHas(t *testing.T) {
 		t.Fatal("expected a domain operation to be published, since no harness can do it")
 	}
 	if !published[toolcontract.AskConfirmToolName] {
-		t.Fatal("expected asking the requester to be published, since it reaches them through the sandbox's connector")
+		t.Fatal("expected asking the requester to be published, since it reaches them through the daemon's connector")
 	}
 }
 

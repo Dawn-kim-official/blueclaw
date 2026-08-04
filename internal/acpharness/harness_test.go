@@ -47,12 +47,12 @@ func (catalog *publishedToolCatalog) PublishToolCatalog(requesterToolSet mcpserv
 	}, nil
 }
 
-type sandboxExecutedTool struct {
+type daemonExecutedTool struct {
 	toolName          string
 	requesterPersonID string
 }
 
-func requesterToolSet(t *testing.T, requesterPersonID string, executed *[]sandboxExecutedTool) *toolcontract.ToolSet {
+func requesterToolSet(t *testing.T, requesterPersonID string, executed *[]daemonExecutedTool) *toolcontract.ToolSet {
 	t.Helper()
 	toolSet := toolcontract.NewToolSet([]string{"note_write"})
 	toolSet.AllowTestReplacement()
@@ -65,7 +65,7 @@ func requesterToolSet(t *testing.T, requesterPersonID string, executed *[]sandbo
 		SideEffectClass: toolcontract.ToolSideEffectStateChange,
 		ResultContract:  &toolcontract.ToolResultContract{Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
 	}, func(ctx context.Context, invocation toolcontract.ToolInvocation) (toolcontract.ToolResult, error) {
-		*executed = append(*executed, sandboxExecutedTool{toolName: invocation.ToolName, requesterPersonID: requesterPersonID})
+		*executed = append(*executed, daemonExecutedTool{toolName: invocation.ToolName, requesterPersonID: requesterPersonID})
 		return toolcontract.ToolSuccessData("note written", json.RawMessage(`{}`)), nil
 	})
 	if errorValue != nil {
@@ -185,8 +185,8 @@ func (header bearerHeader) RoundTrip(request *http.Request) (*http.Response, err
 	return http.DefaultTransport.RoundTrip(request)
 }
 
-func TestHarnessRunsAnOutOfProcessAgentWhoseToolCallsExecuteInsideTheSandbox(t *testing.T) {
-	executed := []sandboxExecutedTool{}
+func TestHarnessRunsAnOutOfProcessAgentWhoseToolCallsExecuteInsideTheDaemon(t *testing.T) {
+	executed := []daemonExecutedTool{}
 	toolCatalog := newPublishedToolCatalog(t)
 	agent := &externalAgent{toolNameToCall: "note_write", toolArguments: map[string]any{"text": "회의록"}}
 	harness := New(&inProcessAgentProcess{agent: agent}, toolCatalog, nil)
@@ -207,7 +207,7 @@ func TestHarnessRunsAnOutOfProcessAgentWhoseToolCallsExecuteInsideTheSandbox(t *
 		t.Fatalf("expected the agent to see the requester's catalog, got %+v", agent.observedCatalog)
 	}
 	if len(executed) != 1 || executed[0].toolName != "note_write" || executed[0].requesterPersonID != "person-1" {
-		t.Fatalf("expected the sandbox to execute the tool as the requester, got %+v", executed)
+		t.Fatalf("expected the daemon to execute the tool as the requester, got %+v", executed)
 	}
 	if turnResult.TaskRun.Status != "completed" {
 		t.Fatalf("expected a completed turn, got %+v", turnResult.TaskRun)
@@ -218,7 +218,7 @@ func TestHarnessRunsAnOutOfProcessAgentWhoseToolCallsExecuteInsideTheSandbox(t *
 }
 
 func TestHarnessRefusesATurnWithNoRequester(t *testing.T) {
-	executed := []sandboxExecutedTool{}
+	executed := []daemonExecutedTool{}
 	harness := New(&inProcessAgentProcess{agent: &externalAgent{}}, newPublishedToolCatalog(t), nil)
 
 	if _, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
@@ -230,7 +230,7 @@ func TestHarnessRefusesATurnWithNoRequester(t *testing.T) {
 }
 
 func TestAnAgentThatCannotReachTheToolCatalogIsRefusedRatherThanRunWithoutIt(t *testing.T) {
-	executed := []sandboxExecutedTool{}
+	executed := []daemonExecutedTool{}
 	harness := New(&inProcessAgentProcess{agent: &externalAgent{acceptsNoHTTPToolCatalog: true}}, newPublishedToolCatalog(t), nil)
 
 	_, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{

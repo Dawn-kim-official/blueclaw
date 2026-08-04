@@ -20,7 +20,7 @@ import (
 	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
-func requireUnprivilegedSandboxProcess(t *testing.T) string {
+func requireUnprivilegedDaemonProcess(t *testing.T) string {
 	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("blueclaw refuses terminal execution when its own process is root, so this proof runs unprivileged like production")
@@ -56,7 +56,7 @@ func writePolicyDocument(t *testing.T, personID string) string {
 }
 
 func TestTheKernelRunsACatalogToolAsTheRequesterUnprivilegedUser(t *testing.T) {
-	posixHelperPath := requireUnprivilegedSandboxProcess(t)
+	posixHelperPath := requireUnprivilegedDaemonProcess(t)
 
 	const requesterPersonID = "person-kernel-proof"
 	workspaceRootPath, errorValue := os.MkdirTemp("", "blueclaw-kernel-proof")
@@ -143,7 +143,7 @@ func TestTheKernelRunsACatalogToolAsTheRequesterUnprivilegedUser(t *testing.T) {
 }
 
 func TestTheRequesterPrivateDirectoryIsNotReadableBySomeoneElse(t *testing.T) {
-	posixHelperPath := requireUnprivilegedSandboxProcess(t)
+	posixHelperPath := requireUnprivilegedDaemonProcess(t)
 	_ = posixHelperPath
 
 	firstUserName := security.LinuxPersonUserName("person-alpha")

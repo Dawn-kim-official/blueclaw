@@ -80,6 +80,10 @@ type Client struct {
 	httpClient *http.Client
 }
 
+func (client *Client) BaseURL() string {
+	return client.baseURL
+}
+
 func NewClient(baseURL string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -87,9 +91,6 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), httpClient: httpClient}
 }
 
-// ListTaskRuns fetches the task run list. It returns a wrapped, human-readable
-// error when the sandbox admin API cannot be reached at all, distinguishing
-// that from an application-level error response.
 func (client *Client) ListTaskRuns(ctx context.Context) ([]TaskRun, error) {
 	requestURL := client.baseURL + "/admin/api/task"
 	var taskRuns []TaskRun

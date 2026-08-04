@@ -37,7 +37,7 @@ func (publisher identityCatalogPublisher) PublishToolCatalog(requesterToolSet mc
 }
 
 func TestTheHarnessProcessItselfRunsAsTheRequester(t *testing.T) {
-	posixHelperPath := requireUnprivilegedSandboxProcess(t)
+	posixHelperPath := requireUnprivilegedDaemonProcess(t)
 
 	const requesterPersonID = "person-harness-identity"
 	workspaceRootPath, errorValue := os.MkdirTemp("", "blueclaw-harness-identity")
@@ -105,7 +105,7 @@ func TestTheHarnessProcessItselfRunsAsTheRequester(t *testing.T) {
 		t.Fatalf("expected the harness process itself to run as %s (uid %s), it reported uid %q", projectedUserName, projectedUser.Uid, reportedUID)
 	}
 	if reportedUID == "0" || reportedUID == strconv.Itoa(os.Geteuid()) {
-		t.Fatalf("expected the harness process to leave the sandbox process identity behind, got uid %q", reportedUID)
+		t.Fatalf("expected the harness process to leave the daemon process identity behind, got uid %q", reportedUID)
 	}
 }
 

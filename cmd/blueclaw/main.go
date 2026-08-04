@@ -20,7 +20,7 @@ func main() {
 
 	runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(*runtimeConfigurationPath)
 	if errorValue != nil {
-		log.Fatalf("%v\n\nThis install has no configuration at %s yet. Run blueclaw-tui to set one up.", errorValue, *runtimeConfigurationPath)
+		log.Fatalf("%v\n\nThis install has no configuration at %s yet. Run blueclaw-cli to set one up.", errorValue, *runtimeConfigurationPath)
 	}
 
 	if errorValue := ensureManagedDatabase(home, runtimeConfiguration); errorValue != nil {
