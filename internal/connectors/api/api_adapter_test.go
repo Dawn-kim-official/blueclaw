@@ -30,7 +30,7 @@ func TestResolveIdentityResolvesApprovedEmail(t *testing.T) {
 		displayName:     map[string]string{"person-1": "Lee"},
 	}, NewReplyStore())
 
-	identity, errorValue := adapter.ResolveIdentity(context.Background(), "Lee@Dawn.Kim")
+	identity, errorValue := adapter.ResolveIdentity(context.Background(), "Lee@Example.Com")
 	if errorValue != nil {
 		t.Fatalf("unexpected error: %v", errorValue)
 	}

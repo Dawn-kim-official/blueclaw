@@ -28,7 +28,7 @@ type memoryTaskScheduleRepository struct {
 }
 
 func TestResolveAgentWorkspaceReferencesUsesPathBoundaries(t *testing.T) {
-	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	workspaceRootPath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
 	testCases := []struct {
@@ -69,7 +69,7 @@ func TestResolveAgentWorkspaceReferencesUsesPathBoundaries(t *testing.T) {
 }
 
 func TestResolveAgentWorkspaceEnvironmentLeavesConcretePathsUnchanged(t *testing.T) {
-	workspaceRootPath := "/Users/lee/orca/workspaces/internkim/tool-test"
+	workspaceRootPath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspaceRootPath)
 
