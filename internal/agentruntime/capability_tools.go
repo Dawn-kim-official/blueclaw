@@ -50,7 +50,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	provider := capabilityToolProvider{
 		toolCatalogBuilder: toolCatalogBuilder,
 		request:            request,
-		descriptors:        withNarrowedReplyTargets(toolCatalogBuilder.reachableCapabilityToolDefinitions(), request),
+		descriptors:        toolCatalogBuilder.reachableCapabilityToolDefinitions(),
 	}
 	quarantinedProviders, errorValue := toolRegistry.RegisterProviders(context.Background(), []toolcontract.ToolProviderRegistration{{
 		Provider: provider,
@@ -90,9 +90,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	}
 	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: toolDescriptor.PolicyResource}) {
 		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
-	}
-	if replyBelongsToTheRuntime(operation, request, rawInput) {
-		return originConversationReplyFailure(), nil
 	}
 	if unexpected := unexpectedCapabilityInputFields(toolDescriptor.InputSchema, rawInput); len(unexpected) > 0 {
 		return capabilityUnexpectedInputFailure(operation, toolDescriptor, unexpected), nil
