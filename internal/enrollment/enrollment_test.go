@@ -18,7 +18,7 @@ func homeFixture(t *testing.T) Home {
 
 func completeAnswers(home Home) Answers {
 	return Answers{
-		DisplayName:              "이동혁",
+		DisplayName:              "정예시",
 		Email:                    "lee@example.com",
 		Mode:                     RunModeHost,
 		WorkspaceRootPath:        home.WorkspaceRootPath(),
