@@ -17,7 +17,7 @@ function names beside them are the durable reference.
 | Harness | the agent loop: run a turn and report what happened | `.dependency/bluecollar` (in-process), `internal/acpharness`, `internal/cliharness` |
 | Harness boundary | what an out-of-process agent may reach and what its turn achieved | `internal/mcpserver`, `internal/approvalgate`, `internal/turnoutcome`, `internal/security` |
 | Contract | the types both compile against, and the harness port | `.dependency/bluecollar/agentcontract/`, `.dependency/bluecollar/toolcontract/`, `.dependency/bluecollar/taskstate/` |
-| Operator surface | enrollment, the terminal UI | `internal/enrollment`, `internal/tui`, `cmd/blueclaw-tui` |
+| Operator surface | enrollment, the terminal UI | `internal/enrollment`, `internal/tui`, `cmd/blueclaw-cli` |
 
 ### Running a harness that is not this repository's
 

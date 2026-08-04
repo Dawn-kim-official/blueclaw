@@ -43,7 +43,7 @@ func (model Model) renderTabBar() string {
 			renderedTabs = append(renderedTabs, styleTabIdle.Render(label))
 		}
 	}
-	return styleHeaderBar.Width(maximumInt(model.width, 0)).Render("blueclaw-tui") + "\n" + strings.Join(renderedTabs, " ")
+	return styleHeaderBar.Width(maximumInt(model.width, 0)).Render("blueclaw") + "\n" + strings.Join(renderedTabs, " ")
 }
 
 func (model Model) renderScreenBody() string {
