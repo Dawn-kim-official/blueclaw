@@ -26,7 +26,7 @@ func (stub stubOutcomeLanguageModel) GenerateStructuredResponse(context.Context,
 
 func runTurnWithOutcomeClassifier(t *testing.T, classifierModel model.LanguageModelProvider) agentcontract.AgentTurnResult {
 	t.Helper()
-	executed := []sandboxExecutedTool{}
+	executed := []daemonExecutedTool{}
 	agent := &externalAgent{toolNameToCall: "note_write", toolArguments: map[string]any{"text": "회의록"}}
 	harness := New(&inProcessAgentProcess{agent: agent}, newPublishedToolCatalog(t), nil)
 	harness.UseOutcomeClassifier(turnoutcome.NewClassifier(classifierModel))

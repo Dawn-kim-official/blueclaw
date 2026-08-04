@@ -10,7 +10,7 @@ import (
 	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
-func TestARealACPAgentCallsASandboxTool(t *testing.T) {
+func TestARealACPAgentCallsADaemonTool(t *testing.T) {
 	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_ACP_AGENT_PATH"))
 	if commandPath == "" {
 		t.Skip("set BLUECLAW_TEST_ACP_AGENT_PATH to an ACP agent command to drive a real harness here")
@@ -18,7 +18,7 @@ func TestARealACPAgentCallsASandboxTool(t *testing.T) {
 
 	agentArguments := strings.Fields(os.Getenv("BLUECLAW_TEST_ACP_AGENT_ARGUMENTS"))
 
-	executed := []sandboxExecutedTool{}
+	executed := []daemonExecutedTool{}
 	toolCatalog := newPublishedToolCatalog(t)
 	harness := New(AgentCommand{Path: commandPath, Arguments: agentArguments, Environment: os.Environ()}, toolCatalog, nil)
 
@@ -34,7 +34,7 @@ func TestARealACPAgentCallsASandboxTool(t *testing.T) {
 		t.Fatalf("expected the agent to run a turn over ACP: %v", errorValue)
 	}
 	if len(executed) != 1 || executed[0].toolName != "note_write" || executed[0].requesterPersonID != "person-1" {
-		t.Fatalf("expected the agent to reach the requester's tool catalog and the sandbox to execute the tool, got %+v", executed)
+		t.Fatalf("expected the agent to reach the requester's tool catalog and the daemon to execute the tool, got %+v", executed)
 	}
 	if turnResult.TaskRun.Status != "completed" {
 		t.Fatalf("expected a completed turn, got %+v", turnResult.TaskRun)

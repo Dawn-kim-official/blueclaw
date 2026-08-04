@@ -108,7 +108,7 @@ func TestAToolCalledThroughTheCatalogReachesTheRequesterPOSIXActor(t *testing.T)
 		Arguments: map[string]any{"command": "ls"},
 	})
 	if errorValue != nil {
-		t.Fatalf("expected the tool call to reach the sandbox: %v", errorValue)
+		t.Fatalf("expected the tool call to reach the daemon: %v", errorValue)
 	}
 	if callResult.IsError {
 		t.Fatalf("expected the tool to run through the requester's actor, got %+v", callResult.StructuredContent)
@@ -116,7 +116,7 @@ func TestAToolCalledThroughTheCatalogReachesTheRequesterPOSIXActor(t *testing.T)
 
 	requestedPersonIDs := actorFactory.requestedPersonIDs()
 	if len(requestedPersonIDs) == 0 {
-		t.Fatal("expected a tool called through the catalog to resolve a workspace actor, not to run as the sandbox process")
+		t.Fatal("expected a tool called through the catalog to resolve a workspace actor, not to run as the daemon process")
 	}
 	for _, personID := range requestedPersonIDs {
 		if personID != "person-1" {

@@ -33,26 +33,26 @@ func (publisher *catalogPublisher) PublishToolCatalog(requesterToolSet mcpserver
 	}, nil
 }
 
-type sandboxToolExecution struct {
+type daemonToolExecution struct {
 	mutex     sync.Mutex
 	toolNames []string
 	arguments []string
 }
 
-func (execution *sandboxToolExecution) record(toolName string, arguments string) {
+func (execution *daemonToolExecution) record(toolName string, arguments string) {
 	execution.mutex.Lock()
 	defer execution.mutex.Unlock()
 	execution.toolNames = append(execution.toolNames, toolName)
 	execution.arguments = append(execution.arguments, arguments)
 }
 
-func (execution *sandboxToolExecution) executedToolNames() []string {
+func (execution *daemonToolExecution) executedToolNames() []string {
 	execution.mutex.Lock()
 	defer execution.mutex.Unlock()
 	return append([]string{}, execution.toolNames...)
 }
 
-func sandboxToolSet(t *testing.T, execution *sandboxToolExecution) *toolcontract.ToolSet {
+func daemonToolSet(t *testing.T, execution *daemonToolExecution) *toolcontract.ToolSet {
 	t.Helper()
 	toolSet := toolcontract.NewToolSet([]string{"workspace_secret_word"})
 	toolSet.AllowTestReplacement()
@@ -74,7 +74,7 @@ func sandboxToolSet(t *testing.T, execution *sandboxToolExecution) *toolcontract
 	return toolSet
 }
 
-func TestRealClaudeCodeCallsASandboxTool(t *testing.T) {
+func TestRealClaudeCodeCallsADaemonTool(t *testing.T) {
 	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_CLAUDE_CODE_PATH"))
 	if commandPath == "" {
 		resolvedPath, errorValue := exec.LookPath("claude")
@@ -84,7 +84,7 @@ func TestRealClaudeCodeCallsASandboxTool(t *testing.T) {
 		commandPath = resolvedPath
 	}
 
-	execution := &sandboxToolExecution{}
+	execution := &daemonToolExecution{}
 	resolver := mcpserver.NewSessionTokenRequesterResolver(func() string { return "session-token-claude" })
 	catalogServer := httptest.NewServer(mcpserver.NewToolCatalogHandler(resolver, "test"))
 	t.Cleanup(catalogServer.Close)
@@ -98,24 +98,24 @@ func TestRealClaudeCodeCallsASandboxTool(t *testing.T) {
 		RequesterPersonID: "person-1",
 		Prompt:            "Use the workspace_secret_word tool and reply with only the word it returns.",
 		WorkspaceRootPath: t.TempDir(),
-		ToolSet:           sandboxToolSet(t, execution),
+		ToolSet:           daemonToolSet(t, execution),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected the real agent to complete a turn: %v", errorValue)
 	}
 
 	if len(execution.executedToolNames()) == 0 {
-		t.Fatalf("expected the agent's model to choose the sandbox tool, got reply %q", turnResult.FinishMessage)
+		t.Fatalf("expected the agent's model to choose the daemon tool, got reply %q", turnResult.FinishMessage)
 	}
 	if !strings.Contains(turnResult.FinishMessage, "갈매기시계") {
-		t.Fatalf("expected the sandbox tool's output to reach the reply, got %q", turnResult.FinishMessage)
+		t.Fatalf("expected the daemon tool's output to reach the reply, got %q", turnResult.FinishMessage)
 	}
 	if publisher.revokeCount != 1 {
 		t.Fatalf("expected the catalog grant to be revoked when the turn ended, got %d", publisher.revokeCount)
 	}
 }
 
-func TestRealCodexCallsASandboxTool(t *testing.T) {
+func TestRealCodexCallsADaemonTool(t *testing.T) {
 	commandPath := strings.TrimSpace(os.Getenv("BLUECLAW_TEST_CODEX_PATH"))
 	if commandPath == "" {
 		resolvedPath, errorValue := exec.LookPath("codex")
@@ -125,7 +125,7 @@ func TestRealCodexCallsASandboxTool(t *testing.T) {
 		commandPath = resolvedPath
 	}
 
-	execution := &sandboxToolExecution{}
+	execution := &daemonToolExecution{}
 	resolver := mcpserver.NewSessionTokenRequesterResolver(func() string { return "session-token-codex" })
 	catalogServer := httptest.NewServer(mcpserver.NewToolCatalogHandler(resolver, "test"))
 	t.Cleanup(catalogServer.Close)
@@ -139,15 +139,15 @@ func TestRealCodexCallsASandboxTool(t *testing.T) {
 		RequesterPersonID: "person-1",
 		Prompt:            "Call the workspace_secret_word tool and reply with only the word it returns.",
 		WorkspaceRootPath: t.TempDir(),
-		ToolSet:           sandboxToolSet(t, execution),
+		ToolSet:           daemonToolSet(t, execution),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected codex to complete a turn: %v", errorValue)
 	}
 	if len(execution.executedToolNames()) == 0 {
-		t.Fatalf("expected codex's model to choose the sandbox tool, got reply %q", turnResult.FinishMessage)
+		t.Fatalf("expected codex's model to choose the daemon tool, got reply %q", turnResult.FinishMessage)
 	}
 	if !strings.Contains(turnResult.FinishMessage, "갈매기시계") {
-		t.Fatalf("expected the sandbox tool's output to reach the reply, got %q", turnResult.FinishMessage)
+		t.Fatalf("expected the daemon tool's output to reach the reply, got %q", turnResult.FinishMessage)
 	}
 }

@@ -1,6 +1,6 @@
 <img src="assets/blueclaw.logo.svg" alt="blueclaw" width="112">
 
-# blueclaw — a multi-user agent host
+# blueclaw — a POSIX-isolated, multi-user agent daemon
 
 [![CI](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -19,14 +19,16 @@ directory, one set of files, one view of every secret, and no record of which
 person authorized which side effect. Sales can read engineering's drafts because
 nothing on the machine knows they are different people.
 
-blueclaw is the host that makes them different people. It is an open source,
-self-hosted Go daemon that runs an AI agent harness on behalf of whichever
+blueclaw is the daemon that makes them different people, and POSIX is how. It is
+open source and self-hosted: it runs an AI agent harness on behalf of whichever
 person asked, executes each requester's tool calls as their own unprivileged
-Linux user, holds side-effecting calls at an approval gate, and writes every
-step to a durable event ledger. It owns identity, isolation, task state, the
-tool catalog, and delivery.
+Linux user, holds side-effecting calls at an approval gate, and writes every step
+to a durable event ledger. It owns identity, isolation, task state, the tool
+catalog, and delivery.
 
 <img src="assets/screenshots/tui-tasks.png" alt="blueclaw showing five task runs, one waiting for approval" width="100%">
+
+`blueclaw-cli` is the terminal client above; the daemon is what it connects to.
 
 The agent loop is a replaceable component behind a Go interface
 (`agentcontract.Harness`, one method). Five harnesses are selectable, one of them in this
@@ -46,20 +48,20 @@ to this project.
 
 | It is | It is not |
 |---|---|
-| a host process that runs an agent harness | an agent, an agent loop, or a model |
+| a daemon that runs an agent harness on other people's behalf | an agent, an agent loop, or a model |
 | a POSIX identity boundary between the people sharing one machine | a container runtime or a sandbox technology |
 | a durable task store with an append-only event ledger | a chat client |
 | an MCP client that mounts external tool servers into the catalog, and an MCP server that publishes the requester's catalog to an external harness | a general-purpose MCP server for arbitrary clients |
-| a Go daemon you build from source and self-host | a hosted service or a packaged binary release |
+| a Go binary you build from source and self-host | a hosted service or a packaged binary release |
 
 Read the right-hand column literally. blueclaw separates requesters from each
 other, not the agent from the host; a container does the latter, and the two
 compose.
 
-blueclaw is the runtime inside InternKim, an on-premise AI automation
+blueclaw is the agent daemon inside InternKim, an on-premise AI automation
 appliance.
 
-## Why an agent host, not another agent
+## Why a daemon, not another agent
 
 Agent harnesses are already abundant: Claude Code, Codex, opencode, Gemini CLI,
 and the loop bundled here. They all run as whoever started them. On a shared,
@@ -70,7 +72,7 @@ effect.
 blueclaw takes the opposite split. The harness decides *what* to call. blueclaw
 decides *who it runs as*, *whether it runs at all*, and *what is written down*.
 A harness that executes tools inside its own process is not an acceptable
-integration, because it takes back the only thing the host exists to provide.
+integration, because it takes back the only thing the daemon exists to provide.
 
 The mechanical claim is narrow and testable: tool execution runs as an
 unprivileged POSIX user derived from each requester's identity, and
@@ -154,7 +156,7 @@ Which calls are gated comes from descriptor metadata, not from the tool's name.
 per tool (`.dependency/bluecollar/toolcontract/registry.go`), from `none` and `read` through
 `workspace_write`, `external_send`, `site_publish`, and `destructive`.
 
-The gate belongs to the host, not to a harness. `internal/approvalgate` holds
+The gate belongs to the daemon, not to a harness. `internal/approvalgate` holds
 the call and `internal/mcpserver` consults it before invoking anything from the
 catalog, so every harness meets the same gate on the same calls.
 
@@ -267,7 +269,7 @@ operations an appliance supplies are simply absent. The agent loop, skills, the
 terminal, and files work.
 
 **3. Enable per-person POSIX isolation.** Until this step every requester shares
-the daemon's account; this is the step that makes blueclaw a multi-user host
+the daemon's account; this is the step that makes blueclaw a multi-user daemon
 rather than a single-account one. The projection is applied only when
 `terminal.posixHelperPath` is set. Build and install the setuid helper, then
 point the configuration at it:
@@ -315,7 +317,7 @@ and `--scenario-file` loads one from JSON instead.
 
 ## Terminal interface
 
-`cmd/blueclaw-cli` is how you watch and answer a running host from a terminal.
+`cmd/blueclaw-cli` is how you watch and answer a running daemon from a terminal.
 It talks to the admin API over HTTP, so it runs wherever you can reach the
 daemon.
 
@@ -325,7 +327,7 @@ go build -o blueclaw-cli ./cmd/blueclaw-cli
 ```
 
 With no `--base-url` it reads the one recorded at enrollment. `--runtime`
-points at the sandbox's runtime configuration and is only needed when the
+points at the daemon's runtime configuration and is only needed when the
 daemon is unreachable and you still want to see which harness is configured.
 
 Four screens, switched with `1`-`4` or `tab`; `up`/`down` selects, `enter`
@@ -337,7 +339,7 @@ result, and the approval that is holding the run open.
 <img src="assets/screenshots/tui-detail.png" alt="the detail screen replaying a task's tool calls and its pending approval" width="100%">
 
 **Approvals** lists every run waiting on a person and shows the question the
-runtime asked. `y` confirms the held call, `a` confirms every held call in that
+daemon asked. `y` confirms the held call, `a` confirms every held call in that
 task, `n` cancels. The answer is written to the ledger and the held call is
 re-executed verbatim, so approving survives a daemon restart.
 
@@ -365,14 +367,14 @@ The port was deliberately shrunk. It began at nine methods. Most of them
 asked a model a question instead of asking an agent to work: classify whether a
 chat message was addressed to the bot, write a reply sentence, refresh a skill
 index, route a turn, complete a launch failure. No external harness could answer
-those honestly, so nothing but blueclaw's own loop could implement the port. Those now live in the host
+those honestly, so nothing but blueclaw's own loop could implement the port. Those now live in the daemon
 (`.dependency/bluecollar/intake`, `internal/reply`, `internal/agentruntime`); see Project
 status.
 
-Everything else the host needs — task events, cancellation, run lookup — it
+Everything else the daemon needs — task events, cancellation, run lookup — it
 takes from the task store.
 
-The harness is injected at the top, not constructed inside the host. `main`
+The harness is injected at the top, not constructed inside the daemon. `main`
 passes a factory:
 
 ```go
@@ -399,7 +401,7 @@ compile against it.
 publishes the requester's tool catalog over MCP, and lets the kernel — not a
 deny list — decide what that agent may do. `internal/cliharness` does the same
 for agents that speak a command line; each one is a descriptor of flags and an
-output parser, not a branch in the host's logic.
+output parser, not a branch in the daemon's logic.
 
 An external harness brings tools of its own, so both refuse to run at all
 unless the requester's POSIX boundary is configured. Neither can report a task's outcome
@@ -410,7 +412,7 @@ agent's final message and the catalog tools that actually ran
 
 ## blueclaw versus Claude Code, Codex, opencode, and Gemini CLI
 
-These are agent harnesses. blueclaw is the host they are intended to run inside.
+These are agent harnesses. blueclaw is the daemon they are intended to run inside.
 The question is which layer owns what.
 
 | Concern | Claude Code, Codex, opencode, Gemini CLI | blueclaw |
@@ -485,7 +487,7 @@ Neither runs before the kernel decides.
   everything as itself.
 - `cmd/bluecollar` deliberately uses `DirectWorkspaceActorFactory`
   (`internal/security/direct_workspace_actor.go`), which has no projection at
-  all. It is a single-directory batch runner, not a multi-person host.
+  all. It is a single-directory batch runner, not a multi-person daemon.
 - `internal/access/access.go` exposes `CanAccess`, consulted before exposing
   capability and MCP tools and before memory reads. This README used to call it
   a migration leftover awaiting deletion. That was wrong: POSIX confines what a
@@ -540,7 +542,7 @@ The agent section decides which loop runs and what it is allowed to assume:
 bundled loop runs. `defaultTaskLevel` is the effort a task starts at
 (`xlow` through `max`) before the tier ladder moves it.
 `optionalFileReadPathSuffixes` names files whose absence is a state — a
-deployment's own control files, which the host knows about and
+deployment's own control files, which the daemon knows about and
 the harness does not; the default is empty.
 
 External [MCP](https://modelcontextprotocol.io) servers mount into the tool
@@ -559,9 +561,9 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `.dependency/bluecollar/model/` | language model, chat completion, structured output, and embedding interfaces |
 | `agenttest/` | scripted language model for deterministic tests |
 | `cmd/` | 10 binaries; see the table below |
-| `internal/` | host implementation: connectors, agent runtime, security, policy, identity, memory, HTTP, storage |
+| `internal/` | daemon implementation: connectors, agent runtime, security, policy, identity, memory, HTTP, storage |
 | `.dependency/bluecollar/` | the agent loop, as its own repository pinned here |
-| `internal/acpharness/` | blueclaw as an ACP client, plugging an external agent into the sandbox |
+| `internal/acpharness/` | blueclaw as an ACP client, plugging an external agent into the daemon |
 | `protocol/` | Zod contracts shared across processes; generates the JSON Schema artifacts |
 | `llmd/` | AI SDK sidecar: structured output and chat generation over a Unix socket |
 | `chatd/` | chat bridge and platform adapters (Mattermost, Buzz) |
@@ -632,8 +634,8 @@ terminal user interface, and five selectable harnesses.
 
 | Item | State |
 |---|---|
-| A harness port narrow enough for an external harness | done. Down from nine methods to one, `RunTurn`. Turn routing (deciding whether an inbound message becomes a task at all) and launch-failure completion are host policy now and live in `internal/agentruntime`. |
-| External harnesses plugging in | done. `agent.harness.name` selects `bluecollar` (in-process), `acp` (any Agent Client Protocol agent), `claude-code`, `codex`, or `antigravity`; see [Harnesses](#harnesses). opencode over ACP and Claude Code over its CLI both run a full turn against this host's tool catalog with no harness-specific code beyond a command descriptor. |
+| A harness port narrow enough for an external harness | done. Down from nine methods to one, `RunTurn`. Turn routing (deciding whether an inbound message becomes a task at all) and launch-failure completion are daemon policy now and live in `internal/agentruntime`. |
+| External harnesses plugging in | done. `agent.harness.name` selects `bluecollar` (in-process), `acp` (any Agent Client Protocol agent), `claude-code`, `codex`, or `antigravity`; see [Harnesses](#harnesses). opencode over ACP and Claude Code over its CLI both run a full turn against this daemon's tool catalog with no harness-specific code beyond a command descriptor. |
 | MCP server exposing blueclaw's tool catalog | done. `internal/mcpserver` publishes a per-requester catalog at `/harness/tool-catalog`, authenticated by a session token that is revoked when the turn ends. It is how an external harness reaches tools it may not execute itself. |
 | CLI and terminal user interface | done. `cmd/blueclaw-cli` on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, and the enrollment flow. |
 | bluecollar moving to its own repository | done. The loop, its routing, the turn stream, and the contract packages live in the bluecollar repository and are pinned here as a submodule. |
@@ -666,7 +668,7 @@ organization `github.com/blueclaw` is not ours either.
 Yes. Set `agent.harness.name` to `claude-code`, `codex`, `antigravity`, or `acp`
 (for any Agent Client Protocol agent) and point `agentCommandPath` at the
 executable. The agent starts inside the requester's POSIX identity and reaches
-this host's tools through an MCP catalog published for that turn only.
+this daemon's tools through an MCP catalog published for that turn only.
 
 Two things to know. The external agent brings tools of its own, so blueclaw
 refuses to start it at all unless the POSIX boundary is configured — the kernel,
@@ -677,7 +679,7 @@ your PATH.
 ### What does blueclaw do that Claude Code does not?
 
 They answer different questions: Claude Code is an agent loop, blueclaw is the
-multi-user host such a loop can run inside. Claude Code runs as the operating
+multi-user daemon such a loop can run inside. Claude Code runs as the operating
 system user who started it, keeps its approval prompt in the session, and leaves
 its record in terminal scrollback. blueclaw runs the loop as an unprivileged
 Linux user derived from the requester, persists a held call as
