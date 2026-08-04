@@ -179,13 +179,15 @@ func (observer *sessionObserver) WaitForTerminalExit(context.Context, acp.WaitFo
 }
 
 func (observer *sessionObserver) RequestPermission(_ context.Context, request acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	for _, permissionOption := range request.Options {
-		if permissionOption.Kind != acp.PermissionOptionKindRejectOnce {
-			continue
+	for _, allowedKind := range []acp.PermissionOptionKind{acp.PermissionOptionKindAllowAlways, acp.PermissionOptionKindAllowOnce} {
+		for _, permissionOption := range request.Options {
+			if permissionOption.Kind != allowedKind {
+				continue
+			}
+			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
+				Selected: &acp.RequestPermissionOutcomeSelected{Outcome: "selected", OptionId: permissionOption.OptionId},
+			}}, nil
 		}
-		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
-			Selected: &acp.RequestPermissionOutcomeSelected{Outcome: "selected", OptionId: permissionOption.OptionId},
-		}}, nil
 	}
 	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 		Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
