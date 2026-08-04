@@ -11,7 +11,7 @@ agent should not be trusted with: identity, isolation, task state, the tool
 catalog, and delivery.
 
 The agent loop is a replaceable component behind a Go interface
-(`agentcontract.Harness`, 3 methods and shrinking). One implementation ships in this
+(`agentcontract.Harness`, one method). Five harnesses are selectable, one of them in this
 repository. Swapping it does not move the isolation boundary, because tool
 execution never leaves blueclaw.
 
@@ -31,7 +31,7 @@ to this project.
 | a host process that runs an agent harness | an agent, an agent loop, or a model |
 | a POSIX identity boundary around tool execution | a container runtime or a sandbox technology |
 | a durable task store with an append-only event ledger | a chat client |
-| an MCP client that mounts external tool servers into the catalog | an MCP server (not built; see Project status) |
+| an MCP client that mounts external tool servers into the catalog, and an MCP server that publishes the requester's catalog to an external harness | a general-purpose MCP server for arbitrary clients |
 | a Go daemon you build from source and self-host | a hosted service or a packaged binary release |
 
 blueclaw is the runtime inside InternKim, an on-premise AI automation appliance.
@@ -73,14 +73,16 @@ from policy objects to real Linux users and groups.
     connectors · policy · task store · approvals · tool catalog · POSIX projection
             |
             +-- agentcontract.Harness --+-- .dependency/bluecollar   (Go, in-process)
+            |                           +-- an ACP or CLI agent, started as the requester
             |
             +-- tool execution --> blueclaw-posix-helper --> requester UID/GID/groups
 ```
 
 ### Intake: connectors normalize a message
 
-Five connector adapters are registered at boot: `mattermost`, `slack`,
-`signal`, `api`, and `buzz` (`internal/app/application.go`). Each turns a
+Four connector adapters are registered at boot — `mattermost`, `slack`,
+`signal`, and `api` — plus `buzz` when `connectors.buzz.enabled` is set
+(`internal/app/application.go`). Each turns a
 platform-specific payload into the same normalized conversation turn. The `api`
 connector needs no chat platform at all and is the way to drive blueclaw from
 `curl` or a test.
@@ -183,7 +185,7 @@ bun run src/main.ts
 
 `LLAMA_BASE_URL` points at any OpenAI-compatible server; the name is historical.
 `http://127.0.0.1:11434/v1` is Ollama. For a hosted provider, set
-`OPENROUTER_API_KEY` and drop the local variables. `llmd/README.md` lists every
+`OPENROUTER_API_KEY` and drop the local variables. `llmd/README.md` lists the credential
 setting.
 
 Treat a local model as a development convenience. The runtime asks for
@@ -278,17 +280,34 @@ passes a factory:
 application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
 ```
 
-[bluecollar](https://github.com/Dawn-kim-official/bluecollar) is the only
-implementation today. It lives in its own repository, pinned here as a submodule
-at `.dependency/bluecollar`, and carries `agentcontract` with it because both
-sides compile against it. There is no harness selection mechanism and no second
-implementation; see Project status for what is planned.
+[bluecollar](https://github.com/Dawn-kim-official/bluecollar) is the bundled
+implementation. It lives in its own repository, pinned here as a submodule at
+`.dependency/bluecollar`, and carries `agentcontract` with it because both sides
+compile against it.
 
-`internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an
-[ACP](https://agentclientprotocol.com) *client* — the direction that plugs an
-external agent into blueclaw's sandbox, publishing the requester's tool
-catalog over MCP and running the external agent's tool calls as the
-requester's POSIX identity.
+`agent.harness.name` in the runtime configuration selects which harness runs:
+
+| Name | What it runs |
+|---|---|
+| `bluecollar` (default) | the bundled in-process loop |
+| `acp` | any [ACP](https://agentclientprotocol.com) agent named by `agentCommandPath` |
+| `claude-code` | the `claude` CLI in headless mode |
+| `codex` | the `codex` CLI |
+| `antigravity` | the `agy` CLI |
+
+`internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an ACP
+*client*: it starts the external agent inside the requester's POSIX identity,
+publishes the requester's tool catalog over MCP, and lets the kernel — not a
+deny list — decide what that agent may do. `internal/cliharness` does the same
+for agents that speak a command line rather than a protocol; each one is a
+descriptor of flags and an output parser, not a branch in the host's logic.
+
+An external harness brings tools of its own, so both refuse to run at all
+unless the requester's POSIX boundary is configured. Neither can report the
+outcome of a task the way the bundled loop does — a CLI agent that ends its
+turn has said its piece, not finished the work — so blueclaw decides the
+outcome itself from the agent's final message and the catalog tools that
+actually ran (`internal/turnoutcome`).
 
 ## blueclaw versus Claude Code, Codex, opencode, and Gemini CLI
 
@@ -419,9 +438,9 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `.dependency/bluecollar/agentcontract/` | the harness port and the turn, context, and instruction types both sides compile against |
 | `.dependency/bluecollar/toolcontract/` | tool descriptors, registry, validation, kernel tool names |
 | `.dependency/bluecollar/taskstate/` | task run, step, event, and artifact stores |
-| `model/` | language model, chat completion, structured output, and embedding interfaces |
+| `.dependency/bluecollar/model/` | language model, chat completion, structured output, and embedding interfaces |
 | `agenttest/` | scripted language model for deterministic tests |
-| `cmd/` | 9 binaries; see the table below |
+| `cmd/` | 10 binaries; see the table below |
 | `internal/` | host implementation: connectors, agent runtime, security, policy, identity, memory, HTTP, storage |
 | `.dependency/bluecollar/` | the agent loop, as its own repository pinned here |
 | `internal/acpharness/` | blueclaw as an ACP client, plugging an external agent into the sandbox |
@@ -462,8 +481,10 @@ bun run test
 
 The four TypeScript packages are one Bun workspace, so a single `bun install` at
 the root covers them. `bun run test` typechecks, then runs `protocol`, `llmd`,
-`chatd`, and `admin` in turn. CI runs exactly these commands
-(`.github/workflows/ci.yml`), with Postgres 16 as a service.
+`chatd`, and `admin` in turn. There is no CI: the
+workflow was deleted rather than fixed when the bluecollar submodule became
+private and Actions could no longer check it out. Restoring it is a publishing
+blocker, not a nicety.
 
 | Test tier | How it runs | Gate |
 |---|---|---|
@@ -487,24 +508,27 @@ truth per shared contract.
 
 Shipped and working: the daemon, the five connectors, the task store and event
 ledger, the POSIX projection and setuid helper, the approval gate, the MCP
-client, the `llmd` model sidecar with mid-run model swapping, and one in-process
-harness.
+client and server, the `llmd` model sidecar with mid-run model swapping, the
+terminal user interface, and five selectable harnesses.
 
-Planned and **not built**. Nothing below is a feature you can use today.
-
-| Planned | State |
+| Item | State |
 |---|---|
-| External harnesses (Claude Code, Codex, opencode, Gemini CLI) plugging in | not built. No second `Harness` implementation exists, and no adapter speaks to any external harness. The route — ACP client versus AI SDK harness adapter — is still an open decision. |
-| CLI and terminal user interface | not built. Planned on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, harness selection. |
-| MCP server exposing blueclaw's tool catalog | not built. blueclaw consumes MCP servers today; it does not publish one. |
+| A harness port narrow enough for an external harness | done. Down from nine methods to one, `RunTurn`. Turn routing (deciding whether an inbound message becomes a task at all) and launch-failure completion are host policy now and live in `internal/agentruntime`. |
+| External harnesses plugging in | done. `agent.harness.name` selects `bluecollar` (in-process), `acp` (any Agent Client Protocol agent), `claude-code`, `codex`, or `antigravity`; see [Harnesses](#harnesses). opencode over ACP and Claude Code over its CLI both run a full turn against this host's tool catalog with no harness-specific code beyond a command descriptor. |
+| MCP server exposing blueclaw's tool catalog | done. `internal/mcpserver` publishes a per-requester catalog at `/harness/tool-catalog`, authenticated by a session token that is revoked when the turn ends. It is how an external harness reaches tools it may not execute itself. |
+| CLI and terminal user interface | done. `cmd/blueclaw-tui` on `charm.land/bubbletea/v2`: task timeline, approval queue, live tool calls, and the enrollment flow. |
 | bluecollar moving to its own repository | done. The loop, its routing, the turn stream, and the contract packages live in the bluecollar repository and are pinned here as a submodule. |
 | Removal of the `internal/access` Go-side ACL pre-check | not done. See Known gaps in the boundary. |
-| A harness port narrow enough for an external harness | done. Down from nine methods to one, `RunTurn`. Turn routing (deciding whether an inbound message becomes a task at all) and launch-failure completion are host policy now and live in `internal/agentruntime`. |
 
-Publishing blockers, in order: remove the Go-side ACL pre-check so the
-POSIX-only claim is true; complete a secrets and history audit; get at least one
-external harness plugging in. Until a self-hoster without bluecollar has a
-working loop, this repository is a host with a hole where the agent should be.
+Publishing blockers, in order:
+
+1. **The bluecollar submodule is a private repository**, so `go build ./...`
+   fails on a fresh clone by anyone outside the organization, and no CI can
+   check out this repository. Either bluecollar becomes public or the contract
+   packages move here. Everything else is secondary to this.
+2. Restore CI. It was deleted rather than fixed when the submodule went private.
+3. Remove the Go-side ACL pre-check so the POSIX-only claim is true.
+4. Complete a secrets and history audit.
 
 ## FAQ
 
@@ -519,9 +543,16 @@ organization `github.com/blueclaw` is not ours either.
 
 ### Can I run Claude Code or Codex inside blueclaw today?
 
-No. That is the goal of the project and the reason the harness interface exists,
-but no adapter to an external harness is written. The only working loop today is
-the bundled `.dependency/bluecollar`.
+Yes. Set `agent.harness.name` to `claude-code`, `codex`, `antigravity`, or `acp`
+(for any Agent Client Protocol agent) and point `agentCommandPath` at the
+executable. The agent starts inside the requester's POSIX identity and reaches
+this host's tools through an MCP catalog published for that turn only.
+
+Two things to know. The external agent brings tools of its own, so blueclaw
+refuses to start it at all unless the POSIX boundary is configured — the kernel,
+not a deny list, is what confines it. And the coverage of these adapters is
+thinner than the bundled loop's: the live tests are skipped unless the CLI is on
+your PATH.
 
 ### Is blueclaw an agent?
 

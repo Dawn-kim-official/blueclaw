@@ -23,7 +23,7 @@ its surroundings.
   definition, add a conformance test that reads the canonical source and
   fails on drift, instead of keeping a second hand-edited copy
   (`chatd/tests/buzz-adapter.test.ts` reads
-  `internal/agent/reaction_emoji.go`).
+  `.dependency/bluecollar/agentcontract/reaction_emoji.go`).
 - On discovering duplicated sources of truth, merge them as part of the
   change that touched them; do not extend a duplicate.
 
@@ -32,7 +32,7 @@ its surroundings.
 - `go test ./...` covers the unit suites beside their sources and the
   integration suite under `tests/`. Nothing needs an external service; the
   standalone boot check skips unless `BLUECLAW_TEST_POSTGRES_URL` names a
-  database, which CI supplies.
+  database, which a developer supplies locally.
 - TypeScript suites are per package: `bun run test` at the repository root
   runs every package suite in its own process, and `cd <package> && bun run
   test` runs one. Never run bare `bun test` at the repository root — it
