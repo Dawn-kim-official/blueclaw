@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
 )
 
 func TestTaskLauncherPersistsTurnRouterFailureWithoutFallbackRoute(t *testing.T) {

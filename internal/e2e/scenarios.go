@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
 	"github.com/Dawn-kim-official/blueclaw/internal/skill"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func actionInvokeCapabilityTool(toolName string, input string) string {

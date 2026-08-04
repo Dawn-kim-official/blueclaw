@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
-	"github.com/Dawn-kim-official/bluecollar/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
+	"github.com/Dawn-kim-official/bluecollar/intake"
 	"github.com/Dawn-kim-official/bluecollar/model"
 )
 

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {

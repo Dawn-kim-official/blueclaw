@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 type CapabilityPlatformAdapter struct {

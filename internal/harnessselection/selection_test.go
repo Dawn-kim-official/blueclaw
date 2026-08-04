@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func bundledFactory() harnessdriver.Factory {

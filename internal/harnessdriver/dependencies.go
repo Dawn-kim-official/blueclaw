@@ -1,8 +1,8 @@
 package harnessdriver
 
 import (
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/bluecollar/model"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )

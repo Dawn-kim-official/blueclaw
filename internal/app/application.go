@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
@@ -32,7 +31,6 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessselection"
 	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/bluecollar/intake"
 	"github.com/Dawn-kim-official/blueclaw/internal/launchfailure"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
@@ -49,8 +47,10 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
 	"github.com/Dawn-kim-official/blueclaw/internal/userapi"
-	"github.com/Dawn-kim-official/bluecollar/model"
 	capabilitycatalog "github.com/Dawn-kim-official/blueclaw/protocol/generated"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/intake"
+	"github.com/Dawn-kim-official/bluecollar/model"
 )
 
 const databaseInitializationTimeout = 240 * time.Second

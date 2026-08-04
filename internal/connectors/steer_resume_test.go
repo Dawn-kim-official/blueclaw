@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func TestUserSteerTaskProfileSourceReferenceResolvesRealPlatform(t *testing.T) {

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
-	"github.com/Dawn-kim-official/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/llm"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
 )
 
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
