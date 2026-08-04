@@ -93,7 +93,7 @@ a solved problem, and the solution is fifty years old.
 So the boundary is drawn once, at identity, and it is absolute. What is left is
 judgment about effects that leave the machine — sending a message, publishing a
 site, changing a shared calendar — and that goes to a person at the approval
-gate, not to a rule.
+gate.
 
 ## How it works
 
@@ -138,10 +138,10 @@ A task run is a row in the task store with one of nine statuses
 Every step appends an event through `TaskEventService.AppendTaskEvent`
 (`.dependency/bluecollar/taskstate/task_event_service.go`). Event names follow a fixed wire grammar —
 `tool.<name>.requested`, `tool.<name>.result`, `approval.pending_call`,
-`approval.executed`, `agent.task_launched`, and — for a tool an external
-harness ran in its own process rather than through the catalog —
-`harness.tool_permitted` and `harness.tool_refused`. A reader can reconstruct
-what happened without access to the harness's internal types.
+`approval.executed`, `agent.task_launched`, and, for a tool an external harness
+ran outside the catalog, `harness.tool_permitted` and `harness.tool_refused`. A
+reader can reconstruct what happened without access to the harness's internal
+types.
 
 ### Approval gates
 
@@ -269,8 +269,8 @@ operations an appliance supplies are simply absent. The agent loop, skills, the
 terminal, and files work.
 
 **3. Enable per-person POSIX isolation.** Until this step every requester shares
-the daemon's account; this is the step that makes blueclaw a multi-user daemon
-rather than a single-account one. The projection is applied only when
+the daemon's account; this is the step that makes blueclaw multi-user. The
+projection is applied only when
 `terminal.posixHelperPath` is set. Build and install the setuid helper, then
 point the configuration at it:
 
@@ -374,8 +374,7 @@ status.
 Everything else the daemon needs — task events, cancellation, run lookup — it
 takes from the task store.
 
-The harness is injected at the top, not constructed inside the daemon. `main`
-passes a factory:
+The harness is injected at the top. `main` passes a factory:
 
 ```go
 application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
@@ -401,7 +400,7 @@ compile against it.
 publishes the requester's tool catalog over MCP, and lets the kernel — not a
 deny list — decide what that agent may do. `internal/cliharness` does the same
 for agents that speak a command line; each one is a descriptor of flags and an
-output parser, not a branch in the daemon's logic.
+output parser.
 
 An external harness brings tools of its own, so both refuse to run at all
 unless the requester's POSIX boundary is configured. Neither can report a task's outcome
@@ -495,8 +494,8 @@ Neither runs before the kernel decides.
   send a message as the company or change a shared calendar. Those effects
   happen in `capabilityd`, which takes the requester's identifier for
   attribution and never for authorization, so `CanAccess` is the only thing
-  deciding which capability operations a requester may invoke. It belongs behind
-  the socket rather than in front of it, which is work to move.
+  deciding which capability operations a requester may invoke. It sits in front of
+  the socket and belongs behind it, which is work to move.
 - The POSIX separation tests are Linux-only through the `_linux` filename
   constraint (`tests/integration/posix_separation_linux_test.go`). A green suite
   on macOS says nothing about the isolation boundary.
