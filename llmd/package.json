@@ -6,7 +6,7 @@
   "scripts": {
     "build": "bun run typecheck",
     "start": "bun run src/main.ts",
-    "test": "bun test",
+    "test": "bun test tests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
