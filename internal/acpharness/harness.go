@@ -14,6 +14,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/blueclaw/internal/turnoutcome"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
@@ -41,10 +42,15 @@ type Harness struct {
 	taskRunStore           taskstate.TaskRunStore
 	requesterProcessRunner RequesterProcessRunner
 	workspaceRootPath      string
+	outcomeClassifier      turnoutcome.Classifier
 }
 
 func New(agentProcess AgentProcess, toolCatalogPublisher ToolCatalogPublisher, taskRunStore taskstate.TaskRunStore) *Harness {
 	return &Harness{agentProcess: agentProcess, toolCatalogPublisher: toolCatalogPublisher, taskRunStore: taskRunStore}
+}
+
+func (harness *Harness) UseOutcomeClassifier(outcomeClassifier turnoutcome.Classifier) {
+	harness.outcomeClassifier = outcomeClassifier
 }
 
 func (harness *Harness) UseRequesterProcessRunner(requesterProcessRunner RequesterProcessRunner, workspaceRootPath string) {
@@ -85,7 +91,9 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if strings.TrimSpace(request.RequesterPersonID) == "" {
 		return agentcontract.AgentTurnResult{}, errors.New("acp harness refuses a turn with no requester, because tools execute as the requester")
 	}
+	succeededToolRecorder := &turnoutcome.SucceededToolRecorder{}
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
+		ObserveToolInvocation: succeededToolRecorder.Observe,
 		RequesterPersonID: request.RequesterPersonID,
 		TaskRunID:         request.ExistingTaskRunID,
 		ToolSet:           request.ToolSet,
@@ -129,23 +137,42 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
 	}
-	return harness.turnResult(request, turnObserver, promptResponse.StopReason), nil
+	return harness.turnResult(ctx, request, turnObserver, succeededToolRecorder, promptResponse.StopReason), nil
 }
 
-func (harness *Harness) turnResult(request agentcontract.AgentTurnRequest, turnObserver *sessionObserver, stopReason acp.StopReason) agentcontract.AgentTurnResult {
+func (harness *Harness) turnResult(ctx context.Context, request agentcontract.AgentTurnRequest, turnObserver *sessionObserver, succeededToolRecorder *turnoutcome.SucceededToolRecorder, stopReason acp.StopReason) agentcontract.AgentTurnResult {
 	finishMessage := turnObserver.agentMessage()
+	calledToolNames := turnObserver.calledToolNames()
 	taskRun := taskstate.TaskRun{Status: taskStatusForStopReason(stopReason)}
+	failureReason := ""
+	if stopReason == acp.StopReasonEndTurn {
+		taskRun.Status, failureReason = harness.outcomeForEndedTurn(ctx, request, finishMessage, succeededToolRecorder.SucceededToolNames())
+	}
 	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
 		if existingTaskRun, isFound := harness.taskRunStore.FindTaskRun(request.ExistingTaskRunID); isFound {
 			taskRun = existingTaskRun
 		}
 	}
+	if taskRun.Status != taskstate.TaskStatusCompleted && strings.TrimSpace(taskRun.FailureReason) == "" {
+		taskRun.FailureReason = failureReason
+	}
 	return agentcontract.AgentTurnResult{
 		TaskRun:       taskRun,
 		FinishMessage: finishMessage,
 		UserNotice:    finishMessage,
-		ToolNames:     turnObserver.calledToolNames(),
+		ToolNames:     calledToolNames,
 	}
+}
+
+func (harness *Harness) outcomeForEndedTurn(ctx context.Context, request agentcontract.AgentTurnRequest, finishMessage string, calledToolNames []string) (taskstate.TaskStatus, string) {
+	if !harness.outcomeClassifier.IsConfigured() {
+		return taskstate.TaskStatusCompleted, ""
+	}
+	verdict, errorValue := harness.outcomeClassifier.Classify(ctx, request.Prompt, finishMessage, calledToolNames)
+	if errorValue != nil {
+		return taskstate.TaskStatusFailed, "the runtime could not determine what this turn achieved: " + errorValue.Error()
+	}
+	return verdict.Status, verdict.Reason
 }
 
 func taskStatusForStopReason(stopReason acp.StopReason) taskstate.TaskStatus {
