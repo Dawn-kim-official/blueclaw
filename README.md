@@ -2,6 +2,10 @@
 
 # blueclaw — a POSIX-isolated agent host
 
+[![CI](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 > **Status: pre-alpha, under active development.** The interfaces, the wire
 > grammar, the configuration keys and the database schema all still change
 > without notice, and there is no release, no versioning policy and no upgrade
@@ -9,13 +13,11 @@
 > with, not so it can be depended on. If you run it, pin a commit and expect to
 > read diffs.
 
-**blueclaw is an open source, self-hosted AI agent host — a Go daemon that runs
-an AI agent harness on behalf of the person who asked, executes every tool call
+blueclaw is an open source, self-hosted AI agent host: a Go daemon that runs an
+AI agent harness on behalf of the person who asked. It executes every tool call
 as that person's own unprivileged Linux user, holds side-effecting calls at an
-approval gate, and writes every step to a durable event ledger.** It is not an
-agent and not a model. It is the process the agent runs inside, and it owns the
-parts an agent should not be trusted with: identity, isolation, task state, the
-tool catalog, and delivery.
+approval gate, and writes every step to a durable event ledger. It owns
+identity, isolation, task state, the tool catalog, and delivery.
 
 <img src="assets/screenshots/tui-tasks.png" alt="blueclaw-tui showing five task runs, one waiting for approval" width="100%">
 
@@ -43,12 +45,11 @@ to this project.
 | an MCP client that mounts external tool servers into the catalog, and an MCP server that publishes the requester's catalog to an external harness | a general-purpose MCP server for arbitrary clients |
 | a Go daemon you build from source and self-host | a hosted service or a packaged binary release |
 
-Read the right-hand column literally. blueclaw is not an AI agent sandbox in the
-container sense: the isolation it adds is POSIX identity, and it composes with
-bubblewrap or a container rather than replacing either.
+Read the right-hand column literally. The isolation blueclaw adds is POSIX
+identity; it composes with bubblewrap or a container.
 
-blueclaw is the runtime inside InternKim, an on-premise AI automation appliance.
-That is one deployment of it, not what it is.
+blueclaw is the runtime inside InternKim, an on-premise AI automation
+appliance.
 
 ## Why an agent host, not another agent
 
@@ -73,11 +74,11 @@ kernel.
 
 ## How it works
 
-A *connector* is a platform adapter that normalizes an inbound message. A *task
-run* is a durable record of one unit of work. The *event ledger* is the
-append-only sequence of events belonging to a task run. An *approval gate* holds
-a tool call until a human authorizes it. The *POSIX projection* is the mapping
-from policy objects to real Linux users and groups.
+- **connector** — a platform adapter; normalizes an inbound message.
+- **task run** — a durable record of one unit of work.
+- **event ledger** — the append-only events belonging to a task run.
+- **approval gate** — holds a tool call until a human authorizes it.
+- **POSIX projection** — maps policy objects to real Linux users and groups.
 
 ```text
   chat platform / HTTP ingress
@@ -117,8 +118,7 @@ Every step appends an event through `TaskEventService.AppendTaskEvent`
 `approval.executed`, `agent.task_launched`, and — for a tool an external
 harness ran in its own process rather than through the catalog —
 `harness.tool_permitted` and `harness.tool_refused`. A reader can reconstruct
-what happened without access to the harness's internal types. The ledger is the
-contract between host and harness, and the host is the side that reads it.
+what happened without access to the harness's internal types.
 
 ### Approval gates
 
@@ -137,7 +137,7 @@ The gate belongs to the host, not to a harness. `internal/approvalgate` holds
 the call and `internal/mcpserver` consults it before invoking anything from the
 catalog, so every harness meets the same gate on the same calls.
 
-That works because of what a harness can and cannot reach. Sending a message,
+Sending a message,
 changing a calendar, publishing a site — every outward or irreversible effect
 exists only as a catalog tool, and an external agent has no other route to one.
 `internal/acpharness` also refuses ACP's own filesystem and terminal methods,
@@ -148,13 +148,12 @@ What remains outside is the tools an agent runs inside its own process: goose's
 shell, Claude Code's editor. Those are answered yes. The boundary there is
 POSIX — the agent runs as the requester's unprivileged user, and a shell call it
 makes itself can do no more than one made through `terminal_run`. The answer is
-recorded rather than silent: `harness.tool_permitted` and `harness.tool_refused`
+recorded: `harness.tool_permitted` and `harness.tool_refused`
 go to the event ledger, so reading a task afterwards shows the calls the catalog
 never saw.
 
 One asymmetry is not ours to fix. ACP has a permission channel and a command
-line does not, so a CLI harness offers nothing to record. For those, POSIX is
-the whole story.
+line does not, so a CLI harness offers nothing to record.
 
 ### POSIX identity projection
 
@@ -203,8 +202,8 @@ Requirements: Go 1.26, [Bun](https://bun.sh) 1.3, Postgres, and one
 OpenAI-compatible model endpoint — Ollama, vLLM, LM Studio, OpenRouter, or
 anything else speaking that API.
 
-**1. Start `llmd`, the model sidecar.** It holds the provider credentials, so it
-runs beside the daemon rather than inside it.
+**1. Start `llmd`, the model sidecar.** It holds the provider credentials and
+runs beside the daemon.
 
 ```bash
 cd llmd
@@ -314,7 +313,7 @@ re-executed verbatim, so approving survives a daemon restart.
 
 <img src="assets/screenshots/tui-approvals.png" alt="the approvals screen showing a pending question with confirm and cancel keys" width="100%">
 
-**Harness** reports which loop the running daemon is using and, more usefully,
+**Harness** reports which loop the running daemon is using and
 whether tool calls execute as the requester's own POSIX user or as the daemon
 account.
 
@@ -332,17 +331,16 @@ type Harness interface {
 }
 ```
 
-The port was deliberately shrunk. It began at nine methods, most of which were
-the host asking a model a question rather than the host asking an agent to
-work — classifying whether a chat message was addressed to the bot, writing a
-reply sentence, refreshing a skill index, routing a turn, completing a launch
-failure. No external harness could honestly answer those, which made the port
-unimplementable by anything blueclaw did not ship. Those now live in the host
+The port was deliberately shrunk. It began at nine methods. Most of them
+asked a model a question instead of asking an agent to work: classify whether a
+chat message was addressed to the bot, write a reply sentence, refresh a skill
+index, route a turn, complete a launch failure. No external harness could answer
+those honestly, so nothing but blueclaw's own loop could implement the port. Those now live in the host
 (`.dependency/bluecollar/intake`, `internal/reply`, `internal/agentruntime`); see Project
 status.
 
 Everything else the host needs — task events, cancellation, run lookup — it
-takes from the task store directly rather than through the harness.
+takes from the task store.
 
 The harness is injected at the top, not constructed inside the host. `main`
 passes a factory:
@@ -370,20 +368,20 @@ compile against it.
 *client*: it starts the external agent inside the requester's POSIX identity,
 publishes the requester's tool catalog over MCP, and lets the kernel — not a
 deny list — decide what that agent may do. `internal/cliharness` does the same
-for agents that speak a command line rather than a protocol; each one is a
-descriptor of flags and an output parser, not a branch in the host's logic.
+for agents that speak a command line; each one is a descriptor of flags and an
+output parser, not a branch in the host's logic.
 
 An external harness brings tools of its own, so both refuse to run at all
-unless the requester's POSIX boundary is configured. Neither can report the
-outcome of a task the way the bundled loop does — a CLI agent that ends its
-turn has said its piece, not finished the work — so blueclaw decides the
-outcome itself from the agent's final message and the catalog tools that
-actually ran (`internal/turnoutcome`).
+unless the requester's POSIX boundary is configured. Neither can report a task's outcome
+the way the bundled loop does. A CLI agent that ends its turn has said its
+piece, not finished the work, so blueclaw decides the outcome itself from the
+agent's final message and the catalog tools that actually ran
+(`internal/turnoutcome`).
 
 ## blueclaw versus Claude Code, Codex, opencode, and Gemini CLI
 
 These are agent harnesses. blueclaw is the host they are intended to run inside.
-The comparison is not "which is better"; it is "which layer owns what".
+The question is which layer owns what.
 
 | Concern | Claude Code, Codex, opencode, Gemini CLI | blueclaw |
 |---|---|---|
@@ -395,12 +393,6 @@ The comparison is not "which is better"; it is "which layer owns what".
 | Audit record | terminal scrollback and local session files | append-only event ledger in Postgres, per task run |
 | Inbound surface | a terminal | chat connectors and HTTP ingress |
 | Work lifetime | one interactive session | durable task runs across restarts |
-
-What is true today: the harness that plugs into blueclaw is the bundled
-`.dependency/bluecollar` loop. Running Claude Code, Codex, opencode, or Gemini CLI
-inside blueclaw is the goal of the project, not a shipped feature. The interface
-they would satisfy exists and is asserted; the adapter that speaks to them does
-not. See Project status.
 
 ## Security model
 
@@ -465,19 +457,14 @@ Neither runs before the kernel decides.
   (`internal/security/direct_workspace_actor.go`), which has no projection at
   all. It is a single-directory batch runner, not a multi-person host.
 - `internal/access/access.go` exposes `CanAccess`, consulted before exposing
-  capability and MCP tools and before memory reads. It was described here as a
-  migration leftover awaiting deletion; that was wrong, and deleting it would
-  have removed a live control. POSIX confines what a process may touch on this
-  machine. It says nothing about whether a person may send a message as the
-  company, change a shared calendar, or read a memory — those effects happen in
-  another service, over a socket, with that service's authority.
-  `capabilityd` receives the requester's person identifier but uses it for
-  attribution, not authorization, so this check is currently the only thing
-  deciding which capability operations a requester may invoke.
-  The POSIX-only claim above is about file and process access, and it holds
-  there. What is genuinely unfinished is that authorization for outward effects
-  is enforced by the caller rather than by the service performing them, which is
-  the wrong side of the wire — but that is work to move, not to delete.
+  capability and MCP tools and before memory reads. This README used to call it
+  a migration leftover awaiting deletion. That was wrong: POSIX confines what a
+  process may touch on this machine, and says nothing about whether a person may
+  send a message as the company or change a shared calendar. Those effects
+  happen in `capabilityd`, which takes the requester's identifier for
+  attribution and never for authorization, so `CanAccess` is the only thing
+  deciding which capability operations a requester may invoke. It belongs behind
+  the socket rather than in front of it, which is work to move.
 - The POSIX separation tests are Linux-only through the `_linux` filename
   constraint (`tests/integration/posix_separation_linux_test.go`). A green suite
   on macOS says nothing about the isolation boundary.
@@ -522,8 +509,8 @@ The agent section decides which loop runs and what it is allowed to assume:
 `harness.name` is the one in [Harnesses](#harnesses); omit the block and the
 bundled loop runs. `defaultTaskLevel` is the effort a task starts at
 (`xlow` through `max`) before the tier ladder moves it.
-`optionalFileReadPathSuffixes` names files whose absence is a state rather than
-a failure — a deployment's own control files, which the host knows about and
+`optionalFileReadPathSuffixes` names files whose absence is a state — a
+deployment's own control files, which the host knows about and
 the harness does not; the default is empty.
 
 External [MCP](https://modelcontextprotocol.io) servers mount into the tool
@@ -631,8 +618,7 @@ Publishing blockers, in order:
    is secondary to this.
 2. Complete a secrets and history audit.
 3. Move authorization for capability operations to the service that performs
-   them. Not a publishing blocker — the check exists and works — but it belongs
-   behind the socket rather than in front of it.
+   them. Not a publishing blocker: the check exists and works.
 
 ## FAQ
 
@@ -666,21 +652,17 @@ system user who started it, keeps its approval prompt in the session, and leaves
 its record in terminal scrollback. blueclaw runs the loop as an unprivileged
 Linux user derived from the requester, persists a held call as
 `approval.pending_call` so an approval survives a daemon restart, and writes
-every step to an append-only event ledger in Postgres. It adds no agent
-capability of its own — what it adds is identity, isolation, durable task runs,
-and the audit trail.
+every step to an append-only event ledger in Postgres.
 
 ### Is blueclaw an agent?
 
-No. It runs one. blueclaw owns identity, isolation, the task store, approvals,
-the tool catalog, and delivery. The harness owns the loop: route a turn, run it,
-answer.
+No. It runs one. The harness owns the loop; blueclaw owns everything around it.
 
 ### Can I use my own agent loop?
 
 Yes. A harness is anything satisfying `agentcontract.Harness`, a single
-`RunTurn` method, and it is injected at the top rather than constructed inside
-the host — a new loop is a factory passed to `app.NewApplication`. Five
+`RunTurn` method, and a new loop is a factory passed to `app.NewApplication`.
+Five
 harnesses are already selectable through `agent.harness.name`: the bundled
 bluecollar loop, any ACP agent, and the `claude-code`, `codex`, and
 `antigravity` CLIs. Swapping the loop does not move the isolation boundary,
@@ -692,7 +674,7 @@ A container isolates the agent from the host. blueclaw isolates requesters from
 each other *inside* the workspace. Two people talking to the same daemon get
 different Linux users, different `0700` home directories, and different group
 memberships, so one person's agent run cannot read the other's files even though
-both run in the same container. The two are complementary; blueclaw also
+both run in the same container. blueclaw also
 supports bubblewrap when `terminal.mode` is `sandbox`.
 
 ### What stops the agent from running a dangerous command?
@@ -722,10 +704,10 @@ repository. Build from source with `go build ./...`.
 
 ## Contributing
 
-Not yet — the design is still moving too fast for outside patches to be a
-kindness to whoever sends them. Issues describing a problem you hit are useful
-and welcome. For a security problem, follow [SECURITY.md](SECURITY.md) instead
-of opening an issue.
+Pull requests open at alpha. Until then the design is moving too fast for
+outside patches to be a kindness to whoever sends them. Issues are welcome now
+— tell us what broke. For a security problem, follow [SECURITY.md](SECURITY.md)
+instead of opening an issue.
 
 ## License
 
