@@ -13,8 +13,40 @@ function names beside them are the durable reference.
 | Layer | Owns | Package |
 |---|---|---|
 | Host | connectors, policy, identity, task store, approvals, tool catalog, memory, delivery, POSIX projection | `internal/`, `cmd/` |
-| Harness | the agent loop: route a turn, run it, answer, classify | `.dependency/bluecollar` |
+| Harness selection | which loop runs, from `agent.harness.name` | `internal/harnessselection`, `internal/harnessdriver` |
+| Harness | the agent loop: run a turn and report what happened | `.dependency/bluecollar` (in-process), `internal/acpharness`, `internal/cliharness` |
+| Harness boundary | what an out-of-process agent may reach and what its turn achieved | `internal/mcpserver`, `internal/approvalgate`, `internal/turnoutcome`, `internal/security` |
 | Contract | the types both compile against, and the harness port | `.dependency/bluecollar/agentcontract/`, `.dependency/bluecollar/toolcontract/`, `.dependency/bluecollar/taskstate/` |
+| Operator surface | enrollment, the terminal UI | `internal/enrollment`, `internal/tui`, `cmd/blueclaw-tui` |
+
+### Running a harness that is not this repository's
+
+`harnessselection.Select` maps `agent.harness.name` to a factory and is the only
+place a harness is named. Nothing downstream branches on the name; it reaches
+`mcpserver.HarnessSession` as a label and no further.
+
+An out-of-process harness changes three things and only three:
+
+1. **Where it runs.** `internal/security.StartProcess` starts the agent inside
+   the requester's POSIX identity. Both external harnesses refuse the turn
+   outright when that boundary is not configured, because an agent that brings
+   its own `bash` would otherwise run as the service account.
+2. **How it reaches tools.** It cannot call into the host's process, so
+   `internal/mcpserver` publishes the requester's catalog over MCP with a
+   session token that is revoked when the turn ends. Every call still executes
+   here, as the requester.
+3. **How the outcome is known.** The bundled loop reports a task status. An ACP
+   agent reports only that its turn ended, and a CLI agent reports only an exit
+   code — neither means the work succeeded. `internal/turnoutcome` decides the
+   status from the agent's final message and the catalog tools that actually
+   ran and succeeded, which is a fact the host owns and the harness cannot
+   forge.
+
+`internal/acpharness` speaks [ACP](https://agentclientprotocol.com) over stdio.
+`internal/cliharness` drives an agent that has a command line instead of a
+protocol; each supported CLI is a descriptor of flags and an output parser
+(`ClaudeCodeAgentCommand`, `CodexAgentCommand`, `AntigravityAgentCommand`), not
+a branch in the host.
 
 The port is `agentcontract.Harness` (`.dependency/bluecollar/agentcontract/harness.go:5`), a single
 method:
