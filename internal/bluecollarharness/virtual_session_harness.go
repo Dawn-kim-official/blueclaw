@@ -1,9 +1,9 @@
 package bluecollarharness
 
 import (
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
+	"github.com/Dawn-kim-official/bluecollar"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func NewVirtualSession(dependencies harnessdriver.VirtualSessionDependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {

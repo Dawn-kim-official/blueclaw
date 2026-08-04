@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
 	"github.com/Dawn-kim-official/blueclaw/internal/identity"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
 )
 
 func newIngressGateTestRuntime(gate IngressGate) (*ConnectorRuntime, *task.TaskRunService) {

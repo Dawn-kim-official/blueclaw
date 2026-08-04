@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/turnoutcome"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
@@ -99,11 +99,11 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	succeededToolRecorder := &turnoutcome.SucceededToolRecorder{}
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
 		ObserveToolInvocation: succeededToolRecorder.Observe,
-		RequesterPersonID: request.RequesterPersonID,
-		TaskRunID:         request.ExistingTaskRunID,
-		ToolSet:           request.ToolSet,
-		HarnessSession:    harnessSession,
-		ToolAudience:      mcpserver.ToolAudienceSelfEquipped,
+		RequesterPersonID:     request.RequesterPersonID,
+		TaskRunID:             request.ExistingTaskRunID,
+		ToolSet:               request.ToolSet,
+		HarnessSession:        harnessSession,
+		ToolAudience:          mcpserver.ToolAudienceSelfEquipped,
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue

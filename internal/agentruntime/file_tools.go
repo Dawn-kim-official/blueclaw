@@ -12,8 +12,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
 	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 type interruptedTaskLaunchContext struct {

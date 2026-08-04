@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 func TestFileReadResolvesAttachmentFileHint(t *testing.T) {
