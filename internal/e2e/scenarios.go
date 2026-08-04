@@ -1060,7 +1060,7 @@ func scheduledTaskSkill() agentcontract.SkillInstruction {
 
 func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                   "site_prototype_acceptance",
+		Name:                   "site_artifact_acceptance",
 		SkillSearchQueries:     []string{"create and publish a website prototype"},
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"site_serve"},
