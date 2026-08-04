@@ -12,6 +12,8 @@ import (
 	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
+	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
@@ -25,14 +27,55 @@ type AgentProcess interface {
 	Start(ctx context.Context) (input io.Writer, output io.Reader, wait func() error, errorValue error)
 }
 
+type RequesterAgentProcess interface {
+	StartAsRequester(ctx context.Context, processStarter security.WorkspaceProcessStarter, workspaceRootPath string) (input io.Writer, output io.Reader, wait func() error, errorValue error)
+}
+
+type RequesterProcessRunner interface {
+	Requester(context.Context, security.WorkspaceActorRequest) (security.WorkspaceActor, error)
+}
+
 type Harness struct {
-	agentProcess         AgentProcess
-	toolCatalogPublisher ToolCatalogPublisher
-	taskRunStore         taskstate.TaskRunStore
+	agentProcess           AgentProcess
+	toolCatalogPublisher   ToolCatalogPublisher
+	taskRunStore           taskstate.TaskRunStore
+	requesterProcessRunner RequesterProcessRunner
+	workspaceRootPath      string
 }
 
 func New(agentProcess AgentProcess, toolCatalogPublisher ToolCatalogPublisher, taskRunStore taskstate.TaskRunStore) *Harness {
 	return &Harness{agentProcess: agentProcess, toolCatalogPublisher: toolCatalogPublisher, taskRunStore: taskRunStore}
+}
+
+func (harness *Harness) UseRequesterProcessRunner(requesterProcessRunner RequesterProcessRunner, workspaceRootPath string) {
+	harness.requesterProcessRunner = requesterProcessRunner
+	harness.workspaceRootPath = workspaceRootPath
+}
+
+func (harness *Harness) startAgent(ctx context.Context, request agentcontract.AgentTurnRequest) (io.Writer, io.Reader, func() error, error) {
+	if harness.requesterProcessRunner == nil {
+		return harness.agentProcess.Start(ctx)
+	}
+	requesterAgentProcess, isRequesterAware := harness.agentProcess.(RequesterAgentProcess)
+	if !isRequesterAware {
+		return nil, nil, nil, errors.New("this agent process cannot run as the requester, and an agent that brings tools of its own may not run as the service account")
+	}
+	workspaceRootPath := harness.workspaceRootPath
+	if strings.TrimSpace(workspaceRootPath) == "" {
+		workspaceRootPath = request.WorkspaceRootPath
+	}
+	requesterActor, errorValue := harness.requesterProcessRunner.Requester(ctx, security.WorkspaceActorRequest{
+		PersonAccess:      policy.PersonAccess{PersonID: request.RequesterPersonID},
+		WorkspaceRootPath: workspaceRootPath,
+	})
+	if errorValue != nil {
+		return nil, nil, nil, errorValue
+	}
+	processStarter, canStartProcess := requesterActor.(security.WorkspaceProcessStarter)
+	if !canStartProcess {
+		return nil, nil, nil, errors.New("this workspace actor cannot start a long-lived process, so the agent has no requester identity to run inside")
+	}
+	return requesterAgentProcess.StartAsRequester(ctx, processStarter, request.WorkspaceRootPath)
 }
 
 func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.AgentTurnRequest) (agentcontract.AgentTurnResult, error) {
@@ -52,7 +95,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	}
 	defer revokeToolCatalog()
 
-	agentInput, agentOutput, waitForAgent, errorValue := harness.agentProcess.Start(ctx)
+	agentInput, agentOutput, waitForAgent, errorValue := harness.startAgent(ctx, request)
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
 	}

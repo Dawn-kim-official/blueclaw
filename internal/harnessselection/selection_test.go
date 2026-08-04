@@ -57,7 +57,7 @@ func TestSelectRefusesAnExternalHarnessThatWouldHaveNoToolsOrNoAgent(t *testing.
 }
 
 func TestSelectBuildsTheExternalHarnessWhenBothAreConfigured(t *testing.T) {
-	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{})
+	selectedFactory, errorValue := Select(config.HarnessConfiguration{Name: ExternalHarnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{Runner: refusingProcessRunner{}, WorkspaceRootPath: "/workspace"})
 	if errorValue != nil {
 		t.Fatalf("expected a configured external harness: %v", errorValue)
 	}
@@ -103,8 +103,8 @@ func TestClaudeCodeIsSelectableAndDeniesItsOwnBuiltinTools(t *testing.T) {
 	}
 }
 
-func TestEveryCommandHarnessRequiresTheRequesterIdentityBoundary(t *testing.T) {
-	for _, harnessName := range []string{ClaudeCodeHarnessName, CodexHarnessName} {
+func TestEveryHarnessThatBringsItsOwnToolsRequiresTheRequesterIdentityBoundary(t *testing.T) {
+	for _, harnessName := range []string{ClaudeCodeHarnessName, CodexHarnessName, ExternalHarnessName} {
 		if _, errorValue := Select(config.HarnessConfiguration{Name: harnessName, AgentCommandPath: "/usr/bin/true"}, bundledFactory(), publishedCatalog(), SandboxProcessBoundary{}); errorValue == nil {
 			t.Fatalf("expected %q to be refused without the requester identity boundary", harnessName)
 		}

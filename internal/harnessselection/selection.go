@@ -47,7 +47,7 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 		}
 		return bundledHarnessFactory, nil
 	case ExternalHarnessName:
-		return externalHarnessFactory(harnessConfiguration, toolCatalogEndpoint)
+		return externalHarnessFactory(harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	case ClaudeCodeHarnessName:
 		return commandHarnessFactory(ClaudeCodeHarnessName, cliharness.ClaudeCodeAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	case CodexHarnessName:
@@ -57,12 +57,15 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 	}
 }
 
-func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, toolCatalogEndpoint ToolCatalogEndpoint) (harnessdriver.Factory, error) {
+func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, toolCatalogEndpoint ToolCatalogEndpoint, processBoundary SandboxProcessBoundary) (harnessdriver.Factory, error) {
 	if strings.TrimSpace(harnessConfiguration.AgentCommandPath) == "" {
 		return nil, fmt.Errorf("harness %q needs agent.harness.agentCommandPath, the ACP agent to run", ExternalHarnessName)
 	}
 	if toolCatalogEndpoint.Resolver == nil || strings.TrimSpace(toolCatalogEndpoint.URL) == "" {
 		return nil, fmt.Errorf("harness %q needs a published tool catalog; without one the agent would have no tools it may run as the requester", ExternalHarnessName)
+	}
+	if processBoundary.Runner == nil {
+		return nil, fmt.Errorf("harness %q may only run inside the requester's POSIX identity, because it brings tools of its own that the kernel rather than a deny list has to confine; configure the terminal boundary first", ExternalHarnessName)
 	}
 	agentCommand := acpharness.AgentCommand{
 		Path:      harnessConfiguration.AgentCommandPath,
@@ -70,7 +73,9 @@ func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, to
 	}
 	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver, approvalGate: toolCatalogEndpoint.ApprovalGate}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
-		return acpharness.New(agentCommand, publisher, dependencies.TaskRunStore), nil
+		harness := acpharness.New(agentCommand, publisher, dependencies.TaskRunStore)
+		harness.UseRequesterProcessRunner(processBoundary.Runner, processBoundary.WorkspaceRootPath)
+		return harness, nil
 	}, nil
 }
 
