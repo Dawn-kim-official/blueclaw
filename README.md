@@ -500,10 +500,11 @@ bun run test
 
 The four TypeScript packages are one Bun workspace, so a single `bun install` at
 the root covers them. `bun run test` typechecks, then runs `protocol`, `llmd`,
-`chatd`, and `admin` in turn. There is no CI: the
-workflow was deleted rather than fixed when the bluecollar submodule became
-private and Actions could no longer check it out. Restoring it is a publishing
-blocker, not a nicety.
+`chatd`, and `admin` in turn. CI runs exactly these
+commands (`.github/workflows/ci.yml`), with Postgres 16 as a service. It checks
+out the bluecollar submodule with `SUBMODULE_READ_TOKEN` when that secret
+exists, falling back to the repository token — which is enough as soon as
+bluecollar is readable without one.
 
 | Test tier | How it runs | Gate |
 |---|---|---|
@@ -541,13 +542,13 @@ terminal user interface, and five selectable harnesses.
 
 Publishing blockers, in order:
 
-1. **The bluecollar submodule is a private repository**, so `go build ./...`
-   fails on a fresh clone by anyone outside the organization, and no CI can
-   check out this repository. Either bluecollar becomes public or the contract
-   packages move here. Everything else is secondary to this.
-2. Restore CI. It was deleted rather than fixed when the submodule went private.
-3. Remove the Go-side ACL pre-check so the POSIX-only claim is true.
-4. Complete a secrets and history audit.
+1. **Publish bluecollar in the same release.** It is a private repository, and
+   this one requires it, so `go build ./...` fails on a fresh clone by anyone
+   outside the organization. Publishing both together is what makes the
+   submodule checkout — here and in CI — need no token at all. Everything else
+   is secondary to this.
+2. Remove the Go-side ACL pre-check so the POSIX-only claim is true.
+3. Complete a secrets and history audit.
 
 ## FAQ
 
