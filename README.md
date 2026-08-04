@@ -35,15 +35,6 @@ The agent loop is a replaceable component behind a Go interface
 repository. Swapping it does not move the isolation boundary, because tool
 execution never leaves blueclaw.
 
-**Disambiguation.** This project is unrelated to the several other things named
-"blueclaw" in the agent-infrastructure space: `blueclaw.org` /
-`clawd-conroy/blueclaw` (an open social protocol for AI agents built on AT
-Protocol and A2A), `blueclaw.network` (compute for agent workloads), and
-`blueclaw.app` (a hosted AI agent dashboard). This repository is
-`github.com/Dawn-kim-official/blueclaw`, a self-hosted Go daemon. The GitHub
-organization `github.com/blueclaw` belongs to someone else and is not connected
-to this project.
-
 ## What blueclaw is, and what it is not
 
 | It is | It is not |
