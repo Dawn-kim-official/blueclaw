@@ -100,8 +100,10 @@ A task run is a row in the task store with one of nine statuses
 Every step appends an event through `TaskEventService.AppendTaskEvent`
 (`.dependency/bluecollar/taskstate/task_event_service.go`). Event names follow a fixed wire grammar —
 `tool.<name>.requested`, `tool.<name>.result`, `approval.pending_call`,
-`approval.executed`, `agent.task_launched` — so a reader can reconstruct what
-happened without access to the harness's internal types. The ledger is the
+`approval.executed`, `agent.task_launched`, and — for a tool an external
+harness ran in its own process rather than through the catalog —
+`harness.tool_permitted` and `harness.tool_refused`. A reader can reconstruct
+what happened without access to the harness's internal types. The ledger is the
 contract between host and harness, and the host is the side that reads it.
 
 ### Approval gates
@@ -451,6 +453,28 @@ The terminal section is the one that decides whether isolation is on:
   }
 }
 ```
+
+The agent section decides which loop runs and what it is allowed to assume:
+
+```json
+{
+  "agent": {
+    "defaultTaskLevel": "low",
+    "harness": {
+      "name": "claude-code",
+      "agentCommandPath": "/usr/local/bin/claude"
+    },
+    "optionalFileReadPathSuffixes": [".myapp/site.json"]
+  }
+}
+```
+
+`harness.name` is the one in [Harnesses](#harnesses); omit the block and the
+bundled loop runs. `defaultTaskLevel` is the effort a task starts at
+(`xlow` through `max`) before the tier ladder moves it.
+`optionalFileReadPathSuffixes` names files whose absence is a state rather than
+a failure — a deployment's own control files, which the host knows about and
+the harness does not; the default is empty.
 
 External [MCP](https://modelcontextprotocol.io) servers mount into the tool
 catalog through `mcpServers` in the same runtime configuration
