@@ -3,11 +3,11 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"slices"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 type kernelHistoryProvider struct{}

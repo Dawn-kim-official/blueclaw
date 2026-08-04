@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/acpharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/cliharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"

@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/capability"
 )
 

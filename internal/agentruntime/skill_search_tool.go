@@ -3,8 +3,8 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"strings"
 )
 

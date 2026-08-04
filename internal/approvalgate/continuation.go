@@ -3,7 +3,7 @@ package approvalgate
 import (
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/taskstate"
+	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
 func ApprovalContinuationNote(taskEvents []taskstate.TaskEvent) string {

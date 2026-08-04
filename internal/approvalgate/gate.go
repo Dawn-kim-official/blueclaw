@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/blueclaw/taskstate"
+	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
 type heldCallRecord struct {

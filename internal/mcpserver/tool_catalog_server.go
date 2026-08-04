@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
 const toolCatalogServerName = "blueclaw-tool-catalog"

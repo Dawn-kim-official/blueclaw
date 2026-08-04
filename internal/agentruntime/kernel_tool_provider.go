@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"strings"
 )
 

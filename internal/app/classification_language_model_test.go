@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/model"
 )
 
 type namedLanguageModel struct {

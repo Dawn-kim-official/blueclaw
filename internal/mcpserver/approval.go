@@ -6,7 +6,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
 type ApprovalDecision string
