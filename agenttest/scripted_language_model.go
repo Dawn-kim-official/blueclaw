@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/bluecollar/model"
 )
 
 type ScriptedLanguageModelOptions struct {

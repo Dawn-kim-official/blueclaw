@@ -1,7 +1,7 @@
 package connectors
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 	"testing"
 )
 

@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollar"
+	"github.com/Dawn-kim-official/bluecollar"
 )
 
 func TestTaskPlanCompile(t *testing.T) {

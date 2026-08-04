@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/model"
-	"github.com/Dawn-kim-official/blueclaw/taskstate"
-	"github.com/Dawn-kim-official/blueclaw/toolcontract"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/model"
+	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/Dawn-kim-official/bluecollar/toolcontract"
 )
 
 type Completer struct {

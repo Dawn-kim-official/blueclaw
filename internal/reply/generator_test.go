@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/agentcontract"
-	"github.com/Dawn-kim-official/blueclaw/model"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/Dawn-kim-official/bluecollar/model"
 )
 
 func TestReplyGeneratorRejectsProviderWithoutChatCompletion(t *testing.T) {
