@@ -2,6 +2,7 @@ package acpharness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -9,16 +10,19 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/approvalgate"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/policy"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 	"github.com/Dawn-kim-official/blueclaw/internal/turnoutcome"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
 const toolCatalogServerName = "blueclaw"
+
+const harnessToolPermittedEventName = "harness.tool_permitted"
+const harnessToolRefusedEventName = "harness.tool_refused"
 
 type ToolCatalogPublisher interface {
 	PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (endpointURL string, bearerToken string, revoke func(), errorValue error)
@@ -94,9 +98,9 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	succeededToolRecorder := &turnoutcome.SucceededToolRecorder{}
 	endpointURL, bearerToken, revokeToolCatalog, errorValue := harness.toolCatalogPublisher.PublishToolCatalog(mcpserver.RequesterToolSet{
 		ObserveToolInvocation: succeededToolRecorder.Observe,
-		RequesterPersonID: request.RequesterPersonID,
-		TaskRunID:         request.ExistingTaskRunID,
-		ToolSet:           request.ToolSet,
+		RequesterPersonID:     request.RequesterPersonID,
+		TaskRunID:             request.ExistingTaskRunID,
+		ToolSet:               request.ToolSet,
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -109,7 +113,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	}
 	defer func() { _ = waitForAgent() }()
 
-	turnObserver := &sessionObserver{}
+	turnObserver := &sessionObserver{taskRunStore: harness.taskRunStore, taskRunID: request.ExistingTaskRunID}
 	connection := acp.NewClientSideConnection(turnObserver, agentInput, agentOutput)
 	initializeResponse, errorValue := connection.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
 	if errorValue != nil {
@@ -192,6 +196,26 @@ type sessionObserver struct {
 	mutex           sync.Mutex
 	messageSegments []string
 	toolNames       []string
+	taskRunStore    taskstate.TaskRunStore
+	taskRunID       string
+}
+
+func (observer *sessionObserver) recordHarnessOwnedToolCall(eventName string, toolCall acp.ToolCallUpdate) {
+	if observer.taskRunStore == nil || strings.TrimSpace(observer.taskRunID) == "" {
+		return
+	}
+	record := map[string]string{"toolCallID": string(toolCall.ToolCallId)}
+	if toolCall.Title != nil {
+		record["title"] = strings.TrimSpace(*toolCall.Title)
+	}
+	if toolCall.Kind != nil {
+		record["kind"] = string(*toolCall.Kind)
+	}
+	encodedRecord, errorValue := json.Marshal(record)
+	if errorValue != nil {
+		return
+	}
+	observer.taskRunStore.AppendTaskEvent(observer.taskRunID, eventName, string(encodedRecord))
 }
 
 func (observer *sessionObserver) agentMessage() string {
@@ -254,11 +278,13 @@ func (observer *sessionObserver) RequestPermission(_ context.Context, request ac
 			if permissionOption.Kind != allowedKind {
 				continue
 			}
+			observer.recordHarnessOwnedToolCall(harnessToolPermittedEventName, request.ToolCall)
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 				Selected: &acp.RequestPermissionOutcomeSelected{Outcome: "selected", OptionId: permissionOption.OptionId},
 			}}, nil
 		}
 	}
+	observer.recordHarnessOwnedToolCall(harnessToolRefusedEventName, request.ToolCall)
 	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 		Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}, nil
