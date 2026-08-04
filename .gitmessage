@@ -1,0 +1,8 @@
+# <type>: <what changes, imperative, lowercase, no trailing period>
+#
+# type: feat | fix | docs | refactor | test | chore | ci
+#
+# Why it changes. The problem a reader would otherwise have to reconstruct,
+# and what you deliberately did not do. Wrap at 72 columns.
+#
+# The subject is a claim about the code, not a report of your work.

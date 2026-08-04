@@ -211,13 +211,30 @@ func (model Model) renderHarnessScreen() string {
 		lines = append(lines, styleMuted.Render("the admin API does not report which harness a running sandbox uses; pass --runtime pointing at the sandbox's runtime configuration JSON"))
 		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, "name: "+model.harnessInfo.Name)
+	lines = append(lines, styleFieldLabel.Render("name:              ")+model.harnessInfo.Name)
 	if model.harnessInfo.AgentCommandPath != "" {
-		lines = append(lines, "agentCommandPath: "+model.harnessInfo.AgentCommandPath)
+		lines = append(lines, styleFieldLabel.Render("agent command:     ")+model.harnessInfo.AgentCommandPath)
 	}
-	lines = append(lines, styleMuted.Render("source: "+model.harnessInfo.RuntimeConfigPath))
-	lines = append(lines, styleMuted.Render("this is the configured harness, not a live report from a running sandbox process"))
+	lines = append(lines, styleFieldLabel.Render("runs as:           ")+harnessIdentityDescription(model.harnessInfo))
+	if model.harnessInfo.ToolCatalogURL != "" {
+		lines = append(lines, styleFieldLabel.Render("tool catalog:      ")+model.harnessInfo.ToolCatalogURL)
+	}
+	lines = append(lines, "", styleMuted.Render(harnessProvenanceDescription(model.harnessInfo)))
 	return strings.Join(lines, "\n")
+}
+
+func harnessIdentityDescription(harnessInfo HarnessInfo) string {
+	if harnessInfo.RunsAsRequesterIdentity {
+		return styleOK.Render("the requester's own POSIX user")
+	}
+	return styleWarning.Render("the daemon account — tool calls are not isolated per person")
+}
+
+func harnessProvenanceDescription(harnessInfo HarnessInfo) string {
+	if harnessInfo.IsLiveReport {
+		return "reported by the running sandbox"
+	}
+	return "read from " + harnessInfo.RuntimeConfigPath + "; the sandbox was not reachable, so this is the configured harness rather than the running one"
 }
 
 func padRight(text string, width int) string {

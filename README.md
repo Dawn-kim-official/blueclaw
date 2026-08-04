@@ -9,13 +9,15 @@
 > with, not so it can be depended on. If you run it, pin a commit and expect to
 > read diffs.
 
-**blueclaw is a POSIX-isolated agent host: a Go daemon that runs an AI agent
-harness on behalf of the person who asked, executes every tool call as that
-person's own unprivileged Linux user, holds side-effecting calls at an approval
-gate, and writes every step to a durable event ledger.** It is not an agent and
-not a model. It is the process the agent runs inside, and it owns the parts an
-agent should not be trusted with: identity, isolation, task state, the tool
-catalog, and delivery.
+**blueclaw is an open source, self-hosted AI agent host — a Go daemon that runs
+an AI agent harness on behalf of the person who asked, executes every tool call
+as that person's own unprivileged Linux user, holds side-effecting calls at an
+approval gate, and writes every step to a durable event ledger.** It is not an
+agent and not a model. It is the process the agent runs inside, and it owns the
+parts an agent should not be trusted with: identity, isolation, task state, the
+tool catalog, and delivery.
+
+<img src="assets/screenshots/tui-tasks.png" alt="blueclaw-tui showing five task runs, one waiting for approval" width="100%">
 
 The agent loop is a replaceable component behind a Go interface
 (`agentcontract.Harness`, one method). Five harnesses are selectable, one of them in this
@@ -41,15 +43,20 @@ to this project.
 | an MCP client that mounts external tool servers into the catalog, and an MCP server that publishes the requester's catalog to an external harness | a general-purpose MCP server for arbitrary clients |
 | a Go daemon you build from source and self-host | a hosted service or a packaged binary release |
 
+Read the right-hand column literally. blueclaw is not an AI agent sandbox in the
+container sense: the isolation it adds is POSIX identity, and it composes with
+bubblewrap or a container rather than replacing either.
+
 blueclaw is the runtime inside InternKim, an on-premise AI automation appliance.
 That is one deployment of it, not what it is.
 
 ## Why an agent host, not another agent
 
 Agent harnesses are already abundant: Claude Code, Codex, opencode, Gemini CLI,
-and the loop bundled here. They all run as whoever started them. On a shared
-machine that means one Unix account for every requester, no per-person file
-separation, and no record of which human authorized which side effect.
+and the loop bundled here. They all run as whoever started them. On a shared,
+multi-user machine that means one Unix account for every requester, no
+per-person file separation, and no record of which human authorized which side
+effect.
 
 blueclaw takes the opposite split. The harness decides *what* to call. blueclaw
 decides *who it runs as*, *whether it runs at all*, and *what is written down*.
@@ -276,6 +283,42 @@ explicit `--live-llm` flag or `BLUECLAW_E2E_LIVE=1` is required
 (`cmd/blueclaw-lab/main.go`). Scenario names resolve through
 `e2e.BuiltinScenario`; the scenarios are defined in `internal/e2e/scenarios.go`,
 and `--scenario-file` loads one from JSON instead.
+
+## Terminal interface
+
+`cmd/blueclaw-tui` is how you watch and answer a running host from a terminal.
+It talks to the admin API over HTTP, so it runs wherever you can reach the
+daemon.
+
+```bash
+go build -o blueclaw-tui ./cmd/blueclaw-tui
+./blueclaw-tui --base-url http://127.0.0.1:8081
+```
+
+With no `--base-url` it reads the one recorded at enrollment. `--runtime`
+points at the sandbox's runtime configuration and is only needed when the
+daemon is unreachable and you still want to see which harness is configured.
+
+Four screens, switched with `1`-`4` or `tab`; `up`/`down` selects, `enter`
+opens, `r` refreshes, `q` quits.
+
+**Detail** replays one task run from its event ledger — every tool call, its
+result, and the approval that is holding the run open.
+
+<img src="assets/screenshots/tui-detail.png" alt="the detail screen replaying a task's tool calls and its pending approval" width="100%">
+
+**Approvals** lists every run waiting on a person and shows the question the
+runtime asked. `y` confirms the held call, `a` confirms every held call in that
+task, `n` cancels. The answer is written to the ledger and the held call is
+re-executed verbatim, so approving survives a daemon restart.
+
+<img src="assets/screenshots/tui-approvals.png" alt="the approvals screen showing a pending question with confirm and cancel keys" width="100%">
+
+**Harness** reports which loop the running daemon is using and, more usefully,
+whether tool calls execute as the requester's own POSIX user or as the daemon
+account.
+
+<img src="assets/screenshots/tui-harness.png" alt="the harness screen reporting bluecollar running as the requester's own POSIX user" width="100%">
 
 ## Harnesses
 
@@ -615,11 +658,33 @@ not a deny list, is what confines it. And the coverage of these adapters is
 thinner than the bundled loop's: the live tests are skipped unless the CLI is on
 your PATH.
 
+### What does blueclaw do that Claude Code does not?
+
+They answer different questions: Claude Code is an agent loop, blueclaw is the
+multi-user host such a loop can run inside. Claude Code runs as the operating
+system user who started it, keeps its approval prompt in the session, and leaves
+its record in terminal scrollback. blueclaw runs the loop as an unprivileged
+Linux user derived from the requester, persists a held call as
+`approval.pending_call` so an approval survives a daemon restart, and writes
+every step to an append-only event ledger in Postgres. It adds no agent
+capability of its own — what it adds is identity, isolation, durable task runs,
+and the audit trail.
+
 ### Is blueclaw an agent?
 
 No. It runs one. blueclaw owns identity, isolation, the task store, approvals,
 the tool catalog, and delivery. The harness owns the loop: route a turn, run it,
 answer.
+
+### Can I use my own agent loop?
+
+Yes. A harness is anything satisfying `agentcontract.Harness`, a single
+`RunTurn` method, and it is injected at the top rather than constructed inside
+the host — a new loop is a factory passed to `app.NewApplication`. Five
+harnesses are already selectable through `agent.harness.name`: the bundled
+bluecollar loop, any ACP agent, and the `claude-code`, `codex`, and
+`antigravity` CLIs. Swapping the loop does not move the isolation boundary,
+because tool execution never leaves blueclaw.
 
 ### How is this different from running an agent in a container?
 
@@ -657,8 +722,10 @@ repository. Build from source with `go build ./...`.
 
 ## Contributing
 
-Issues and pull requests are welcome. For a security problem, follow
-[SECURITY.md](SECURITY.md) instead of opening an issue.
+Not yet — the design is still moving too fast for outside patches to be a
+kindness to whoever sends them. Issues describing a problem you hit are useful
+and welcome. For a security problem, follow [SECURITY.md](SECURITY.md) instead
+of opening an issue.
 
 ## License
 
