@@ -1593,7 +1593,7 @@ describe('llmd provider adapter', () => {
       'auto routing requires an OpenRouter or llama.cpp configuration',
     );
     await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Companion })).rejects.toThrow(
-      'companion language model routing is provided by InternKim',
+      'companion language model routing is provided by the host runtime, not by llmd',
     );
     await expect(generateStructuredResponse({ ...structuredRequest, executionMode: ExecutionMode.Remote })).rejects.toThrow(
       'remote routing requires OPENROUTER_API_KEY',

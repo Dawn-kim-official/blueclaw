@@ -26,8 +26,8 @@
   },
   "firecracker": {
     "binaryPath": "/usr/local/bin/firecracker",
-    "kernelImagePath": "/opt/internkim/blueclaw-runtime/vmlinux.bin",
-    "rootfsImagePath": "/opt/internkim/blueclaw-runtime/rootfs.ext4",
+    "kernelImagePath": "/opt/blueclaw/blueclaw-runtime/vmlinux.bin",
+    "rootfsImagePath": "/opt/blueclaw/blueclaw-runtime/rootfs.ext4",
     "workspaceImagePath": "/opt/blueclaw/workspace.ext4",
     "vsockCID": 52
   }

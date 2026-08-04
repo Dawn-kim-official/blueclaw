@@ -209,8 +209,17 @@ func TestSkillRemoveMissingSkillFails(t *testing.T) {
 	}
 }
 
-func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
+func TestSkillManagementRejectsInvalidAndBundledNames(t *testing.T) {
 	workspacePath := t.TempDir()
+	for _, bundledSkillName := range []string{"presentation", "agent-browser"} {
+		bundledSkillDirectoryPath := filepath.Join(workspacePath, "skills", bundledSkillName)
+		if errorValue := os.MkdirAll(bundledSkillDirectoryPath, 0700); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if errorValue := os.WriteFile(filepath.Join(bundledSkillDirectoryPath, "SKILL.md"), []byte(userSkillDocument(bundledSkillName)), 0600); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+	}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, input := range []map[string]string{
@@ -239,7 +248,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !result.Failed() {
-		t.Fatalf("expected skill_remove to reject built-in skill, got %+v", result)
+		t.Fatalf("expected skill_remove to reject bundled skill, got %+v", result)
 	}
 }
 

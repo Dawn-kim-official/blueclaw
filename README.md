@@ -448,7 +448,7 @@ tool participates in the same approval and evidence rules as a built-in one.
 | `llmd/` | AI SDK sidecar: structured output and chat generation over a Unix socket |
 | `chatd/` | chat bridge and platform adapters (Mattermost, Buzz) |
 | `admin/` | Svelte admin and task console sources |
-| `web/` | the console built from `admin/`, committed for packaging |
+| `web/` | build output of `admin/`, untracked; run `cd admin && bun run build` before serving the console |
 | `migrations/` | 29 Postgres migrations, applied in order at boot |
 | `tests/` | integration suite and fixtures |
 | `lab/` | provisioning and scenario scripts for the development VM |

@@ -139,7 +139,7 @@ function resolveProviderRoutes(
     }
     return [createOpenRouterRoute(request, configuration, languageModelFactory, parallelToolCalls)];
   }
-  if (request.executionMode === ExecutionMode.Companion) throw new Error('companion language model routing is provided by InternKim');
+  if (request.executionMode === ExecutionMode.Companion) throw new Error('companion language model routing is provided by the host runtime, not by llmd');
   const routes = configuration.localOnly
     ? [optionalLlamaRoute(configuration, languageModelFactory, requireStructuredOutputs, parallelToolCalls)]
     : configuration.autoRoute === LLMDAutoRoute.LocalFirst

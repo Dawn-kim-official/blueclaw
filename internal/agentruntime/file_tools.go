@@ -302,8 +302,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		if result, fallbackError, isFound := toolCatalogBuilder.fileReadFallbackFromAttachmentMaterial(toolContext, path, input, handlerContext); isFound {
 			return result, fallbackError
 		}
-		if outcome.failureCode() == security.ActorErrorCodeNotFound && isOptionalSiteControlFilePath(path) {
-			return optionalSiteControlFileMissingResult(path, input, maxOutputBytes), nil
+		if outcome.failureCode() == security.ActorErrorCodeNotFound && toolCatalogBuilder.isOptionalControlFilePath(path) {
+			return toolCatalogBuilder.optionalControlFileMissingResult(path, input, maxOutputBytes), nil
 		}
 		return outcome.toolFailure("read_file", "file_read", path), nil
 	}
@@ -331,9 +331,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}, readResult)), nil
 }
 
-func optionalSiteControlFileMissingResult(path string, input fileReadToolInput, maxOutputBytes int) toolcontract.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) optionalControlFileMissingResult(path string, input fileReadToolInput, maxOutputBytes int) toolcontract.ToolResult {
 	readResult := fileReadResult("", input, maxOutputBytes)
-	readResult.ReadHint = "This site control file is optional and is not present yet. Create or update it before source edits if it is relevant to the current site workflow."
+	readResult.ReadHint = "This control file is optional and is not present yet. Create or update it before source edits if it is relevant to the current workflow."
 	result := fileReadResultMap(map[string]any{
 		"path":              path,
 		"exists":            false,
@@ -343,15 +343,15 @@ func optionalSiteControlFileMissingResult(path string, input fileReadToolInput, 
 		"sizeBytes":         0,
 		"isTruncated":       false,
 	}, readResult)
-	if recommendedPath := recommendedSiteControlWritePath(path); recommendedPath != "" {
+	if recommendedPath := toolCatalogBuilder.recommendedSiteControlWritePath(path); recommendedPath != "" {
 		result["recommendedWritePath"] = recommendedPath
 	}
 	return fileToolSuccess(result)
 }
 
-func isOptionalSiteControlFilePath(path string) bool {
+func (toolCatalogBuilder *ToolCatalogBuilder) isOptionalControlFilePath(path string) bool {
 	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
-	for _, suffix := range optionalSiteControlFileSuffixes() {
+	for _, suffix := range toolCatalogBuilder.optionalFileReadPathSuffixes {
 		if strings.HasSuffix(cleanPath, suffix) {
 			return true
 		}
@@ -359,26 +359,17 @@ func isOptionalSiteControlFilePath(path string) bool {
 	return false
 }
 
-func optionalSiteControlFileSuffixes() []string {
-	return []string{
-		".internkim/site.json",
-		".internkim/idea.md",
-		".internkim/artifact-brief.md",
-		".internkim/review-log.json",
-	}
-}
-
-func recommendedSiteControlWritePath(path string) string {
+func (toolCatalogBuilder *ToolCatalogBuilder) recommendedSiteControlWritePath(path string) string {
 	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
 	for _, prefix := range []string{"~/sites/", "home/sites/", "workspace/circles/staff/sites/"} {
-		if recommendedPath := recommendedSiteControlWritePathForPrefix(cleanPath, prefix); recommendedPath != "" {
+		if recommendedPath := toolCatalogBuilder.recommendedSiteControlWritePathForPrefix(cleanPath, prefix); recommendedPath != "" {
 			return recommendedPath
 		}
 	}
 	return ""
 }
 
-func recommendedSiteControlWritePathForPrefix(path string, prefix string) string {
+func (toolCatalogBuilder *ToolCatalogBuilder) recommendedSiteControlWritePathForPrefix(path string, prefix string) string {
 	if !strings.HasPrefix(path, prefix) {
 		return ""
 	}
@@ -390,7 +381,7 @@ func recommendedSiteControlWritePathForPrefix(path string, prefix string) string
 	if strings.HasPrefix(relativePath, "draft/") {
 		return ""
 	}
-	if !isOptionalSiteControlFilePath(relativePath) {
+	if !toolCatalogBuilder.isOptionalControlFilePath(relativePath) {
 		return ""
 	}
 	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", siteID, "draft", relativePath))

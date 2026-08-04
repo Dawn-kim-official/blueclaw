@@ -2,7 +2,7 @@
   "baseURL": "http://127.0.0.1:8080",
   "capabilities": {
     "endpoint": "http://127.0.0.1:7781",
-    "unixSocketPath": "/run/internkim/capability.sock",
+    "unixSocketPath": "/run/blueclaw/capability.sock",
     "timeoutSecond": 15,
     "toolNames": [
       "browser_open",
@@ -97,20 +97,20 @@
       "executionMode": "auto",
       "timeoutSecond": 60,
       "structuredSchemaNames": [
-        "blueclaw_agent_turn_action",
-        "blueclaw_agent_turn_finalizer",
-        "blueclaw_turn_router",
-        "blueclaw_recovery_decision",
-        "blueclaw_contract_skill_arbitration",
-        "blueclaw_completion_judge"
+        "bluecollar_agent_turn_action",
+        "bluecollar_agent_turn_finalizer",
+        "bluecollar_turn_router",
+        "bluecollar_recovery_decision",
+        "bluecollar_contract_skill_arbitration",
+        "bluecollar_completion_judge"
       ]
     }
   },
   "firecracker": {
     "firecrackerPath": "/usr/local/bin/firecracker",
     "jailerPath": "/usr/local/bin/jailer",
-    "kernelImagePath": "/opt/internkim/blueclaw-runtime/vmlinux.bin",
-    "rootfsImagePath": "/opt/internkim/blueclaw-runtime/rootfs.ext4",
+    "kernelImagePath": "/opt/blueclaw/blueclaw-runtime/vmlinux.bin",
+    "rootfsImagePath": "/opt/blueclaw/blueclaw-runtime/rootfs.ext4",
     "workspaceImagePath": "/var/lib/blueclaw/workspace.ext4",
     "vcpuCount": 4,
     "memoryMiB": 8192,
@@ -152,7 +152,7 @@
       "enabled": true,
       "executionMode": "auto"
     },
-    "defaultEffortLevel": "standard",
+    "defaultTaskLevel": "low",
     "toolResultMaxBytes": 32768,
     "failureRecovery": {
       "failureDebtFinalizationGate": true,

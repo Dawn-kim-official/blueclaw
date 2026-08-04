@@ -13,6 +13,7 @@ import (
 )
 
 const DefaultEndpoint = "http://127.0.0.1:7781"
+const DefaultSocketEndpoint = "http://capability"
 
 type Configuration struct {
 	Endpoint       string
@@ -48,12 +49,12 @@ func NewClient(configuration Configuration) Client {
 		transport, errorValue := newVSockTransport(configuration.VSockCID, configuration.VSockPort)
 		httpClient.Transport = transportWithError(transport, errorValue)
 		if strings.TrimSpace(configuration.Endpoint) == "" {
-			endpoint = "http://internkim-capability"
+			endpoint = DefaultSocketEndpoint
 		}
 	} else if unixSocketPath != "" {
 		httpClient.Transport = newUnixSocketTransport(unixSocketPath)
 		if strings.TrimSpace(configuration.Endpoint) == "" {
-			endpoint = "http://internkim-capability"
+			endpoint = DefaultSocketEndpoint
 		}
 	}
 

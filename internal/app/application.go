@@ -305,6 +305,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 	toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
+	toolCatalogBuilder.UseOptionalFileReadPathSuffixes(runtimeConfiguration.Agent.OptionalFileReadPathSuffixes)
 	toolCatalogBuilder.UseSkillChangeHandler(refreshSkillIndex)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)

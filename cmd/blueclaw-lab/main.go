@@ -174,7 +174,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
 	languageModelProvider := flagSet.String("llm-provider", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_PROVIDER"), "openrouter"), "live LLM provider: openrouter, capability, or llmd")
 	languageModelAuthKeyPath := flagSet.String("llm-auth-key-path", os.Getenv("BLUECLAW_E2E_LLM_AUTH_KEY_PATH"), "llmd installation auth key path")
-	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL")), "live LLM model override")
+	languageModelName := flagSet.String("llm-model", os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "live LLM model override")
 	embeddingEndpoint := flagSet.String("embedding-endpoint", os.Getenv("BLUECLAW_E2E_EMBEDDING_ENDPOINT"), "local OpenAI-compatible embedding endpoint")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	seed := flagSet.Int64("seed", 0, "generation seed for live LLM calls")
@@ -804,9 +804,9 @@ func resolveOpenRouterAPIKey() (string, error) {
 	if errorValue != nil {
 		return "", errorValue
 	}
-	document, errorValue := os.ReadFile(filepath.Join(homeDirectoryPath, ".internkim", "openrouter_api_key"))
+	document, errorValue := os.ReadFile(filepath.Join(homeDirectoryPath, ".blueclaw", "openrouter_api_key"))
 	if errorValue != nil {
-		return "", errors.New("OPENROUTER_API_KEY is required or ~/.internkim/openrouter_api_key must exist")
+		return "", errors.New("OPENROUTER_API_KEY is required or ~/.blueclaw/openrouter_api_key must exist")
 	}
 	openRouterAPIKey = strings.TrimSpace(strings.TrimPrefix(string(document), "OPENROUTER_API_KEY="))
 	if openRouterAPIKey == "" {

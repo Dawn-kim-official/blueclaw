@@ -249,6 +249,7 @@ func TestFileReadResolvesSiteRelativePathNativelyAndFailsAsNotFound(t *testing.T
 func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseOptionalFileReadPathSuffixes([]string{".internkim/site.json", ".internkim/artifact-brief.md"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",

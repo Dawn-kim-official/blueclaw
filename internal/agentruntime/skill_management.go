@@ -21,39 +21,6 @@ const maximumSkillSearchPromptLength = 20000
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
-var builtInSkillNames = map[string]bool{
-	"agent-browser":                     true,
-	"bash":                              true,
-	"calendar":                          true,
-	"corporate-registration-consulting": true,
-	"court-auction-notice-search":       true,
-	"create-gws-file":                   true,
-	"delivery-tracking":                 true,
-	"direct-message":                    true,
-	"hwp":                               true,
-	"internkim-flow":                    true,
-	"iros-registry-automation":          true,
-	"k-dart":                            true,
-	"korean-character-count":            true,
-	"korean-jangbu-for":                 true,
-	"korean-law-search":                 true,
-	"korean-patent-search":              true,
-	"korean-privacy-terms":              true,
-	"korean-spell-check":                true,
-	"korean-stock-search":               true,
-	"lh-notice-search":                  true,
-	"naver-blog-research":               true,
-	"naver-news-search":                 true,
-	"pdf":                               true,
-	"real-estate-search":                true,
-	"scheduled-task":                    true,
-	"rhwp-edit":                         true,
-	"presentation":                      true,
-	"site-prototype":                    true,
-	"skill-management":                  true,
-	"zipcode-search":                    true,
-}
-
 var supportedSkillFrontmatterKeys = map[string]bool{
 	"compatibility":   true,
 	"description":     true,
@@ -130,7 +97,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill_add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
-	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
+	if errorValue := toolCatalogBuilder.validateManageableSkillName(skillName); errorValue != nil {
 		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	skillBundle, warnings, errorValue := validateSkillDocument(skillName, input.Content)
@@ -174,7 +141,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 		return toolcontract.ToolFailureResult(toolcontract.FailurePermissionDenied, toolcontract.FailureCodes.AccessDenied, "actor_permission_denied", "skill_remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
 	}
 	skillName := strings.TrimSpace(input.Name)
-	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
+	if errorValue := toolCatalogBuilder.validateManageableSkillName(skillName); errorValue != nil {
 		return toolcontract.ToolFailureResult(toolcontract.FailureInvalidInput, toolcontract.FailureCodes.InvalidInput, "skill_remove", errorValue.Error()), nil
 	}
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
@@ -202,6 +169,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skil
 	return filepath.Join(toolCatalogBuilder.workspaceRootPath, ".agents", "skills", skillName)
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) isBundledSkillName(skillName string) bool {
+	_, errorValue := os.Stat(filepath.Join(toolCatalogBuilder.workspaceRootPath, "skills", skillName, "SKILL.md"))
+	return errorValue == nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) validateManageableSkillName(skillName string) error {
+	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
+		return errorValue
+	}
+	if toolCatalogBuilder.isBundledSkillName(skillName) {
+		return errors.New("bundled skills cannot be created, overwritten, or removed")
+	}
+	return nil
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) isProductionServiceOwnedSkillWorkspace() bool {
 	return filepath.Clean(toolCatalogBuilder.workspaceRootPath) == "/workspace"
 }
@@ -218,9 +200,6 @@ func validateUserManagedSkillName(skillName string) error {
 	}
 	if len(skillName) > maximumSkillNameLength || !skillNamePattern.MatchString(skillName) {
 		return errors.New("skill name must use lowercase letters, digits, and hyphens only, up to 64 characters")
-	}
-	if builtInSkillNames[skillName] {
-		return errors.New("built-in skills cannot be created, overwritten, or removed")
 	}
 	return nil
 }

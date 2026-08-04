@@ -168,11 +168,11 @@ func schemaNameFromOpenRouterDocument(requestDocument map[string]any) string {
 
 func openRouterContentForSchema(schemaName string) string {
 	switch schemaName {
-	case "blueclaw_skill_search_queries":
+	case "bluecollar_skill_search_queries":
 		return `{"queries":[]}`
-	case "blueclaw_turn_router":
+	case "bluecollar_turn_router":
 		return `{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"fake live router","userFacingReply":"","priorTaskReference":"none"}`
-	case "blueclaw_agent_turn_action":
+	case "bluecollar_agent_turn_action":
 		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"hasRemainingWork":false,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
 	default:
 		return "fake recovery reply"
@@ -194,7 +194,7 @@ func TestRunVirtualSessionLiveLanguageModelUsesOpenRouterKeyFileAndFakeServer(t 
 	if fakeServer.RequestCount() == 0 {
 		t.Fatal("expected fake OpenRouter server to receive at least one request")
 	}
-	if !containsString(fakeServer.SchemaNames(), "blueclaw_agent_turn_action") {
+	if !containsString(fakeServer.SchemaNames(), "bluecollar_agent_turn_action") {
 		t.Fatalf("expected full path to call action model, got schemas %+v", fakeServer.SchemaNames())
 	}
 	if !allStringsEqual(fakeServer.AuthorizationHeaders(), "Bearer sk-file-test") {
@@ -238,12 +238,12 @@ func TestCreateLiveLanguageModelSupportsLLMDWithoutOpenRouterCredentials(t *test
 		t.Fatalf("expected llmd generation seed, got %+v", llmdClient.GenerationOptions)
 	}
 	expectedSchemaNames := []string{
-		"blueclaw_agent_turn_action",
-		"blueclaw_agent_turn_finalizer",
-		"blueclaw_turn_router",
-		"blueclaw_recovery_decision",
-		"blueclaw_contract_skill_arbitration",
-		"blueclaw_completion_judge",
+		"bluecollar_agent_turn_action",
+		"bluecollar_agent_turn_finalizer",
+		"bluecollar_turn_router",
+		"bluecollar_recovery_decision",
+		"bluecollar_contract_skill_arbitration",
+		"bluecollar_completion_judge",
 	}
 	if !slices.Equal(llmdClient.StructuredSchemaNames, expectedSchemaNames) {
 		t.Fatalf("expected authoritative LLMD schemas, got %#v", llmdClient.StructuredSchemaNames)
@@ -297,7 +297,7 @@ func TestCreateLiveLanguageModelPreservesUnixSocketTransportWithOmittedEndpoint(
 		t.Fatalf("expected capability socket model: %v", errorValue)
 	}
 	capabilityClient := capabilityModel.(llm.CapabilityLLMClient).CapabilityClient
-	if capabilityClient.Endpoint != "http://internkim-capability" {
+	if capabilityClient.Endpoint != capability.DefaultSocketEndpoint {
 		t.Fatalf("expected capability socket endpoint, got %q", capabilityClient.Endpoint)
 	}
 	if httpClient, isHTTPClient := capabilityClient.HTTPClient.(*http.Client); !isHTTPClient || httpClient.Transport == nil {
@@ -380,7 +380,7 @@ func TestSaveVirtualSessionEvidenceRecordsRoutingMetadataWithoutSecrets(t *testi
 		t.Fatalf("expected evidence file: %v", errorValue)
 	}
 	content := string(document)
-	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "blueclaw_agent_turn_action", "blueclaw_agent_turn_finalizer", "blueclaw_turn_router", "blueclaw_recovery_decision", "blueclaw_contract_skill_arbitration", "blueclaw_completion_judge"} {
+	for _, expectedText := range []string{"task-lifecycle", "failed", "blocked", "operation contract was invalid", "llmd", "recovery_chat", "llama.cpp", "gemma", "device", "bluecollar_agent_turn_action", "bluecollar_agent_turn_finalizer", "bluecollar_turn_router", "bluecollar_recovery_decision", "bluecollar_contract_skill_arbitration", "bluecollar_completion_judge"} {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("evidence missing %q: %s", expectedText, content)
 		}
@@ -468,7 +468,7 @@ func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicat
 			LanguageModelCallEvents: []e2e.VirtualLanguageModelCallEvent{
 				{
 					Kind:            "chat",
-					SchemaName:      "blueclaw_agent_turn_action",
+					SchemaName:      "bluecollar_agent_turn_action",
 					Provider:        "llmd",
 					Model:           "low-model",
 					SelectedBackend: "device",
@@ -502,7 +502,7 @@ func TestSaveVirtualSessionEvidenceUsesOrderedVirtualCallRecorderWithoutDuplicat
 	if len(evidence.Calls) != 2 {
 		t.Fatalf("expected two ordered virtual calls without duplicates, got %+v", evidence.Calls)
 	}
-	if evidence.Calls[0].SchemaName != "blueclaw_agent_turn_action" || evidence.Calls[0].FinishReason != "tool_calls" {
+	if evidence.Calls[0].SchemaName != "bluecollar_agent_turn_action" || evidence.Calls[0].FinishReason != "tool_calls" {
 		t.Fatalf("expected action call first with metadata, got %+v", evidence.Calls)
 	}
 	if evidence.Calls[1].SchemaName != "" || evidence.Calls[1].FinishReason != "stop" {
@@ -539,7 +539,7 @@ func TestRunVirtualSessionLiveLanguageModelPrintsFailureSummary(t *testing.T) {
 func parseLiveVirtualSessionTestArguments(t *testing.T, baseURL string) virtualSessionArguments {
 	t.Helper()
 	homeDirectoryPath := t.TempDir()
-	keyDirectoryPath := filepath.Join(homeDirectoryPath, ".internkim")
+	keyDirectoryPath := filepath.Join(homeDirectoryPath, ".blueclaw")
 	if errorValue := os.MkdirAll(keyDirectoryPath, 0700); errorValue != nil {
 		t.Fatalf("failed to create key directory: %v", errorValue)
 	}
@@ -596,7 +596,7 @@ func (provider virtualTierTestProvider) GenerateResponse(context.Context, string
 
 func (provider virtualTierTestProvider) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	content := openRouterContentForSchema(request.StructuredOutputSchema.Name)
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		content = `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"xhigh","estimatedMinutes":60,"requestedOutputFormats":null,"requiredEvidence":[],"initialToolNames":[],"responseLanguage":"ko","reason":"xhigh integration test","userFacingReply":"","priorTaskReference":"none"}`
 	}
 	return llm.StructuredResponse{ModelName: provider.modelName, Content: content}, nil
@@ -683,7 +683,7 @@ func virtualTurnActionModelTier(t *testing.T, turnResult e2e.VirtualTurnResult) 
 		if errorValue := json.Unmarshal([]byte(event.Body), &languageModelCall); errorValue != nil {
 			t.Fatalf("expected valid llm.call event: %v", errorValue)
 		}
-		if languageModelCall.SchemaName == "blueclaw_agent_turn_action" {
+		if languageModelCall.SchemaName == "bluecollar_agent_turn_action" {
 			return languageModelCall.ModelTier
 		}
 	}
