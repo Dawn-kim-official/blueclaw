@@ -116,7 +116,7 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 			t.Fatalf("expected launch request to include %q, got %s", expected, requestText)
 		}
 	}
-	if !hasStructuredRequest(languageModel.requests, "blueclaw_turn_router") {
+	if !hasStructuredRequest(languageModel.requests, "bluecollar_turn_router") {
 		t.Fatal("expected scheduled objective to use semantic routing")
 	}
 
@@ -178,7 +178,7 @@ func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateResponse(con
 
 func (languageModel *capturingScheduleRuntimeLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: firstScheduleRuntimeRouterResponse(languageModel.routerContent)}, nil
 	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil

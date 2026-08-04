@@ -2484,11 +2484,11 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
 			for _, routerResponse := range scenarioRouterResponsesForTurn(harness.scenario, virtualTurn) {
-				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", routerResponse)
+				harness.scriptedModel.EnqueueStructuredResponses("bluecollar_turn_router", routerResponse)
 			}
 			harness.scriptedModel.SetActionResponses(materializeScriptedWorkspacePaths(harness.workspacePath, virtualTurn.ActionResponses)...)
 			if len(virtualTurn.CompletionJudgeResponses) > 0 {
-				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_completion_judge", virtualTurn.CompletionJudgeResponses...)
+				harness.scriptedModel.EnqueueStructuredResponses("bluecollar_completion_judge", virtualTurn.CompletionJudgeResponses...)
 			}
 		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
@@ -2542,20 +2542,20 @@ func scenarioNeedsScriptedModel(scenario VirtualSessionScenario) bool {
 
 func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
 	defaultResponses := map[string]string{}
-	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldRespond":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
+	defaultResponses["bluecollar_addressing_classification"] = `{"target":"anyone","shouldRespond":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
-		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
+		defaultResponses["bluecollar_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
 	if virtualEvidenceRequiresExternalSend(scenario.RouterRequiredEvidence) {
-		defaultResponses["blueclaw_execution_plan"] = `{"originalInstruction":"scripted external send","summary":"scripted external send","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted external send"}`
+		defaultResponses["bluecollar_execution_plan"] = `{"originalInstruction":"scripted external send","summary":"scripted external send","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted external send"}`
 	}
 	if scenario.ScriptedExecutionPlan != nil {
 		if document, errorValue := json.Marshal(scenario.ScriptedExecutionPlan); errorValue == nil {
-			defaultResponses["blueclaw_execution_plan"] = string(document)
+			defaultResponses["bluecollar_execution_plan"] = string(document)
 		}
 	}
 	if response := scenarioSkillSearchQueriesResponse(scenario.SkillSearchQueries); response != "" {
-		defaultResponses["blueclaw_skill_search_queries"] = response
+		defaultResponses["bluecollar_skill_search_queries"] = response
 	}
 	return defaultResponses
 }
@@ -2599,7 +2599,7 @@ func assertScriptedControlCallsServed(callEvents []VirtualLanguageModelCallEvent
 			continue
 		}
 		switch event.SchemaName {
-		case "blueclaw_turn_router", "blueclaw_completion_judge":
+		case "bluecollar_turn_router", "bluecollar_completion_judge":
 			return fmt.Errorf("scripted %s call failed without an enqueued response: %s", event.SchemaName, event.Error)
 		}
 	}
@@ -2822,7 +2822,7 @@ func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
 	}
 	parts := []string{}
 	for _, request := range harness.requestRecorder.RequestsSince(startIndex) {
-		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
+		if request.StructuredOutputSchema.Name != "bluecollar_agent_turn_action" {
 			continue
 		}
 		for _, message := range request.Messages {
@@ -2847,7 +2847,7 @@ func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex 
 	}
 	count := 0
 	for _, request := range harness.requestRecorder.RequestsSince(startIndex) {
-		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
+		if request.StructuredOutputSchema.Name != "bluecollar_agent_turn_action" {
 			continue
 		}
 		for _, message := range request.Messages {

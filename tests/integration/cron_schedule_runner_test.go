@@ -76,7 +76,7 @@ func (languageModel staticScheduleLanguageModel) GenerateResponse(context.Contex
 }
 
 func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: scheduleTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil

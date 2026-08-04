@@ -24,7 +24,7 @@ func TestLLMDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {
 		ExecutionMode:  "remote",
 	})
 	response, errorValue := client.GenerateChatCompletion(context.Background(), llm.ChatCompletionRequest{
-		SchemaName: "blueclaw_agent_turn_action",
+		SchemaName: "bluecollar_agent_turn_action",
 		Messages: []llm.ChatCompletionMessage{{
 			Role:    "user",
 			Content: "Call terminal_run with command printf llmd-terminal-ok.",

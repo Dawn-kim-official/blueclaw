@@ -102,7 +102,7 @@ func TestTaskRunHandlerUsesLLMDTopologyPresetWithoutIntakeCall(t *testing.T) {
 	if responseRecorder.Code != http.StatusOK {
 		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
 	}
-	if len(languageModel.schemaNames) != 1 || languageModel.schemaNames[0] != "blueclaw_agent_turn_action" {
+	if len(languageModel.schemaNames) != 1 || languageModel.schemaNames[0] != "bluecollar_agent_turn_action" {
 		t.Fatalf("expected only agent action schema, got %v", languageModel.schemaNames)
 	}
 	if languageModel.schemaDocumentContains("terminal_run") {
