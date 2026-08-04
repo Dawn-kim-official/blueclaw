@@ -540,8 +540,15 @@ variable *names* and forces the canonical `PATH` (`:219`), caps the timeout
 `internal/access/access.go:22` is a remaining Go-side ACL pre-check, consulted
 before exposing capability tools (`internal/agentruntime/capability_tools.go:92`,
 `:462`), MCP tools (`internal/agentruntime/mcp_tool_provider.go:72`), and memory
-reads (`internal/memory/memory_service.go:380`). It is a migration leftover: the
-intended boundary is the POSIX actor. Do not extend it.
+reads (`internal/memory/memory_service.go:380`). It was described here as a
+migration leftover awaiting the POSIX actor; that is wrong for what it guards.
+POSIX decides what a process may touch on this machine and cannot decide whether
+a person may send a company message or change a shared calendar — those run in
+`capabilityd`, over a socket, with that service's authority, and `capabilityd`
+takes the requester's identifier for attribution rather than authorization. This
+check is therefore the only per-person authorization on capability operations.
+Do not delete it. The unfinished work is to move that decision behind the
+socket, into the service that performs the effect.
 
 `DirectWorkspaceActorFactory`
 (`internal/security/direct_workspace_actor.go:21`) is the deliberate opposite —
