@@ -20,9 +20,6 @@ var screenOrder = []screenID{screenTasks, screenDetail, screenApprovals, screenH
 
 const defaultPollInterval = 3 * time.Second
 
-// Model is the blueclaw-tui bubbletea model. It holds no terminal-specific
-// state beyond the current viewport size, so its data can be exercised by
-// tests without a TTY by driving Update directly.
 type Model struct {
 	client            *Client
 	runtimeConfigPath string

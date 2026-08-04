@@ -15,7 +15,7 @@ import (
 
 func main() {
 	baseURL := flag.String("base-url", "", "base URL of the blueclaw admin API, taken from the install when empty")
-	runtimeConfigurationPath := flag.String("runtime", "", "path to the sandbox's runtime configuration JSON, used to show the configured agent harness")
+	runtimeConfigurationPath := flag.String("runtime", "", "path to the daemon's runtime configuration JSON, used to show the configured agent harness")
 	flag.Parse()
 
 	home := enrollment.ResolveHome()

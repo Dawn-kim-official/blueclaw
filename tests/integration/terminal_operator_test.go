@@ -12,7 +12,7 @@ import (
 	"github.com/Dawn-kim-official/blueclaw/internal/tui"
 )
 
-func terminalOperatorSandbox(t *testing.T) (*httptest.Server, *task.TaskRunService) {
+func terminalOperatorDaemon(t *testing.T) (*httptest.Server, *task.TaskRunService) {
 	t.Helper()
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
@@ -40,7 +40,7 @@ func terminalOperatorSandbox(t *testing.T) (*httptest.Server, *task.TaskRunServi
 }
 
 func TestTerminalOperatorReadsTheRealAdminSurfaceThroughTheTerminalClient(t *testing.T) {
-	server, taskRunService := terminalOperatorSandbox(t)
+	server, taskRunService := terminalOperatorDaemon(t)
 	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "내일 회의 캘린더에서 지워줘")
 	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "tool.calendar_delete.requested", `{"tool":"calendar_delete"}`)
 	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "tool.calendar_delete.result", `{"tool":"calendar_delete"}`)
@@ -80,7 +80,7 @@ func TestTerminalOperatorReadsTheRealAdminSurfaceThroughTheTerminalClient(t *tes
 }
 
 func TestTerminalOperatorApprovalReachesTheRealGate(t *testing.T) {
-	server, taskRunService := terminalOperatorSandbox(t)
+	server, taskRunService := terminalOperatorDaemon(t)
 	runningTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "캘린더 정리")
 	terminalClient := tui.NewClient(server.URL, server.Client())
 
@@ -95,8 +95,8 @@ func TestTerminalOperatorApprovalReachesTheRealGate(t *testing.T) {
 	}
 }
 
-func TestTerminalOperatorSeesTheHarnessTheSandboxIsActuallyRunning(t *testing.T) {
-	server, _ := terminalOperatorSandbox(t)
+func TestTerminalOperatorSeesTheHarnessTheDaemonIsActuallyRunning(t *testing.T) {
+	server, _ := terminalOperatorDaemon(t)
 	terminalClient := tui.NewClient(server.URL, server.Client())
 
 	harnessStatus, errorValue := terminalClient.GetHarnessStatus(context.Background())

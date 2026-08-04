@@ -90,7 +90,7 @@ func TestToolCatalogServerPublishesTheRequesterToolSetWithItsDescriptorAxes(t *t
 	}
 }
 
-func TestToolCatalogServerExecutesInsideTheSandboxAndReportsFailureAsAToolError(t *testing.T) {
+func TestToolCatalogServerExecutesInsideTheDaemonAndReportsFailureAsAToolError(t *testing.T) {
 	invokedTool := ""
 	clientSession := connectedCatalogSession(t, RequesterToolSet{RequesterPersonID: "person-1", ToolSet: testToolSet(t, &invokedTool)})
 
@@ -99,10 +99,10 @@ func TestToolCatalogServerExecutesInsideTheSandboxAndReportsFailureAsAToolError(
 		Arguments: map[string]any{"note": "내일 회의"},
 	})
 	if errorValue != nil {
-		t.Fatalf("expected the tool call to reach the sandbox: %v", errorValue)
+		t.Fatalf("expected the tool call to reach the daemon: %v", errorValue)
 	}
 	if invokedTool != "calendar_add" {
-		t.Fatalf("expected the sandbox to run the tool, got %q", invokedTool)
+		t.Fatalf("expected the daemon to run the tool, got %q", invokedTool)
 	}
 	if callResult.IsError {
 		t.Fatalf("expected a successful call, got %+v", callResult)
