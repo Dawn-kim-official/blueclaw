@@ -117,9 +117,28 @@ Which calls are gated comes from descriptor metadata, not from the tool's name.
 per tool (`.dependency/bluecollar/toolcontract/registry.go`), from `none` and `read` through
 `workspace_write`, `external_send`, `site_publish`, and `destructive`.
 
-The gate is implemented inside the bundled harness today. Which layer should own
-approval once external harnesses plug in is an open question — see Project
-status.
+The gate belongs to the host, not to a harness. `internal/approvalgate` holds
+the call and `internal/mcpserver` consults it before invoking anything from the
+catalog, so every harness meets the same gate on the same calls.
+
+That works because of what a harness can and cannot reach. Sending a message,
+changing a calendar, publishing a site — every outward or irreversible effect
+exists only as a catalog tool, and an external agent has no other route to one.
+`internal/acpharness` also refuses ACP's own filesystem and terminal methods,
+which pushes an agent's file and shell work back onto the catalog rather than
+letting it run beside the gate.
+
+What remains outside is the tools an agent runs inside its own process: goose's
+shell, Claude Code's editor. Those are answered yes. The boundary there is
+POSIX — the agent runs as the requester's unprivileged user, and a shell call it
+makes itself can do no more than one made through `terminal_run`. The answer is
+recorded rather than silent: `harness.tool_permitted` and `harness.tool_refused`
+go to the event ledger, so reading a task afterwards shows the calls the catalog
+never saw.
+
+One asymmetry is not ours to fix. ACP has a permission channel and a command
+line does not, so a CLI harness offers nothing to record. For those, POSIX is
+the whole story.
 
 ### POSIX identity projection
 
