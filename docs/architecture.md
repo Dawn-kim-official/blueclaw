@@ -607,12 +607,12 @@ in `internal/llm/provider_factory.go`:
   "executionMode": "auto",
   "timeoutSecond": 60,
   "structuredSchemaNames": [
-    "blueclaw_agent_turn_action",
-    "blueclaw_agent_turn_finalizer",
-    "blueclaw_turn_router",
-    "blueclaw_recovery_decision",
-    "blueclaw_contract_skill_arbitration",
-    "blueclaw_completion_judge"
+    "bluecollar_agent_turn_action",
+    "bluecollar_agent_turn_finalizer",
+    "bluecollar_turn_router",
+    "bluecollar_recovery_decision",
+    "bluecollar_contract_skill_arbitration",
+    "bluecollar_completion_judge"
   ]
 }
 ```

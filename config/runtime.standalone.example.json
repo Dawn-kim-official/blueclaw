@@ -19,7 +19,11 @@
       "enabled": true,
       "executionMode": "auto"
     },
-    "defaultEffortLevel": "standard"
+    "defaultTaskLevel": "low",
+    "harness": {
+      "name": "claude-code",
+      "agentCommandPath": "/usr/local/bin/claude"
+    }
   },
   "connectors": {},
   "logging": {

@@ -1,1 +1,0 @@
-async function o(n){return(await fetch(`/tasks/api/list?taskSessionID=${encodeURIComponent(n)}`)).json()}async function a(n,s){return(await fetch(`/tasks/api/detail?taskSessionID=${encodeURIComponent(n)}&taskRunID=${encodeURIComponent(s)}`)).json()}export{a,o as l};
