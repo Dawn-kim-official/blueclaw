@@ -6,20 +6,21 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 	"github.com/Dawn-kim-official/blueclaw/internal/acpharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/cliharness"
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
 	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/Dawn-kim-official/bluecollar/agentcontract"
 )
 
 const (
-	BundledHarnessName    = "bluecollar"
-	ExternalHarnessName   = "acp"
-	ClaudeCodeHarnessName = "claude-code"
-	CodexHarnessName      = "codex"
+	BundledHarnessName     = "bluecollar"
+	ExternalHarnessName    = "acp"
+	ClaudeCodeHarnessName  = "claude-code"
+	CodexHarnessName       = "codex"
+	AntigravityHarnessName = "antigravity"
 )
 
 type ToolCatalogEndpoint struct {
@@ -52,8 +53,10 @@ func Select(harnessConfiguration config.HarnessConfiguration, bundledHarnessFact
 		return commandHarnessFactory(ClaudeCodeHarnessName, cliharness.ClaudeCodeAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	case CodexHarnessName:
 		return commandHarnessFactory(CodexHarnessName, cliharness.CodexAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
+	case AntigravityHarnessName:
+		return commandHarnessFactory(AntigravityHarnessName, cliharness.AntigravityAgentCommand(strings.TrimSpace(harnessConfiguration.AgentCommandPath)), harnessConfiguration, toolCatalogEndpoint, processBoundary)
 	default:
-		return nil, fmt.Errorf("unknown harness %q; known harnesses are %q, %q, %q and %q", harnessName, BundledHarnessName, ExternalHarnessName, ClaudeCodeHarnessName, CodexHarnessName)
+		return nil, fmt.Errorf("unknown harness %q; known harnesses are %q, %q, %q, %q and %q", harnessName, BundledHarnessName, ExternalHarnessName, ClaudeCodeHarnessName, CodexHarnessName, AntigravityHarnessName)
 	}
 }
 
