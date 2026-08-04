@@ -52,7 +52,7 @@ func TestLowTierEscalatesToMediumThroughRealCapabilityTransport(t *testing.T) {
 	response, errorValue := providers.Low.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
 		Messages: []llm.Message{{Role: "user", Content: "test"}},
 		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:     "blueclaw_agent_turn_action",
+			Name:     "bluecollar_agent_turn_action",
 			Document: `{"type":"object"}`,
 		},
 	})
@@ -90,7 +90,7 @@ func TestCappedHighTierReportsLowModelTier(t *testing.T) {
 	runtimeConfiguration.Capabilities.Endpoint = server.URL
 	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
 	response, errorValue := providers.High.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
-		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "bluecollar_agent_turn_action", Document: `{"type":"object"}`},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected capped high provider to succeed: %v", errorValue)

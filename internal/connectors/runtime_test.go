@@ -167,7 +167,7 @@ func TestConnectorRuntimeDefersNewTaskLaunchWhenQuiesced(t *testing.T) {
 func TestConnectorRuntimeAllowsWaitingTaskContinuationWhenQuiesced(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
@@ -273,7 +273,7 @@ func TestActiveTaskFollowUpClassificationErrorDoesNotBypassConversationLock(t *t
 func TestConnectorRuntimeReplyTargetWaitResolvesOlderWaitingTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
@@ -357,7 +357,7 @@ func TestConnectorRuntimeAmbiguousWaitDoesNotSelectNewest(t *testing.T) {
 func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
 			},
 		},
@@ -389,7 +389,7 @@ func TestConnectorRuntimePreservesNaturalLanguageOptionReply(t *testing.T) {
 	const replyText = "발표자료로 만들어 주세요"
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"natural-language reply selects the slides option","userFacingReply":"","choices":["B"]}`,
 			},
 		},
@@ -412,11 +412,11 @@ func TestConnectorRuntimePreservesNaturalLanguageOptionReply(t *testing.T) {
 		t.Fatalf("expected waiting task continuation, got %+v", result)
 	}
 	requests := languageModel.Requests()
-	routerIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", -1)
+	routerIndex := connectorSchemaIndexAfter(requests, "bluecollar_turn_router", -1)
 	if routerIndex < 0 || !structuredMessagesContain(requests[routerIndex].Messages, replyText) {
 		t.Fatalf("expected exact natural-language option reply in router request, got %+v", requests)
 	}
-	actionIndex := connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", routerIndex)
+	actionIndex := connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", routerIndex)
 	if actionIndex < 0 || !structuredMessagesContain(requests[actionIndex].Messages, replyText) {
 		t.Fatalf("expected exact natural-language reply in resumed agent request, got %+v", requests)
 	}
@@ -481,7 +481,7 @@ func TestConnectorRuntimePendingInputStartTaskSupersedesWaitingTask(t *testing.T
 func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"input needed","userFacingReply":"","initialToolNames":["ask_input"]}`,
 			},
 		},
@@ -1446,7 +1446,7 @@ func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testi
 	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected bot mention task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
 	}
-	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+	if !connectorContainsSchemaName(languageModel.requests, "bluecollar_addressing_classification") {
 		t.Fatalf("expected bot mention to run the addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
@@ -1471,7 +1471,7 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutDuty(t *testing.T) {
 	if len(adapter.reactions) != 0 {
 		t.Fatalf("expected addressing ignored message not to receive reaction, got %+v", adapter.reactions)
 	}
-	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+	if !connectorContainsSchemaName(languageModel.requests, "bluecollar_addressing_classification") {
 		t.Fatalf("expected other-person mention to be classified for standing-duty capture, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
@@ -1488,7 +1488,7 @@ func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *t
 	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected assistant-requested task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
 	}
-	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+	if !connectorContainsSchemaName(languageModel.requests, "bluecollar_addressing_classification") {
 		t.Fatalf("expected addressing classifier request, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
@@ -1507,10 +1507,10 @@ func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testi
 	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected intake classifier result to launch task, got result=%+v replies=%d", result, len(adapter.sentReplies))
 	}
-	if !connectorContainsSchemaName(intakeLanguageModel.requests, "blueclaw_addressing_classification") {
+	if !connectorContainsSchemaName(intakeLanguageModel.requests, "bluecollar_addressing_classification") {
 		t.Fatalf("expected intake language model to classify addressing, got schemas %+v", connectorRequestSchemaNames(intakeLanguageModel.requests))
 	}
-	if connectorContainsSchemaName(replyLanguageModel.requests, "blueclaw_addressing_classification") {
+	if connectorContainsSchemaName(replyLanguageModel.requests, "bluecollar_addressing_classification") {
 		t.Fatalf("expected reply language model not to classify addressing, got schemas %+v", connectorRequestSchemaNames(replyLanguageModel.requests))
 	}
 }
@@ -2348,7 +2348,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 			connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation_history", 0),
 		},
 		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
+			"bluecollar_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2382,7 +2382,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 			connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 		},
 		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
+			"bluecollar_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2423,14 +2423,14 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2483,11 +2483,11 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
 	requests := languageModel.Requests()
-	approvalRouterIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", 1)
+	approvalRouterIndex := connectorSchemaIndexAfter(requests, "bluecollar_turn_router", 1)
 	if approvalRouterIndex < 0 {
 		t.Fatalf("expected approval classification before continuation turn, got requests: %+v", connectorRequestSchemaNames(requests))
 	}
-	actionIndex := connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", approvalRouterIndex)
+	actionIndex := connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", approvalRouterIndex)
 	if actionIndex < 0 {
 		t.Fatalf("expected continuation action after approval classification, got requests: %+v", connectorRequestSchemaNames(requests))
 	}
@@ -2508,14 +2508,14 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 			"blueclaw_reply": {"알겠습니다. 이번에는 삭제하지 않겠습니다."},
 		},
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user rejected the pending action","userFacingReply":"","approval":"reject"}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 삭제할까요?"}`,
 			},
 		},
@@ -2559,11 +2559,11 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 		t.Fatalf("expected pending confirmation rejection, got %+v", secondResult)
 	}
 	requests := languageModel.Requests()
-	routerIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", 1)
+	routerIndex := connectorSchemaIndexAfter(requests, "bluecollar_turn_router", 1)
 	if routerIndex < 0 || !structuredMessagesContain(requests[routerIndex].Messages, "아니, 이번에는 하지 마") {
 		t.Fatalf("expected exact rejection text in router request, got %+v", requests)
 	}
-	if connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", routerIndex) >= 0 {
+	if connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", routerIndex) >= 0 {
 		t.Fatalf("expected rejection not to execute an agent action, got %+v", connectorRequestSchemaNames(requests))
 	}
 }
@@ -2572,14 +2572,14 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2625,7 +2625,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if connectorSchemaIndexAfter(languageModel.Requests(), "blueclaw_turn_router", 1) < 0 {
+	if connectorSchemaIndexAfter(languageModel.Requests(), "bluecollar_turn_router", 1) < 0 {
 		t.Fatalf("expected short reply to route through the turn router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar_delete/invoke" {
@@ -2642,14 +2642,14 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 			"blueclaw_reply": {"요청하신 작업은 취소했습니다."},
 		},
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 				`{"route":"answer_question","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked a follow-up instead of approving","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2699,7 +2699,7 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
 	}
 	requests := languageModel.Requests()
-	if connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", connectorSchemaIndexAfter(requests, "blueclaw_turn_router", 1)) >= 0 {
+	if connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", connectorSchemaIndexAfter(requests, "bluecollar_turn_router", 1)) >= 0 {
 		t.Fatalf("non-approval confirmation reply must not launch a new agent turn, got schemas=%+v", connectorRequestSchemaNames(requests))
 	}
 }
@@ -2707,16 +2707,16 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 				`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear"}`,
 				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"corrected deletion target runs as new bounded work","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 				`{"originalInstruction":"가사랍시고 보낸 메시지를 삭제해줘","summary":"정정된 삭제 대상을 처리합니다.","targets":["platform message"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"정정된 삭제 대상을 처리합니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2766,7 +2766,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "dispatch-1" {
 		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
 	}
-	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
+	if !connectorContainsSchemaName(languageModel.Requests(), "bluecollar_agent_turn_action") {
 		t.Fatalf("expected corrected request to launch agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "정정한 삭제 요청으로 새로 처리했습니다." {
@@ -2826,13 +2826,13 @@ func TestLegacyEphemeralAskDoesNotPatchPublicPost(t *testing.T) {
 func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2883,7 +2883,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 		t.Fatalf("expected ask message to resolve, got %+v", adapter.resolutions)
 	}
 	requests := languageModel.Requests()
-	if connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", connectorSchemaIndexAfter(requests, "blueclaw_approval_question", 0)) >= 0 {
+	if connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", connectorSchemaIndexAfter(requests, "bluecollar_approval_question", 0)) >= 0 {
 		t.Fatalf("interactive cancel must not launch agent with rejected prompt, got schemas=%+v", connectorRequestSchemaNames(requests))
 	}
 }
@@ -2892,13 +2892,13 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":7,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2953,7 +2953,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "ask-post-1" {
 		t.Fatalf("expected confirm interaction to resolve, got %+v", adapter.resolutions)
 	}
-	if connectorSchemaIndexAfter(languageModel.Requests(), "blueclaw_turn_router", 1) >= 0 {
+	if connectorSchemaIndexAfter(languageModel.Requests(), "bluecollar_turn_router", 1) >= 0 {
 		t.Fatalf("expected button confirm to skip the turn router, got %+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
@@ -2964,7 +2964,7 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"orphan approval acknowledgement","userFacingReply":"","reactionEmojiName":"ok_hand"}`,
 			},
 		},
@@ -2982,10 +2982,10 @@ func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *test
 	if result.Reason != "consume_reacted" {
 		t.Fatalf("expected orphan approval to be consumed via router, got %+v", result)
 	}
-	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_turn_router") {
+	if !connectorContainsSchemaName(languageModel.Requests(), "bluecollar_turn_router") {
 		t.Fatalf("expected router classification, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
-	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
+	if connectorContainsSchemaName(languageModel.Requests(), "bluecollar_agent_turn_action") {
 		t.Fatalf("orphan approval must not launch an agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(adapter.sentReplies) != 0 {
@@ -2996,14 +2996,14 @@ func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *test
 func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":""}`,
 				`{"route":"continue_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"continue active goal","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"핵심 사업 내용을 알려주시면 더 정확히 작성하겠습니다."}`,
 			},
 		},
@@ -3053,7 +3053,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	if secondResult.TaskRunID != firstResult.TaskRunID {
 		t.Fatalf("expected continuation to reuse waiting goal task, first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "blueclaw_agent_turn_action")
+	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "bluecollar_agent_turn_action")
 	if !isFound {
 		t.Fatalf("expected action request, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
@@ -3068,14 +3068,14 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
+			"bluecollar_turn_router": {
 				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":""}`,
 				`{"classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","route":"start_task","reason":"new request","userFacingReply":""}`,
 			},
-			"blueclaw_execution_plan": {
+			"bluecollar_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
 			},
-			"blueclaw_approval_question": {
+			"bluecollar_approval_question": {
 				`{"question":"보낼 메시지를 알려주세요."}`,
 			},
 		},
@@ -3108,7 +3108,7 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	if secondResult.TaskRunID == "" || secondResult.TaskRunID == firstResult.TaskRunID {
 		t.Fatalf("expected clear new request to start a new task, first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "blueclaw_agent_turn_action")
+	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "bluecollar_agent_turn_action")
 	if !isFound {
 		t.Fatalf("expected action request, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
@@ -3120,7 +3120,7 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{"blueclaw_turn_router": {
+		StructuredResponsesBySchema: map[string][]string{"bluecollar_turn_router": {
 			`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
@@ -3176,7 +3176,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 			connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser_snapshot", 0),
 		},
 		DefaultResponsesBySchema: map[string]string{
-			"blueclaw_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
+			"bluecollar_turn_router": `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"low","estimatedMinutes":1,"requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -3861,7 +3861,7 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(_ context.Cont
 	if languageModel.errorValue != nil {
 		return llm.StructuredResponse{}, languageModel.errorValue
 	}
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
@@ -3886,7 +3886,7 @@ func (languageModel *blockingTestLanguageModel) GenerateResponse(context.Context
 }
 
 func (languageModel *blockingTestLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	select {
@@ -3919,13 +3919,13 @@ func (languageModel *addressingTestLanguageModel) GenerateResponse(context.Conte
 
 func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.requests = append(languageModel.requests, request)
-	if request.StructuredOutputSchema.Name == "blueclaw_addressing_classification" {
+	if request.StructuredOutputSchema.Name == "bluecollar_addressing_classification" {
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
 		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agentcontract.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
@@ -3941,7 +3941,7 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 }
 
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	languageModel.request = structuredResponseRequest
@@ -3960,7 +3960,7 @@ func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ conte
 	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_graphiti_ingestion_route" {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: connectorDefaultTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage("ok")}, nil

@@ -125,7 +125,7 @@ func TestConfiguredProviderCreatesLLMDOnlyWhenSelected(t *testing.T) {
 	runtimeConfiguration.LanguageModel.Capability.Model = "deepseek/deepseek-v4-flash"
 	runtimeConfiguration.LanguageModel.LLMD.AuthKeyPath = authKeyPath
 	runtimeConfiguration.LanguageModel.LLMD.UnixSocketPath = "/run/blueclaw/llmd.sock"
-	runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames = []string{"blueclaw_turn_router", "blueclaw_agent_turn_action"}
+	runtimeConfiguration.LanguageModel.LLMD.StructuredSchemaNames = []string{"bluecollar_turn_router", "bluecollar_agent_turn_action"}
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
@@ -141,7 +141,7 @@ func TestConfiguredProviderCreatesLLMDOnlyWhenSelected(t *testing.T) {
 	if !llmdClient.IsStructuredOutputAuthoritative {
 		t.Fatal("expected llmd default provider to make structured fallback authoritative")
 	}
-	if len(llmdClient.StructuredSchemaNames) != 2 || llmdClient.StructuredSchemaNames[0] != "blueclaw_turn_router" || llmdClient.StructuredSchemaNames[1] != "blueclaw_agent_turn_action" {
+	if len(llmdClient.StructuredSchemaNames) != 2 || llmdClient.StructuredSchemaNames[0] != "bluecollar_turn_router" || llmdClient.StructuredSchemaNames[1] != "bluecollar_agent_turn_action" {
 		t.Fatalf("expected configured LLMD schemas, got %v", llmdClient.StructuredSchemaNames)
 	}
 }

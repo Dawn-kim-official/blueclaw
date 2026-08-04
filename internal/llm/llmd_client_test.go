@@ -806,11 +806,11 @@ func TestLLMDClientDoesNotUseDisabledSchemaFallbackInLocalOnlyMode(t *testing.T)
 	client := NewLLMDClient(LLMDClientConfiguration{
 		LocalOnly:                  true,
 		StructuredFallbackProvider: fallbackProvider,
-		StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+		StructuredSchemaNames:      []string{"bluecollar_agent_turn_action"},
 	})
 
 	_, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_turn_router"},
+		StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_turn_router"},
 	})
 	if errorValue == nil || fallbackProvider.structuredCallCount != 0 {
 		t.Fatalf("expected disabled local-only schema without legacy fallback, got %v and %d calls", errorValue, fallbackProvider.structuredCallCount)
@@ -885,11 +885,11 @@ func TestLLMDClientUsesLegacyProviderOutsideEnabledSchemas(t *testing.T) {
 	fallbackProvider := &llmdTestLanguageModel{structuredResponse: StructuredResponse{ProviderName: "capabilityLLM"}}
 	client := NewLLMDClient(LLMDClientConfiguration{
 		StructuredFallbackProvider: fallbackProvider,
-		StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+		StructuredSchemaNames:      []string{"bluecollar_agent_turn_action"},
 	})
 
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_turn_router"},
+		StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_turn_router"},
 	})
 	if errorValue != nil || response.ProviderName != "capabilityLLM" {
 		t.Fatalf("expected legacy structured provider, got %+v, %v", response, errorValue)
@@ -923,11 +923,11 @@ func TestLLMDClientDoesNotFallbackOnProviderFailures(t *testing.T) {
 				Endpoint:                   server.URL,
 				AuthKey:                    "installation-key",
 				StructuredFallbackProvider: fallbackProvider,
-				StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+				StructuredSchemaNames:      []string{"bluecollar_agent_turn_action"},
 			})
 
 			_, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-				StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+				StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_agent_turn_action", Document: `{"type":"object"}`},
 			})
 			if errorValue == nil || fallbackProvider.structuredCallCount != 0 {
 				t.Fatalf("expected provider failure without fallback, got %v and %d calls", errorValue, fallbackProvider.structuredCallCount)
@@ -948,11 +948,11 @@ func TestLLMDClientFallsBackWhenBridgeIsUnavailable(t *testing.T) {
 		Endpoint:                   server.URL,
 		AuthKey:                    "installation-key",
 		StructuredFallbackProvider: fallbackProvider,
-		StructuredSchemaNames:      []string{"blueclaw_agent_turn_action"},
+		StructuredSchemaNames:      []string{"bluecollar_agent_turn_action"},
 	})
 
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+		StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_agent_turn_action", Document: `{"type":"object"}`},
 	})
 	if errorValue != nil || response.ProviderName != "capabilityLLM" || !response.UsedFallback {
 		t.Fatalf("expected bridge fallback response, got %+v, %v", response, errorValue)
@@ -974,12 +974,12 @@ func TestLLMDClientAuthoritativeStructuredResponseReturnsBridgeErrorWithoutFallb
 		Endpoint:                        server.URL,
 		AuthKey:                         "installation-key",
 		StructuredFallbackProvider:      fallbackProvider,
-		StructuredSchemaNames:           []string{"blueclaw_agent_turn_action"},
+		StructuredSchemaNames:           []string{"bluecollar_agent_turn_action"},
 		IsStructuredOutputAuthoritative: true,
 	})
 
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_agent_turn_action", Document: `{"type":"object"}`},
+		StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_agent_turn_action", Document: `{"type":"object"}`},
 	})
 	httpError, isHTTPError := asLLMDHTTPError(errorValue)
 	if !isHTTPError || httpError.StatusCode != http.StatusServiceUnavailable || httpError.Code != "llmd_bridge_unavailable" {
@@ -1005,12 +1005,12 @@ func TestLLMDClientUsesMigrationFallbackForDisabledSchema(t *testing.T) {
 		Endpoint:                        server.URL,
 		AuthKey:                         "installation-key",
 		StructuredFallbackProvider:      fallbackProvider,
-		StructuredSchemaNames:           []string{"blueclaw_agent_turn_action"},
+		StructuredSchemaNames:           []string{"bluecollar_agent_turn_action"},
 		IsStructuredOutputAuthoritative: true,
 	})
 
 	response, errorValue := client.GenerateStructuredResponse(context.Background(), StructuredResponseRequest{
-		StructuredOutputSchema: StructuredOutputSchema{Name: "blueclaw_turn_router", Document: `{"type":"object"}`},
+		StructuredOutputSchema: StructuredOutputSchema{Name: "bluecollar_turn_router", Document: `{"type":"object"}`},
 	})
 	if errorValue != nil || response.ProviderName != "capabilityLLM" || response.Transport != "capability" {
 		t.Fatalf("expected disabled-schema migration fallback, got %+v, %v", response, errorValue)

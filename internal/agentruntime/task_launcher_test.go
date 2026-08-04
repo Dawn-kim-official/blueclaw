@@ -922,7 +922,7 @@ func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context
 }
 
 func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if request.StructuredOutputSchema.Name == "blueclaw_turn_router" {
+	if request.StructuredOutputSchema.Name == "bluecollar_turn_router" {
 		return llm.StructuredResponse{Content: runtimeTestTurnRouterResponse()}, nil
 	}
 	return llm.StructuredResponse{Content: languageModel.content}, nil

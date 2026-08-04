@@ -25,7 +25,7 @@ func NewConfiguredLanguageModelProviderForModel(runtimeConfiguration config.Runt
 		return defaultProvider, nil
 	}
 
-	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
+	return nil, errors.New("language model fallback is owned by the capability runtime, not by blueclaw configuration")
 }
 
 func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration, modelName string) (LanguageModelProvider, error) {
@@ -74,8 +74,6 @@ func newLLMDClient(runtimeConfiguration config.RuntimeConfiguration, modelName s
 	return NewLLMDClient(clientConfiguration), nil
 }
 
-// HasCapabilityEndpoint reports whether an InternKim capability service is
-// reachable. Without one, llmd owns every model call itself.
 func HasCapabilityEndpoint(runtimeConfiguration config.RuntimeConfiguration) bool {
 	return runtimeConfiguration.Capabilities.IsConfigured()
 }
@@ -109,12 +107,12 @@ func configuredLLMDSchemaNames(runtimeConfiguration config.RuntimeConfiguration)
 
 func DefaultLLMDStructuredSchemaNames() []string {
 	return []string{
-		"blueclaw_agent_turn_action",
-		"blueclaw_agent_turn_finalizer",
-		"blueclaw_turn_router",
-		"blueclaw_recovery_decision",
-		"blueclaw_contract_skill_arbitration",
-		"blueclaw_completion_judge",
+		"bluecollar_agent_turn_action",
+		"bluecollar_agent_turn_finalizer",
+		"bluecollar_turn_router",
+		"bluecollar_recovery_decision",
+		"bluecollar_contract_skill_arbitration",
+		"bluecollar_completion_judge",
 	}
 }
 

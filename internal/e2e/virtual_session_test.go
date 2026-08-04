@@ -81,20 +81,20 @@ func TestLanguageModelCallAssertionRejectsError(t *testing.T) {
 	errorValue := assertLanguageModelCallsSucceeded(VirtualTurnResult{
 		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
 			Kind:       "structured",
-			SchemaName: "blueclaw_turn_router",
+			SchemaName: "bluecollar_turn_router",
 			IsError:    true,
 			Error:      "truncated",
 		}},
 	})
 
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "blueclaw_turn_router") {
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "bluecollar_turn_router") {
 		t.Fatalf("expected strict assertion to reject the model error, got %v", errorValue)
 	}
 }
 
 func TestLanguageModelCallAssertionAllowsCorrectedTypedError(t *testing.T) {
 	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
-	request := llm.ChatCompletionRequest{SchemaName: "blueclaw_agent_turn_action"}
+	request := llm.ChatCompletionRequest{SchemaName: "bluecollar_agent_turn_action"}
 	observed.appendCall(virtualChatCallEvent(
 		"chat",
 		request,
@@ -104,7 +104,7 @@ func TestLanguageModelCallAssertionAllowsCorrectedTypedError(t *testing.T) {
 	))
 	observed.appendCall(VirtualLanguageModelCallEvent{
 		Kind:         "chat",
-		SchemaName:   "blueclaw_agent_turn_action",
+		SchemaName:   "bluecollar_agent_turn_action",
 		FinishReason: "tool_calls",
 	})
 
@@ -119,7 +119,7 @@ func TestLanguageModelCallAssertionAllowsCorrectedTypedError(t *testing.T) {
 
 func TestLanguageModelCallAssertionAllowsCorrectedTypedErrorChain(t *testing.T) {
 	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
-	request := llm.ChatCompletionRequest{SchemaName: "blueclaw_agent_turn_action"}
+	request := llm.ChatCompletionRequest{SchemaName: "bluecollar_agent_turn_action"}
 	for range 2 {
 		observed.appendCall(virtualChatCallEvent(
 			"chat",
@@ -131,7 +131,7 @@ func TestLanguageModelCallAssertionAllowsCorrectedTypedErrorChain(t *testing.T) 
 	}
 	observed.appendCall(VirtualLanguageModelCallEvent{
 		Kind:         "chat",
-		SchemaName:   "blueclaw_agent_turn_action",
+		SchemaName:   "bluecollar_agent_turn_action",
 		FinishReason: "tool_calls",
 	})
 
@@ -148,14 +148,14 @@ func TestLanguageModelCallAssertionRejectsUnrecoveredTypedError(t *testing.T) {
 	observed := &virtualObservedLanguageModel{store: &virtualLanguageModelObservationStore{}}
 	observed.appendCall(VirtualLanguageModelCallEvent{
 		Kind:                       "chat",
-		SchemaName:                 "blueclaw_agent_turn_action",
+		SchemaName:                 "bluecollar_agent_turn_action",
 		IsError:                    true,
 		Error:                      "structured output invalid",
 		StructuredOutputCorrection: &llm.StructuredOutputCorrection{},
 	})
 	observed.appendCall(VirtualLanguageModelCallEvent{
 		Kind:         "chat",
-		SchemaName:   "blueclaw_agent_turn_action",
+		SchemaName:   "bluecollar_agent_turn_action",
 		FinishReason: "stop",
 	})
 
@@ -177,7 +177,7 @@ func TestLanguageModelCallAssertionRejectsDeadlineDespiteElapsedCompletionEvent(
 		}},
 		LanguageModelCallEvents: []VirtualLanguageModelCallEvent{{
 			Kind:               "structured",
-			SchemaName:         "blueclaw_turn_router",
+			SchemaName:         "bluecollar_turn_router",
 			IsError:            true,
 			IsDeadlineExceeded: true,
 			Error:              context.DeadlineExceeded.Error(),
@@ -228,19 +228,19 @@ func TestVirtualChatCallEventDerivesActionSchemaForForcedChatOnly(t *testing.T) 
 		SelectedBackend: "device",
 		FinishReason:    "stop",
 	}, time.Now(), nil)
-	if actionEvent.SchemaName != "blueclaw_agent_turn_action" || plainEvent.SchemaName != "" {
+	if actionEvent.SchemaName != "bluecollar_agent_turn_action" || plainEvent.SchemaName != "" {
 		t.Fatalf("expected only forced action chat to carry schema, got %+v %+v", actionEvent, plainEvent)
 	}
 }
 
 func virtualActionChatRequest() llm.ChatCompletionRequest {
 	return llm.ChatCompletionRequest{
-		SchemaName: "blueclaw_agent_turn_action",
+		SchemaName: "bluecollar_agent_turn_action",
 		Tools: []llm.ChatCompletionTool{{
 			Type:     "function",
-			Function: llm.ChatCompletionFunction{Name: "blueclaw_agent_turn_action"},
+			Function: llm.ChatCompletionFunction{Name: "bluecollar_agent_turn_action"},
 		}},
-		ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"blueclaw_agent_turn_action"}}`),
+		ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"bluecollar_agent_turn_action"}}`),
 	}
 }
 

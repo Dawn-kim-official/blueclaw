@@ -61,7 +61,7 @@ func (completer scriptedChatCompleter) GenerateChatCompletion(_ context.Context,
 	defer languageModel.mutex.Unlock()
 	schemaName := strings.TrimSpace(request.SchemaName)
 	languageModel.requests = append(languageModel.requests, structuredRequestFromChat(request))
-	if schemaName == "blueclaw_agent_turn_action" {
+	if schemaName == "bluecollar_agent_turn_action" {
 		response, errorValue := languageModel.popActionResponse()
 		if errorValue != nil {
 			return model.ChatCompletionResponse{}, errorValue
@@ -205,7 +205,7 @@ func (languageModel *ScriptedLanguageModel) PendingResponseCounts() map[string]i
 	defer languageModel.mutex.Unlock()
 	pendingCounts := map[string]int{}
 	if len(languageModel.actionResponses) > 0 {
-		pendingCounts["blueclaw_agent_turn_action"] = len(languageModel.actionResponses)
+		pendingCounts["bluecollar_agent_turn_action"] = len(languageModel.actionResponses)
 	}
 	for schemaName, responses := range languageModel.structuredResponsesBySchema {
 		if len(responses) > 0 {
@@ -251,7 +251,7 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	if response, isFound := languageModel.popStructuredResponse(schemaName); isFound {
 		return languageModel.structuredResponse(response), nil
 	}
-	if schemaName == "blueclaw_agent_turn_action" {
+	if schemaName == "bluecollar_agent_turn_action" {
 		response, errorValue := languageModel.popActionResponse()
 		if errorValue != nil {
 			return model.StructuredResponse{}, errorValue
@@ -260,19 +260,19 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	}
 	response := strings.TrimSpace(languageModel.defaultResponsesBySchema[schemaName])
 	if response == "" {
-		if schemaName == "blueclaw_contract_skill_arbitration" {
+		if schemaName == "bluecollar_contract_skill_arbitration" {
 			response, errorValue := defaultContractSkillArbitrationResponse(request)
 			if errorValue != nil {
 				return model.StructuredResponse{}, errorValue
 			}
 			return languageModel.structuredResponse(response), nil
 		}
-		if schemaName == "blueclaw_approval_question" {
+		if schemaName == "bluecollar_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}
 		return model.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
-	if schemaName == "blueclaw_skill_search_queries" && response == `{"queries":[]}` {
+	if schemaName == "bluecollar_skill_search_queries" && response == `{"queries":[]}` {
 		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
 	}
 	return languageModel.structuredResponse(response), nil
@@ -368,9 +368,9 @@ func copyResponseQueues(responseQueues map[string][]string) map[string][]string 
 
 func mergeDefaultResponses(defaultResponses map[string]string) map[string]string {
 	mergedResponses := map[string]string{
-		"blueclaw_skill_search_queries": `{"queries":[]}`,
-		"blueclaw_execution_plan":       `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
-		"blueclaw_confirmation_message": `{"reply":"Understood. I will proceed once it is approved."}`,
+		"bluecollar_skill_search_queries": `{"queries":[]}`,
+		"bluecollar_execution_plan":       `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
+		"bluecollar_confirmation_message": `{"reply":"Understood. I will proceed once it is approved."}`,
 	}
 	for schemaName, response := range defaultResponses {
 		mergedResponses[strings.TrimSpace(schemaName)] = response
