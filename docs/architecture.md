@@ -44,10 +44,9 @@ that moved to `agentcontract` so the ~130 Go files naming `AgentTurnRequest`,
 have to change. Go's implicit interfaces need type identity, which is why the
 definitions had to move rather than being duplicated.
 
-Known incompleteness: `ConnectorRuntime` still holds a concrete
-`*bluecollar.AgentKernel` (`internal/connectors/runtime.go:354`, constructor at
-`:410`), and `internal/app/application.go:166` constructs bluecollar by name.
-The port is asserted but not yet the only path.
+The port is now the only path. `ConnectorRuntime` names no harness type, and
+the harness arrives as a factory chosen at startup by `agent.harness.name`
+(`internal/harnessselection/selection.go`), passed in from `cmd/blueclaw/main.go`.
 
 ## Deployment shape
 
@@ -235,7 +234,7 @@ An inbound message becomes at most one task run. The path, end to end:
    `provisionRequesterWorkspaceLaunchStep` (`:243`) →
    `buildToolSetLaunchStep` (`:257`) → `auditToolRegistryLaunchStep` (`:287`) →
    `loadMemoryLaunchStep` (`:297`) → `runTurnLaunchStep` (`:347`).
-5. **Turn.** `AgentKernel.RunAgentRequest`
+5. **Turn.** `AgentKernel.RunTurn`
    (`.dependency/bluecollar/agent_kernel.go:200`) plans the turn with the turn
    router, then hands execution to `AgentTurnRunner.RunTurn`
    (`.dependency/bluecollar/turn_runner.go:228`).
@@ -603,7 +602,7 @@ false delivery claim) can block a draft, while style and intent issues merely
 trigger repair. Blueclaw tries generated wording, then repair, then local
 wording, then delivers the best safety-passing draft, and only as a last resort
 sends a compact redacted raw-error notice
-(`.dependency/bluecollar/failure_notice.go`,
+(`.dependency/bluecollar/agentcontract/failure_notice.go`,
 `.dependency/bluecollar/failure_reply.go`). Full suppression is reserved for
 duplicates, cancellations, and self or bot messages.
 
@@ -653,7 +652,7 @@ A value list consumed by more than one language is defined once and derived
 everywhere else. Where a consumer cannot import the definition, a conformance
 test reads the canonical source and fails on drift —
 `chatd/tests/buzz-adapter.test.ts:113` reads
-`.dependency/bluecollar/reaction_emoji.go` this way.
+`.dependency/bluecollar/agentcontract/reaction_emoji.go` this way.
 
 ## Admin and task surfaces
 
