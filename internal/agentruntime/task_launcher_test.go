@@ -1072,3 +1072,40 @@ func TestResolveRequesterEmailWithoutResolverStaysEmpty(t *testing.T) {
 		t.Fatalf("expected empty email without resolver, got %q", resolvedEmail)
 	}
 }
+
+func TestLaunchedAgentTurnRequestCarriesConfiguredAgentIdentity(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	harness := harnesstest.New(taskRunService)
+	taskLauncher := NewTaskLauncher(harness, taskRunService, NewToolCatalogBuilder())
+	taskLauncher.UseAgentIdentityProvider(func() agentcontract.AgentIdentity {
+		return agentcontract.AgentIdentity{Name: "김인턴", Handle: "internkim"}
+	})
+
+	if _, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceConnector,
+		RequesterPersonID: "person-1",
+		ProfileName:       "default",
+		ConversationID:    "channel-1",
+		Prompt:            "너 누구야?",
+	}); errorValue != nil {
+		t.Fatalf("expected launch to succeed: %v", errorValue)
+	}
+
+	agentIdentity := harness.LastTurnRequest().AgentIdentity
+	if agentIdentity.Name != "김인턴" || agentIdentity.Handle != "internkim" {
+		t.Fatalf("expected the configured agent identity to reach the harness, got %+v", agentIdentity)
+	}
+	if agentIdentity.DisplayName() != "김인턴" || agentIdentity.MentionExample() != "@internkim" {
+		t.Fatalf("expected the agent to introduce itself by name, got %q and %q", agentIdentity.DisplayName(), agentIdentity.MentionExample())
+	}
+}
+
+func TestAgentTurnRequestWithoutIdentityProviderStaysEmpty(t *testing.T) {
+	taskLauncher := NewTaskLauncher(nil, nil, nil)
+
+	turnRequest := taskLauncher.agentTurnRequestForLaunch(TaskLaunchRequest{}, "default", nil, nil, ConversationResourceScope{})
+
+	if turnRequest.AgentIdentity != (agentcontract.AgentIdentity{}) {
+		t.Fatalf("expected an empty agent identity without a provider, got %+v", turnRequest.AgentIdentity)
+	}
+}

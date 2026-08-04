@@ -185,6 +185,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	instructionBundleLoader := func() agentcontract.InstructionBundle {
 		return loadAgentInstructionBundle(runtimeConfiguration)
 	}
+	agentIdentityProvider := func() agentcontract.AgentIdentity {
+		return loadAgentIdentity(runtimeConfiguration)
+	}
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	taskTierLanguageModels := resolveTaskTierLanguageModelProviders(runtimeConfiguration, logger)
 	languageModelProvider := taskTierLanguageModels.High
@@ -313,6 +316,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModelProvider))
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
+	taskLauncher.UseAgentIdentityProvider(agentIdentityProvider)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
 	if taskScheduleRepository != nil && scheduledDeliveryRepository != nil {
 		poller := scheduler.TaskSchedulePoller{
@@ -345,10 +349,13 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	)
 	launchFailureCompleter := launchfailure.NewCompleter(taskRunService, languageModelProvider)
 	connectorRuntime.UseLaunchFailureCompleter(launchFailureCompleter)
-	connectorRuntime.UseReplyGenerator(reply.NewGenerator(languageModelProvider, instructionBundleLoader))
+	replyGenerator := reply.NewGenerator(languageModelProvider, instructionBundleLoader)
+	replyGenerator.UseAgentIdentityProvider(agentIdentityProvider)
+	connectorRuntime.UseReplyGenerator(replyGenerator)
 	connectorRuntime.UseTurnRouter(turnRouter)
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)
+	connectorRuntime.UseAgentIdentityProvider(agentIdentityProvider)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
@@ -688,16 +695,36 @@ func readSkillInstructions(rootPath string) []agentcontract.SkillInstruction {
 	return skillInstructions
 }
 
+func loadAgentIdentity(runtimeConfiguration config.RuntimeConfiguration) agentcontract.AgentIdentity {
+	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
+		document, errorValue := os.ReadFile(filepath.Join(rootPath, "BOT_PROFILE.yaml"))
+		if errorValue != nil {
+			continue
+		}
+		profile := parseSimpleYAML(document)
+		agentIdentity := agentcontract.AgentIdentity{
+			Name:   strings.TrimSpace(profile["displayName"]),
+			Handle: strings.TrimSpace(profile["username"]),
+		}
+		if agentIdentity.Name != "" || agentIdentity.Handle != "" {
+			return agentIdentity
+		}
+	}
+	return agentcontract.AgentIdentity{}
+}
+
 func renderBotProfileInstruction(document []byte) string {
 	profile := parseSimpleYAML(document)
-	lines := []string{
-		"Runtime bot profile:",
-		"- internal username: " + firstNonEmptyString(profile["username"], "internkim"),
-		"- current displayName: " + profile["displayName"],
-		"- English displayName: " + profile["englishDisplayName"],
-		"- aliases: " + profile["aliases"],
-		"- public description: " + profile["publicDescription"],
+	lines := []string{"Runtime bot profile:"}
+	if username := strings.TrimSpace(profile["username"]); username != "" {
+		lines = append(lines, "- internal username: "+username)
 	}
+	lines = append(lines,
+		"- current displayName: "+profile["displayName"],
+		"- English displayName: "+profile["englishDisplayName"],
+		"- aliases: "+profile["aliases"],
+		"- public description: "+profile["publicDescription"],
+	)
 	if strings.TrimSpace(profile["identityExtension"]) != "" {
 		lines = append(lines, "Identity extension:\n"+strings.TrimSpace(profile["identityExtension"]))
 	}

@@ -167,7 +167,7 @@ func TestReplyGeneratorInjectsCompactAttributedMemorySummary(t *testing.T) {
 	}
 
 	body := joinChatMessageContent(replyProvider.request.Messages)
-	if !strings.Contains(body, "Relevant Blueclaw memory") {
+	if !strings.Contains(body, "Relevant memory") {
 		t.Fatalf("expected compact memory heading, got %q", body)
 	}
 	if !strings.Contains(body, "score=0.87") || !strings.Contains(body, "source=episode-1") {
