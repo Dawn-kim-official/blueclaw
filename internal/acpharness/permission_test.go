@@ -2,9 +2,12 @@ package acpharness
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/Dawn-kim-official/bluecollar/taskstate"
 )
 
 func selectedOptionID(t *testing.T, options []acp.PermissionOption) acp.PermissionOptionId {
@@ -50,5 +53,59 @@ func TestAnAgentOfferingNoWayToProceedIsCancelledRatherThanLeftWaiting(t *testin
 	}
 	if response.Outcome.Cancelled == nil {
 		t.Fatalf("expected a cancelled outcome when no option lets the turn proceed, got %+v", response.Outcome)
+	}
+}
+
+type recordingTaskRunStore struct {
+	taskstate.TaskRunStore
+	events []taskstate.TaskEvent
+}
+
+func (store *recordingTaskRunStore) AppendTaskEvent(taskRunID string, name string, body string) {
+	store.events = append(store.events, taskstate.TaskEvent{TaskRunID: taskRunID, Name: name, Body: body})
+}
+
+func permissionRequestForHarnessOwnedTool(optionKind acp.PermissionOptionKind) acp.RequestPermissionRequest {
+	title := "run a shell command"
+	return acp.RequestPermissionRequest{
+		Options:  []acp.PermissionOption{{OptionId: "allow", Kind: optionKind}},
+		ToolCall: acp.ToolCallUpdate{ToolCallId: "call-1", Title: &title},
+	}
+}
+
+func TestAToolTheHarnessRunsItselfIsRecordedEvenThoughItIsPermitted(t *testing.T) {
+	store := &recordingTaskRunStore{}
+	observer := &sessionObserver{taskRunStore: store, taskRunID: "task-1"}
+
+	if _, errorValue := observer.RequestPermission(context.Background(), permissionRequestForHarnessOwnedTool(acp.PermissionOptionKindAllowOnce)); errorValue != nil {
+		t.Fatalf("expected the permission to be answered: %v", errorValue)
+	}
+
+	if len(store.events) != 1 || store.events[0].Name != harnessToolPermittedEventName {
+		t.Fatalf("a call the catalog never saw must still reach the ledger, got %+v", store.events)
+	}
+	if !strings.Contains(store.events[0].Body, "run a shell command") {
+		t.Fatalf("expected the ledger to say what was permitted, got %s", store.events[0].Body)
+	}
+}
+
+func TestAPermissionRequestWithNoAllowableOptionIsRecordedAsRefused(t *testing.T) {
+	store := &recordingTaskRunStore{}
+	observer := &sessionObserver{taskRunStore: store, taskRunID: "task-1"}
+
+	if _, errorValue := observer.RequestPermission(context.Background(), permissionRequestForHarnessOwnedTool(acp.PermissionOptionKindRejectOnce)); errorValue != nil {
+		t.Fatalf("expected the permission to be answered: %v", errorValue)
+	}
+
+	if len(store.events) != 1 || store.events[0].Name != harnessToolRefusedEventName {
+		t.Fatalf("expected the refusal to be recorded, got %+v", store.events)
+	}
+}
+
+func TestATurnWithNoTaskRunRecordsNothingRatherThanFailing(t *testing.T) {
+	observer := &sessionObserver{}
+
+	if _, errorValue := observer.RequestPermission(context.Background(), permissionRequestForHarnessOwnedTool(acp.PermissionOptionKindAllowOnce)); errorValue != nil {
+		t.Fatalf("expected the permission to be answered without a ledger: %v", errorValue)
 	}
 }
