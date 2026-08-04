@@ -2,6 +2,13 @@
 
 # blueclaw — a POSIX-isolated agent host
 
+> **Status: pre-alpha, under active development.** The interfaces, the wire
+> grammar, the configuration keys and the database schema all still change
+> without notice, and there is no release, no versioning policy and no upgrade
+> path between commits. It is published so the design can be read and argued
+> with, not so it can be depended on. If you run it, pin a commit and expect to
+> read diffs.
+
 **blueclaw is a POSIX-isolated agent host: a Go daemon that runs an AI agent
 harness on behalf of the person who asked, executes every tool call as that
 person's own unprivileged Linux user, holds side-effecting calls at an approval
