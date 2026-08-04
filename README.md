@@ -35,15 +35,6 @@ The agent loop is a replaceable component behind a Go interface
 repository. Swapping it does not move the isolation boundary, because tool
 execution never leaves blueclaw.
 
-**Disambiguation.** This project is unrelated to the several other things named
-"blueclaw" in the agent-infrastructure space: `blueclaw.org` /
-`clawd-conroy/blueclaw` (an open social protocol for AI agents built on AT
-Protocol and A2A), `blueclaw.network` (compute for agent workloads), and
-`blueclaw.app` (a hosted AI agent dashboard). This repository is
-`github.com/Dawn-kim-official/blueclaw`, a self-hosted Go daemon. The GitHub
-organization `github.com/blueclaw` belongs to someone else and is not connected
-to this project.
-
 ## What blueclaw is, and what it is not
 
 | It is | It is not |
@@ -653,15 +644,6 @@ Publishing blockers, in order:
 
 ## FAQ
 
-### Is this the same blueclaw as the AT Protocol agent project?
-
-No. `blueclaw.org` and `clawd-conroy/blueclaw` are an open social protocol for
-AI agents built on AT Protocol and A2A. `blueclaw.network` sells compute for
-agent workloads. `blueclaw.app` is a hosted AI agent dashboard. This project is
-`github.com/Dawn-kim-official/blueclaw`, an unrelated self-hosted Go daemon that
-runs an agent harness under per-requester POSIX identity. The GitHub
-organization `github.com/blueclaw` is not ours either.
-
 ### Can I run Claude Code or Codex inside blueclaw today?
 
 Yes. Set `agent.harness.name` to `claude-code`, `codex`, `antigravity`, or `acp`
@@ -674,30 +656,6 @@ refuses to start it at all unless the POSIX boundary is configured — the kerne
 not a deny list, is what confines it. And the coverage of these adapters is
 thinner than the bundled loop's: the live tests are skipped unless the CLI is on
 your PATH.
-
-### What does blueclaw do that Claude Code does not?
-
-They answer different questions: Claude Code is an agent loop, blueclaw is the
-multi-user daemon such a loop can run inside. Claude Code runs as the operating
-system user who started it, keeps its approval prompt in the session, and leaves
-its record in terminal scrollback. blueclaw runs the loop as an unprivileged
-Linux user derived from the requester, persists a held call as
-`approval.pending_call` so an approval survives a daemon restart, and writes
-every step to an append-only event ledger in Postgres.
-
-### Is blueclaw an agent?
-
-No. It runs one. The harness owns the loop; blueclaw owns everything around it.
-
-### Can I use my own agent loop?
-
-Yes. A harness is anything satisfying `agentcontract.Harness`, a single
-`RunTurn` method, and a new loop is a factory passed to `app.NewApplication`.
-Five
-harnesses are already selectable through `agent.harness.name`: the bundled
-bluecollar loop, any ACP agent, and the `claude-code`, `codex`, and
-`antigravity` CLIs. Swapping the loop does not move the isolation boundary,
-because tool execution never leaves blueclaw.
 
 ### How is this different from running an agent in a container?
 
