@@ -692,11 +692,16 @@ and the separation tests are all Linux-only, so blueclaw builds and runs on
 macOS for development but there runs everything as the daemon user.
 
 macOS support is in progress ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
-The helper provisions identities through `dscl` and `dseditgroup` on macOS and
-through `useradd`, `groupadd` and `usermod` on Linux, and reads the account
-database from Directory Service, which on macOS is the only place every account
-appears; `/etc/passwd` there lists system accounts alone. What remains is a macOS host to run the separation tests
-on, so they stay gated by the `_linux` filename constraint.
+Provisioning works and is verified on a real machine: the helper creates
+identities through `dscl` and `dseditgroup` on macOS and through `useradd`,
+`groupadd` and `usermod` on Linux, and reads the account database from Directory
+Service, which on macOS is the only place every account appears; `/etc/passwd`
+there lists system accounts alone. Run it yourself with
+`sudo BLUECLAW_TEST_MACOS_PROVISIONING=1 go test ./cmd/blueclaw-posix-helper/`.
+
+What is left is the boundary itself. The tests that prove one person's agent
+cannot read another's files are gated by the `_linux` filename constraint, so on
+macOS the projection is provisioned but unproven.
 
 ### Do I need Postgres and a chat platform?
 
