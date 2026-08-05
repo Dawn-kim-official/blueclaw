@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/skill"
+	"github.com/yeomyeonggeori/blueclaw/internal/skill"
 )
 
 const maximumSkillNameLength = 64

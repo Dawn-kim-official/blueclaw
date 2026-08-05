@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 const messageSendToolName = "message_send"

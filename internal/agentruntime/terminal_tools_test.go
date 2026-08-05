@@ -3,15 +3,15 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {

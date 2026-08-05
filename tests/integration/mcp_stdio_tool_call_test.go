@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
-	"github.com/Dawn-kim-official/blueclaw/tests/support"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
+	"github.com/yeomyeonggeori/blueclaw/tests/support"
 )
 
 func TestMCPStdIOToolCall(t *testing.T) {

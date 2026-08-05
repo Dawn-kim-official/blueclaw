@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 )
 
 func TestLLMDLiveLowCanonicalTerminalSchemaFromEnv(t *testing.T) {

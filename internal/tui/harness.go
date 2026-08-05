@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 )
 
 type HarnessInfo struct {

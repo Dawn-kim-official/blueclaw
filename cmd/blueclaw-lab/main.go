@@ -13,13 +13,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/e2e"
-	"github.com/Dawn-kim-official/blueclaw/internal/lab"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/bluecollarharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/e2e"
+	"github.com/yeomyeonggeori/blueclaw/internal/lab"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type PrintingCommandRunner struct{}

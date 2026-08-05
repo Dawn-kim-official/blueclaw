@@ -1,11 +1,11 @@
 package bluecollarharness
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/harnessdriver"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/bluecollar"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/harnessdriver"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {

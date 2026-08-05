@@ -7,7 +7,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 func selectedOptionID(t *testing.T, options []acp.PermissionOption) acp.PermissionOptionId {

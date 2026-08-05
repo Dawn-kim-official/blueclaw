@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 func TestSensitiveMemoryDenial(t *testing.T) {

@@ -9,12 +9,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 type recordingWorkspaceActorFactory struct {

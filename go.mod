@@ -1,4 +1,4 @@
-module github.com/Dawn-kim-official/blueclaw
+module github.com/yeomyeonggeori/blueclaw
 
 go 1.26.0
 
@@ -14,7 +14,6 @@ require (
 )
 
 require (
-	github.com/Dawn-kim-official/bluecollar v0.0.0
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
@@ -37,6 +36,7 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/yeomyeonggeori/bluecollar v0.0.0
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
@@ -47,4 +47,4 @@ require (
 	golang.org/x/text v0.24.0 // indirect
 )
 
-replace github.com/Dawn-kim-official/bluecollar => ./.dependency/bluecollar
+replace github.com/yeomyeonggeori/bluecollar => ./.dependency/bluecollar

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type TaskWaitTokenRepository struct {

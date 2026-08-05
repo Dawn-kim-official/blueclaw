@@ -6,14 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/access"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/access"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 func capabilityToolIdempotencyKey(toolContext context.Context, descriptor CapabilityToolDescriptor) string {

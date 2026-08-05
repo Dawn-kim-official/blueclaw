@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
-	"github.com/Dawn-kim-official/blueclaw/internal/tui"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
+	"github.com/yeomyeonggeori/blueclaw/internal/tui"
 )
 
 func main() {

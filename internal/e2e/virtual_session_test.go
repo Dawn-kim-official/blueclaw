@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type virtualStructuredOutputCorrectionTestError struct{}

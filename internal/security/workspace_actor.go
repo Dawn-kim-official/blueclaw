@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 const (

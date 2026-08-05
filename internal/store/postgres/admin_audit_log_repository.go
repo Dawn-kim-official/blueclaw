@@ -1,6 +1,6 @@
 package postgres
 
-import "github.com/Dawn-kim-official/blueclaw/internal/adminapi"
+import "github.com/yeomyeonggeori/blueclaw/internal/adminapi"
 
 type AdminAuditLogRepository struct {
 	database Database

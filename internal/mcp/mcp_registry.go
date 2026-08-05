@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 )
 
 const serverValidationTimeout = 3 * time.Second

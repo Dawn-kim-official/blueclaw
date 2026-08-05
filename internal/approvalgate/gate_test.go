@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type immediateDecision struct {

@@ -3,9 +3,9 @@ package bluecollarharness
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/bluecollar"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func TestDeriveTurnOptionsWiresContextWindowTokens(t *testing.T) {

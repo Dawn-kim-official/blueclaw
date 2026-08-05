@@ -3,12 +3,12 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"reflect"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 type mcpToolProviderTestInvoker struct {

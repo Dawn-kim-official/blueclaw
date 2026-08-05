@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/connectors"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type RawEventRepository struct {

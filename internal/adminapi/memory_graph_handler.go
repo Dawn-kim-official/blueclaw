@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/identity"
+	"github.com/yeomyeonggeori/blueclaw/internal/memory"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 type MemoryGraphHandler struct {

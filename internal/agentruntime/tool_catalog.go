@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
+	"github.com/yeomyeonggeori/blueclaw/internal/memory"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type HistoryProvider interface {

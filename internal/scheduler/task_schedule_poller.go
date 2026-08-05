@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/connectors"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 const taskScheduleLeaseDuration = 15 * time.Minute

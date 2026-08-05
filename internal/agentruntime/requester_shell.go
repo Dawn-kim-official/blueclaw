@@ -2,10 +2,10 @@ package agentruntime
 
 import (
 	"context"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 type requesterShellCommand struct {

@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
-	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/identity"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 type CapabilityPlatformAdapter struct {

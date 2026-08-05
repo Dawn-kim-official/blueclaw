@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 // The product's central claim, on real Linux: two people sharing one Blueclaw

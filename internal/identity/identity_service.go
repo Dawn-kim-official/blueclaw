@@ -4,7 +4,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 type PlatformAccountRepository interface {

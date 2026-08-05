@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
+	"github.com/yeomyeonggeori/blueclaw/internal/store/postgres"
 )
 
 type CheckName string

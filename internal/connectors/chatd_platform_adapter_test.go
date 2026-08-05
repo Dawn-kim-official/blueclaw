@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func TestChatdPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {

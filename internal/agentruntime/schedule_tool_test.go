@@ -3,14 +3,14 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {

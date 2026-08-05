@@ -3,12 +3,12 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"sort"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/access"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
+	"github.com/yeomyeonggeori/blueclaw/internal/access"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
 )
 
 type mcpToolProvider struct {

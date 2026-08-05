@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
+	"github.com/yeomyeonggeori/blueclaw/internal/connectors"
 )
 
 type ConnectorEventHandler struct {

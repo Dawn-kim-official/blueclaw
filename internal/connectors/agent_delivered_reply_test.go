@@ -3,7 +3,7 @@ package connectors
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 func messageSendEvents(targetField string, targetValue string, isFailure bool) []taskstate.TaskEvent {

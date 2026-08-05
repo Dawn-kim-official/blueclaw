@@ -2,16 +2,16 @@ package connectors
 
 import (
 	"context"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"log/slog"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/identity"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract/harnesstest"
+	"github.com/yeomyeonggeori/blueclaw/internal/identity"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
 )
 
 func TestCompletedTaskReplyCarriesModelWordingAndNativeAttachments(t *testing.T) {

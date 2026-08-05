@@ -3,8 +3,8 @@ package agentruntime
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 // Two people sharing one Blueclaw must never share one POSIX identity: this is

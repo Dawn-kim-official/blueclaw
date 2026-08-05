@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/connectors"
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcp"
-	"github.com/Dawn-kim-official/blueclaw/internal/protocolidentity"
-	"github.com/Dawn-kim-official/blueclaw/internal/runtimecontrol"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/bluecollarharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/connectors"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
+	"github.com/yeomyeonggeori/blueclaw/internal/protocolidentity"
+	"github.com/yeomyeonggeori/blueclaw/internal/runtimecontrol"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 type applicationMCPRegistryCloser struct {
