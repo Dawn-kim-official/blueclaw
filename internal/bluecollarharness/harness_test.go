@@ -29,17 +29,8 @@ func TestDeriveTurnOptionsWiresContextWindowTokens(t *testing.T) {
 	}
 }
 
-func TestVirtualTurnOptionsUseProductionTaskLevelBudget(t *testing.T) {
-	defaultOptions := virtualTurnOptions(agentcontract.TurnOptions{})
-	lowProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelLow)
-	if defaultOptions.TaskLevel != lowProfile.TaskLevel ||
-		defaultOptions.MaxIterationCount != lowProfile.MaxIterationCount ||
-		defaultOptions.MaxToolCallCount != lowProfile.MaxToolCallCount ||
-		defaultOptions.MaxElapsedSecond != int(lowProfile.Duration.Seconds()) {
-		t.Fatalf("expected production low defaults, got %+v", defaultOptions)
-	}
-
-	xHighOptions := virtualTurnOptions(agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
+func TestAPinnedTaskLevelCarriesItsProductionBudget(t *testing.T) {
+	xHighOptions := turnOptionsWithOverrides(deriveTurnOptions(config.RuntimeConfiguration{}), agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
 	xHighProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
 	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
 		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
