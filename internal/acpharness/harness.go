@@ -102,6 +102,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 		TaskRunID:             request.ExistingTaskRunID,
 		ToolSet:               request.ToolSet,
 		ResponseLanguage:      request.ResponseLanguage,
+		Prompt:                request.Prompt,
 		ToolAudience:          mcpserver.ToolAudienceSelfEquipped,
 	})
 	if errorValue != nil {

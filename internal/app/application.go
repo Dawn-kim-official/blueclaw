@@ -204,6 +204,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogResolver := mcpserver.NewSessionTokenRequesterResolver(newToolCatalogSessionToken)
 	toolCatalogHandler := mcpserver.NewToolCatalogHandler(toolCatalogResolver, "1")
 	toolCatalogApprovalGate := approvalgate.New(taskRunService)
+	toolCatalogApprovalGate.UseLanguageModel(languageModelProvider)
 	selectedHarnessFactory, harnessSelectionError := harnessselection.Select(runtimeConfiguration.Agent.Harness, agentHarnessFactory, harnessselection.ToolCatalogEndpoint{
 		URL:          toolCatalogURL(runtimeConfiguration),
 		Resolver:     toolCatalogResolver,
