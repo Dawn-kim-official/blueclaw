@@ -78,3 +78,19 @@ func TestParseDirectoryServiceListSkipsLinesWithoutAnIdentity(testInstance *test
 		testInstance.Fatalf("expected only the record carrying a numeric identity, got %+v", identities)
 	}
 }
+
+func TestParseDirectoryServiceValueReadsTheThreeShapesDsclEmits(testInstance *testing.T) {
+	for _, shape := range []struct {
+		name   string
+		output string
+		value  string
+	}{
+		{"standard attribute", "UserShell: /bin/zsh\n", "/bin/zsh"},
+		{"native attribute carries a type prefix", "dsAttrTypeNative:IsHidden: 1\n", "1"},
+		{"a value containing a space moves to the next line", "RealName:\n dongha lee\n", "dongha lee"},
+	} {
+		if parsed := parseDirectoryServiceValue(shape.output); parsed != shape.value {
+			testInstance.Fatalf("%s: expected %q, got %q", shape.name, shape.value, parsed)
+		}
+	}
+}
