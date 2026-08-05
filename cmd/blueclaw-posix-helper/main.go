@@ -552,19 +552,20 @@ func (table *identityAllocationTable) reserveSystemIdentities() error {
 	if errorValue != nil {
 		return errorValue
 	}
-	for _, group := range groups {
-		table.reserved[group.identityID] = true
-		table.recoverProjectedAllocation(group)
-	}
+	table.reserve(groups)
 	users, errorValue := readSystemUsers()
 	if errorValue != nil {
 		return errorValue
 	}
-	for _, systemUser := range users {
-		table.reserved[systemUser.identityID] = true
-		table.recoverProjectedAllocation(systemUser)
-	}
+	table.reserve(users)
 	return nil
+}
+
+func (table *identityAllocationTable) reserve(identities []systemIdentity) {
+	for _, identity := range identities {
+		table.reserved[identity.identityID] = true
+		table.recoverProjectedAllocation(identity)
+	}
 }
 
 func (table *identityAllocationTable) recoverProjectedAllocation(identity systemIdentity) {
