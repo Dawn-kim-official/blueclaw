@@ -4,14 +4,20 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/app"
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == mcpserver.StdioBridgeCommand {
+		runToolCatalogBridge()
+		return
+	}
 	home := enrollment.ResolveHome()
 	runtimeConfigurationPath := flag.String("runtime", home.RuntimeConfigurationPath(), "runtime configuration path")
 	policyPath := flag.String("policy", home.PolicyPath(), "policy document path")
@@ -28,6 +34,17 @@ func main() {
 
 	application := app.NewApplication(runtimeConfiguration, *policyPath, bundledHarnessFactory())
 	log.Fatal(application.Start())
+}
+
+func runToolCatalogBridge() {
+	errorValue := mcpserver.RunStdioCatalogBridge(
+		context.Background(),
+		os.Getenv(mcpserver.CatalogEndpointEnvironmentName),
+		os.Getenv(mcpserver.CatalogTokenEnvironmentName),
+	)
+	if errorValue != nil {
+		log.Fatal(errorValue)
+	}
 }
 
 func ensureManagedDatabase(home enrollment.Home, runtimeConfiguration config.RuntimeConfiguration) error {

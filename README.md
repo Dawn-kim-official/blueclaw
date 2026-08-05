@@ -428,6 +428,13 @@ the loop creeps back.
 | `codex` | the `codex` CLI |
 | `antigravity` | the `agy` CLI |
 
+The catalog reaches an ACP agent over whichever MCP transport it takes. Agents
+that advertise `mcpCapabilities.http` are handed the endpoint and a session
+token directly. Everyone else is handed a stdio server: the daemon binary in
+`mcp-tool-catalog` mode, spawned by the agent under its own identity, proxying
+to that same endpoint. The Agent Client Protocol requires every agent to support
+stdio and leaves http optional, so stdio is the floor rather than the fallback.
+
 `internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an ACP
 *client*: it starts the external agent inside the requester's POSIX identity,
 publishes the requester's tool catalog over MCP, and lets the kernel — not a

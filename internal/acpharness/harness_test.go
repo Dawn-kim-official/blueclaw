@@ -102,6 +102,7 @@ type externalAgent struct {
 	finalMessage             string
 	observedCatalog          []string
 	toolCallError            error
+	observedToolCatalog      acp.McpServer
 }
 
 func (agent *externalAgent) serve(ctx context.Context, output io.Writer, input io.Reader) {
@@ -118,8 +119,12 @@ func (agent *externalAgent) Initialize(_ context.Context, request acp.Initialize
 }
 
 func (agent *externalAgent) NewSession(ctx context.Context, request acp.NewSessionRequest) (acp.NewSessionResponse, error) {
-	if len(request.McpServers) != 1 || request.McpServers[0].Http == nil {
+	if len(request.McpServers) != 1 {
 		return acp.NewSessionResponse{}, io.ErrUnexpectedEOF
+	}
+	agent.observedToolCatalog = request.McpServers[0]
+	if request.McpServers[0].Http == nil {
+		return acp.NewSessionResponse{SessionId: "session-1"}, nil
 	}
 	toolCatalog := request.McpServers[0].Http
 	bearerToken := ""
@@ -245,6 +250,37 @@ func TestHarnessRefusesATurnWithNoRequester(t *testing.T) {
 		ToolSet: requesterToolSet(t, "person-1", &executed),
 	}); errorValue == nil {
 		t.Fatal("expected a turn with no requester to be refused, because tools execute as the requester")
+	}
+}
+
+func TestAnAgentThatTakesTheCatalogOverStdioIsGivenItThatWay(t *testing.T) {
+	executed := []daemonExecutedTool{}
+	agent := &externalAgent{acceptsNoHTTPToolCatalog: true}
+	harness := New(&inProcessAgentProcess{agent: agent}, newPublishedToolCatalog(t), nil)
+	harness.UseToolCatalogBridge("/usr/local/bin/blueclaw")
+
+	if _, errorValue := harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+	}); errorValue != nil {
+		t.Fatalf("stdio is the transport every agent must support, so a turn using it has to run: %v", errorValue)
+	}
+
+	stdioCatalog := agent.observedToolCatalog.Stdio
+	if stdioCatalog == nil {
+		t.Fatalf("expected the catalog to be offered over stdio, got %+v", agent.observedToolCatalog)
+	}
+	if stdioCatalog.Command != "/usr/local/bin/blueclaw" {
+		t.Fatalf("expected the bridge command, got %q", stdioCatalog.Command)
+	}
+	environmentNames := []string{}
+	for _, environmentVariable := range stdioCatalog.Env {
+		environmentNames = append(environmentNames, environmentVariable.Name)
+	}
+	if len(environmentNames) != 2 {
+		t.Fatalf("the bridge needs the endpoint and the session token to reach the catalog, got %+v", environmentNames)
 	}
 }
 
