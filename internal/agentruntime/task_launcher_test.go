@@ -22,7 +22,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/security"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
 )
@@ -30,7 +30,7 @@ import (
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	runtimeLanguageModel := staticRuntimeLanguageModel{content: runtimeFinishMessage("done")}
 	useRuntimeTestLanguageModel(agentKernel, runtimeFinishMessage("done"))
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
@@ -85,7 +85,7 @@ func TestTaskLauncherPersistsAuthoritativeRouterFailure(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	noticeAuthoringLanguageModel := authoredRuntimeFailureLanguageModel{reply: "요청을 분류하지 못해 작업을 시작하지 못했습니다. 다시 요청해 주세요."}
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(noticeAuthoringLanguageModel)
 	agentKernel.UseIntakeLanguageModelProvider(failingRuntimeRouterLanguageModel{errorValue: errors.New("router unavailable")})
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
@@ -679,7 +679,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	descriptions := toolRegistry.Descriptions()
-	actionSchema := bluecollar.ActionSchemaForToolSet(toolRegistry, false, nil, false)
+	actionSchema := loop.ActionSchemaForToolSet(toolRegistry, false, nil, false)
 	if !strings.Contains(descriptions, "Test capability browser_open") || strings.Contains(descriptions, `"url"`) {
 		t.Fatalf("expected concise descriptor description without duplicated schema, got %s", descriptions)
 	}
@@ -928,7 +928,7 @@ func (languageModel staticRuntimeLanguageModel) GenerateStructuredResponse(_ con
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
-func useRuntimeTestLanguageModel(agentKernel *bluecollar.AgentKernel, content string) {
+func useRuntimeTestLanguageModel(agentKernel *loop.AgentKernel, content string) {
 	languageModel := staticRuntimeLanguageModel{content: content}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)

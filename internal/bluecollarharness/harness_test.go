@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
@@ -31,7 +31,7 @@ func TestDeriveTurnOptionsWiresContextWindowTokens(t *testing.T) {
 
 func TestAPinnedTaskLevelCarriesItsProductionBudget(t *testing.T) {
 	xHighOptions := turnOptionsWithOverrides(deriveTurnOptions(config.RuntimeConfiguration{}), agentcontract.TurnOptions{TaskLevel: agentcontract.TaskLevelXHigh})
-	xHighProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
+	xHighProfile := loop.TaskLevelProfileForLevel(agentcontract.TaskLevelXHigh)
 	if xHighOptions.TaskLevel != xHighProfile.TaskLevel ||
 		xHighOptions.MaxElapsedSecond != int(xHighProfile.Duration.Seconds()) {
 		t.Fatalf("expected xhigh task budget, got %+v", xHighOptions)

@@ -4,12 +4,12 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/harnessdriver"
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
-	agentKernel := bluecollar.NewAgentKernel(dependencies.TaskRunStore, dependencies.TaskStepStore)
+	agentKernel := loop.NewAgentKernel(dependencies.TaskRunStore, dependencies.TaskStepStore)
 	agentKernel.UseTaskArtifactService(dependencies.TaskArtifactStore)
 	agentKernel.UseTurnOptions(turnOptionsWithOverrides(deriveTurnOptions(dependencies.RuntimeConfiguration), dependencies.TurnOptionOverrides))
 	agentKernel.UseIntakeOptions(intakeOptionsOrDerived(dependencies))
@@ -19,7 +19,7 @@ func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentc
 		agentKernel.UseLanguageModelProvider(taskTierLanguageModels.Low)
 		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels)
 	}
-	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(dependencies.EmbeddingProvider, dependencies.SkillIndexPath)
+	skillRetriever := loop.NewEmbeddingSkillRetriever(dependencies.EmbeddingProvider, dependencies.SkillIndexPath)
 	skillRetriever.EmbeddingModel = dependencies.EmbeddingModelName
 	agentKernel.UseSkillRetriever(skillRetriever)
 	if dependencies.CompanyProvider != nil {
@@ -32,7 +32,7 @@ func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentc
 }
 
 func deriveTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agentcontract.TurnOptions {
-	taskLevelProfile := bluecollar.TaskLevelProfileForLevel(agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
+	taskLevelProfile := loop.TaskLevelProfileForLevel(agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
 	return agentcontract.TurnOptions{
 		MaxIterationCount:   taskLevelProfile.MaxIterationCount,
 		MaxToolCallCount:    taskLevelProfile.MaxToolCallCount,
@@ -70,7 +70,7 @@ func intakeOptionsOrDerived(dependencies harnessdriver.Dependencies) agentcontra
 
 func turnOptionsWithOverrides(turnOptions agentcontract.TurnOptions, overrides agentcontract.TurnOptions) agentcontract.TurnOptions {
 	if overrides.TaskLevel != "" {
-		taskLevelProfile := bluecollar.TaskLevelProfileForLevel(overrides.TaskLevel)
+		taskLevelProfile := loop.TaskLevelProfileForLevel(overrides.TaskLevel)
 		turnOptions.TaskLevel = taskLevelProfile.TaskLevel
 		turnOptions.MaxIterationCount = taskLevelProfile.MaxIterationCount
 		turnOptions.MaxToolCallCount = taskLevelProfile.MaxToolCallCount

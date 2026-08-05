@@ -25,7 +25,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/reply"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
 	"github.com/yeomyeonggeori/bluecollar/intake"
@@ -4142,8 +4142,8 @@ func appendConnectorActiveGoal(t *testing.T, taskRunService *task.TaskRunService
 	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.blocked", string(document))
 }
 
-func connectorRuntimeAgentKernel(connectorRuntime *ConnectorRuntime) *bluecollar.AgentKernel {
-	agentKernel, _ := connectorRuntime.harness.(*bluecollar.AgentKernel)
+func connectorRuntimeAgentKernel(connectorRuntime *ConnectorRuntime) *loop.AgentKernel {
+	agentKernel, _ := connectorRuntime.harness.(*loop.AgentKernel)
 	return agentKernel
 }
 
@@ -4203,8 +4203,8 @@ func testConnectorIdentityService() *identity.IdentityService {
 	})
 }
 
-func testConnectorAgentKernel(taskRunService *task.TaskRunService, languageModel llm.LanguageModelProvider) *bluecollar.AgentKernel {
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+func testConnectorAgentKernel(taskRunService *task.TaskRunService, languageModel llm.LanguageModelProvider) *loop.AgentKernel {
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})
@@ -4418,7 +4418,7 @@ func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []strin
 }
 
 func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agentcontract.SkillInstruction) {
-	connectorRuntimeAgentKernel(connectorRuntime).UseSkillRetriever(bluecollar.NewEmbeddingSkillRetriever(nil, ""))
+	connectorRuntimeAgentKernel(connectorRuntime).UseSkillRetriever(loop.NewEmbeddingSkillRetriever(nil, ""))
 	connectorRuntimeAgentKernel(connectorRuntime).UseInstructionBundleLoader(func() agentcontract.InstructionBundle {
 		return agentcontract.InstructionBundle{Skills: []agentcontract.SkillInstruction{skillInstruction}}
 	})
