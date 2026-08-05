@@ -68,8 +68,12 @@ func (store *recordingTaskRunStore) AppendTaskEvent(taskRunID string, name strin
 func permissionRequestForHarnessOwnedTool(optionKind acp.PermissionOptionKind) acp.RequestPermissionRequest {
 	title := "run a shell command"
 	return acp.RequestPermissionRequest{
-		Options:  []acp.PermissionOption{{OptionId: "allow", Kind: optionKind}},
-		ToolCall: acp.ToolCallUpdate{ToolCallId: "call-1", Title: &title},
+		Options: []acp.PermissionOption{{OptionId: "allow", Kind: optionKind}},
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: "call-1",
+			Title:      &title,
+			RawInput:   map[string]any{"command": "rm -rf /workspace/private/people/person-1/drafts"},
+		},
 	}
 }
 
@@ -84,8 +88,10 @@ func TestAToolTheHarnessRunsItselfIsRecordedEvenThoughItIsPermitted(t *testing.T
 	if len(store.events) != 1 || store.events[0].Name != harnessToolPermittedEventName {
 		t.Fatalf("a call the catalog never saw must still reach the ledger, got %+v", store.events)
 	}
-	if !strings.Contains(store.events[0].Body, "run a shell command") {
-		t.Fatalf("expected the ledger to say what was permitted, got %s", store.events[0].Body)
+	for _, expectedFragment := range []string{"run a shell command", "rm -rf /workspace/private/people/person-1/drafts", "allow_once"} {
+		if !strings.Contains(store.events[0].Body, expectedFragment) {
+			t.Fatalf("the ledger has to say what was permitted and how widely, expected %q in %s", expectedFragment, store.events[0].Body)
+		}
 	}
 }
 
