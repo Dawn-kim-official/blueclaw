@@ -691,12 +691,12 @@ For the isolation boundary, yes, today. The POSIX projection, the setuid helper
 and the separation tests are all Linux-only, so blueclaw builds and runs on
 macOS for development but there runs everything as the daemon user.
 
-macOS support is planned ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
-Nothing in the design needs Linux — macOS has users, groups and mode bits, the
-helper already builds for `darwin`, and dropping identity at exec through
-`syscall.Credential` works there. What is missing is user and group
-provisioning: the helper shells out to `useradd`, `groupadd` and `usermod`,
-which macOS replaces with `dscl` and `dseditgroup`.
+macOS support is in progress ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
+The helper provisions identities through `dscl` and `dseditgroup` on macOS and
+through `useradd`, `groupadd` and `usermod` on Linux, and reads the account
+database from Directory Service, which on macOS is the only place every account
+appears; `/etc/passwd` there lists system accounts alone. What remains is a macOS host to run the separation tests
+on, so they stay gated by the `_linux` filename constraint.
 
 ### Do I need Postgres and a chat platform?
 
