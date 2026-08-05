@@ -776,5 +776,10 @@ instead of opening an issue.
 
 Apache License 2.0. See [LICENSE](LICENSE).
 
+The bundled agent loop is a separate project under the same licence:
+[bluecollar](https://github.com/yeomyeonggeori/bluecollar) is Apache 2.0 as
+well, pinned here as a submodule at `.dependency/bluecollar`. A build that ships
+the bundled harness ships both.
+
 The Mattermost adapter under `chatd/src/adapters/mattermost/` vendors
 MIT-licensed third-party code; its license is kept alongside it.
