@@ -188,3 +188,76 @@ func TestADeclinedCallComesBackRejectedRatherThanHeldForever(t *testing.T) {
 		t.Fatalf("expected a declined call to be told so, got %+v", declinedOutcome)
 	}
 }
+
+func heldCallEventBodyNamed(t *testing.T, taskRunService *task.TaskRunService, taskRunID string, eventName string) string {
+	t.Helper()
+	for _, taskEvent := range taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name == eventName {
+			return taskEvent.Body
+		}
+	}
+	t.Fatalf("expected a %s event to be recorded, got %+v", eventName, taskRunService.ListTaskEvent(taskRunID))
+	return ""
+}
+
+func TestAHeldCallTellsTheRequesterWhatTheyAreBeingAskedAbout(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	approvalRequest := approvalRequestFixture(taskRun.TaskRunID)
+	approvalRequest.ResponseLanguage = "ko"
+	approvalRequest.SideEffectClass = "external_send"
+
+	gate.AwaitApproval(context.Background(), approvalRequest)
+
+	confirmationBody := heldCallEventBodyNamed(t, taskRunService, taskRun.TaskRunID, "confirmation.requested")
+	for _, expectedFragment := range []string{"userFacingMessage", "responseLanguage", "external_send"} {
+		if !strings.Contains(confirmationBody, expectedFragment) {
+			t.Fatalf("the connector reads this event to ask the requester, expected %q in %s", expectedFragment, confirmationBody)
+		}
+	}
+}
+
+func TestAScopedHeldCallOffersApprovingTheWholeTask(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+
+	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+
+	askBody := heldCallEventBodyNamed(t, taskRunService, taskRun.TaskRunID, "ask.requested")
+	for _, expectedFragment := range []string{`"approvalScope":"calendar"`, `"sessionApprovable":true`, "confirm_task"} {
+		if !strings.Contains(askBody, expectedFragment) {
+			t.Fatalf("confirm_task is resolved by reading the scope off this event, expected %q in %s", expectedFragment, askBody)
+		}
+	}
+}
+
+func TestAnUnscopedHeldCallDoesNotOfferAScopeItHasNot(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	approvalRequest := approvalRequestFixture(taskRun.TaskRunID)
+	approvalRequest.ApprovalScope = ""
+
+	gate.AwaitApproval(context.Background(), approvalRequest)
+
+	if askBody := heldCallEventBodyNamed(t, taskRunService, taskRun.TaskRunID, "ask.requested"); strings.Contains(askBody, "sessionApprovable") {
+		t.Fatalf("a call with no approval scope must not offer approving the whole task, got %s", askBody)
+	}
+}
+
+func TestApprovingTheWholeTaskLetsTheNextCallInThatScopeRun(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"eventID":"event-1"}`))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "approval.scope_granted", `{"scope":"calendar"}`)
+
+	nextCallOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"eventID":"event-2"}`))
+	if nextCallOutcome.Decision != mcpserver.ApprovalDecisionApproved {
+		t.Fatalf("approving the whole task means the requester is not asked again inside that scope, got %+v", nextCallOutcome)
+	}
+}
+
+func TestApprovingOneScopeDoesNotApproveAnother(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "approval.scope_granted", `{"scope":"messaging"}`)
+
+	heldOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+	if heldOutcome.Decision != mcpserver.ApprovalDecisionHeld {
+		t.Fatalf("a grant covers the scope it was given for and no other, got %+v", heldOutcome)
+	}
+}
