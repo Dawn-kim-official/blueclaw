@@ -379,12 +379,15 @@ The host opens the task run. Every harness is handed an `ExistingTaskRunID` and
 settles the run it was given, so a first turn is recorded the same way whichever
 loop ran it.
 
-The ledger is not owned that cleanly yet. The host writes 46 event names from
-what it observes at its own boundaries, the bundled loop writes 23 from inside
-the turn, and twelve names have a writer on each side, so which one fires
-depends on the configured harness. An external harness produces none of the
-loop's, which is why a turn under one reads thinner than the same turn under
-bluecollar. Consolidating that is the current work.
+The ledger is not owned that cleanly yet. Of 126 event names, the host writes 42
+from what it observes at its own boundaries, the bundled loop writes 73 from
+inside the turn, and 11 have a writer on each side, so which one fires depends
+on the configured harness. Six of the 11 are the approval family, where a second
+gate lives in the loop; five are the failure family, split between
+`internal/launchfailure` for a failure before the turn and the loop for one
+during it. An external harness produces none of the loop's 73, which is why a
+turn under one reads thinner than the same turn under bluecollar. Consolidating
+that is the current work.
 
 Everything else the host needs — task events, cancellation, run lookup — it
 takes from the task store.
