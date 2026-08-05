@@ -55,3 +55,12 @@ func parseDirectoryServiceList(output string) []systemIdentity {
 	}
 	return identities
 }
+
+func parseDirectoryServiceValue(output string) string {
+	firstLine, remainingLines, _ := strings.Cut(output, "\n")
+	separatorIndex := strings.LastIndex(firstLine, ":")
+	if separatorIndex < 0 {
+		return strings.TrimSpace(output)
+	}
+	return strings.TrimSpace(firstLine[separatorIndex+1:] + " " + remainingLines)
+}
