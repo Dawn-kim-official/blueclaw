@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package integration
 
@@ -6,8 +6,11 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/config"
@@ -27,6 +30,8 @@ func TestTwoPeopleGetSeparatePOSIXWorkspaces(t *testing.T) {
 		t.Skip("set BLUECLAW_TEST_POSIX_HELPER to the installed blueclaw-posix-helper")
 	}
 
+	requireBlueclawServiceAccount(t)
+	removeProjectedIdentitiesAfter(t, []string{"person-one", "person-two"}, []string{"staff"})
 	workspaceRootPath := traversableTempDir(t)
 	policyPath := writeTwoPersonPolicy(t)
 	terminalConfiguration := config.TerminalConfiguration{
@@ -69,17 +74,23 @@ func TestTwoPeopleGetSeparatePOSIXWorkspaces(t *testing.T) {
 	}
 }
 
-// t.TempDir hands back a 0700 root-owned tree, which no other user can even
-// traverse; the workspace root a real deployment uses is reachable.
 func traversableTempDir(t *testing.T) string {
 	t.Helper()
 	directoryPath := t.TempDir()
-	for path := directoryPath; strings.HasPrefix(path, os.TempDir()); path = filepath.Dir(path) {
+	for _, path := range ancestorsBelowTemporaryRoot(directoryPath, os.TempDir()) {
 		if errorValue := os.Chmod(path, 0o755); errorValue != nil {
 			t.Fatal(errorValue)
 		}
 	}
 	return directoryPath
+}
+
+func ancestorsBelowTemporaryRoot(directoryPath string, temporaryRootPath string) []string {
+	paths := []string{}
+	for path := directoryPath; path != temporaryRootPath && strings.HasPrefix(path, temporaryRootPath); path = filepath.Dir(path) {
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func writeTwoPersonPolicy(t *testing.T) string {
@@ -97,22 +108,50 @@ func writeTwoPersonPolicy(t *testing.T) string {
 
 func ownerOf(t *testing.T, path string) string {
 	t.Helper()
-	output, errorValue := exec.Command("stat", "-c", "%U", path).Output()
+	pathInformation, errorValue := os.Stat(path)
 	if errorValue != nil {
 		t.Fatalf("expected %s to exist: %v", path, errorValue)
 	}
-	return strings.TrimSpace(string(output))
+	ownership, isOwnershipKnown := pathInformation.Sys().(*syscall.Stat_t)
+	if !isOwnershipKnown {
+		t.Fatalf("expected %s to report POSIX ownership", path)
+	}
+	owner, errorValue := user.LookupId(strconv.FormatUint(uint64(ownership.Uid), 10))
+	if errorValue != nil {
+		t.Fatalf("expected uid %d to resolve to a user: %v", ownership.Uid, errorValue)
+	}
+	return owner.Username
 }
 
 func writeAs(t *testing.T, userName string, path string, content string) {
 	t.Helper()
-	command := exec.Command("su", "-s", "/bin/sh", userName, "-c", "printf %s "+content+" > "+path)
-	if output, errorValue := command.CombinedOutput(); errorValue != nil {
+	if output, errorValue := shellAs(t, userName, "printf %s "+content+" > "+path).CombinedOutput(); errorValue != nil {
 		t.Fatalf("expected %s to write %s: %v %s", userName, path, errorValue, output)
 	}
 }
 
 func canReadAs(t *testing.T, userName string, path string) bool {
 	t.Helper()
-	return exec.Command("su", "-s", "/bin/sh", userName, "-c", "cat "+path).Run() == nil
+	return shellAs(t, userName, "cat "+path).Run() == nil
+}
+
+func shellAs(t *testing.T, userName string, shellCommand string) *exec.Cmd {
+	t.Helper()
+	resolvedUser, errorValue := user.Lookup(userName)
+	if errorValue != nil {
+		t.Fatalf("expected %s to exist: %v", userName, errorValue)
+	}
+	userID, errorValue := strconv.ParseUint(resolvedUser.Uid, 10, 32)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	groupID, errorValue := strconv.ParseUint(resolvedUser.Gid, 10, 32)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	command := exec.Command("/bin/sh", "-c", shellCommand)
+	command.SysProcAttr = &syscall.SysProcAttr{
+		Credential: &syscall.Credential{Uid: uint32(userID), Gid: uint32(groupID)},
+	}
+	return command
 }
