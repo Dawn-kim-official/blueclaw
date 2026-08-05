@@ -47,6 +47,8 @@ type Harness struct {
 	requesterProcessRunner RequesterProcessRunner
 	workspaceRootPath      string
 	outcomeClassifier      turnoutcome.Classifier
+
+	toolCatalogBridgeCommandPath string
 }
 
 func New(agentProcess AgentProcess, toolCatalogPublisher ToolCatalogPublisher, taskRunStore taskstate.TaskRunStore) *Harness {
@@ -55,6 +57,10 @@ func New(agentProcess AgentProcess, toolCatalogPublisher ToolCatalogPublisher, t
 
 func (harness *Harness) UseOutcomeClassifier(outcomeClassifier turnoutcome.Classifier) {
 	harness.outcomeClassifier = outcomeClassifier
+}
+
+func (harness *Harness) UseToolCatalogBridge(commandPath string) {
+	harness.toolCatalogBridgeCommandPath = commandPath
 }
 
 func (harness *Harness) UseRequesterProcessRunner(requesterProcessRunner RequesterProcessRunner, workspaceRootPath string) {
@@ -122,17 +128,13 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
 	}
-	if !initializeResponse.AgentCapabilities.McpCapabilities.Http {
-		return agentcontract.AgentTurnResult{}, errors.New("this agent does not accept http mcp servers, which is the only way it can reach tools that run as the requester; running it without them would answer from no tools at all")
+	toolCatalogServer, errorValue := harness.toolCatalogServer(initializeResponse.AgentCapabilities.McpCapabilities, endpointURL, bearerToken)
+	if errorValue != nil {
+		return agentcontract.AgentTurnResult{}, errorValue
 	}
 	newSession, errorValue := connection.NewSession(ctx, acp.NewSessionRequest{
-		Cwd: request.WorkspaceRootPath,
-		McpServers: []acp.McpServer{{Http: &acp.McpServerHttpInline{
-			Type:    "http",
-			Name:    toolCatalogServerName,
-			Url:     endpointURL,
-			Headers: []acp.HttpHeader{{Name: "Authorization", Value: "Bearer " + bearerToken}},
-		}}},
+		Cwd:        request.WorkspaceRootPath,
+		McpServers: []acp.McpServer{toolCatalogServer},
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -145,6 +147,30 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 		return agentcontract.AgentTurnResult{}, errorValue
 	}
 	return harness.turnResult(ctx, request, turnObserver, succeededToolRecorder, promptResponse.StopReason), nil
+}
+
+func (harness *Harness) toolCatalogServer(agentCapabilities acp.McpCapabilities, endpointURL string, bearerToken string) (acp.McpServer, error) {
+	if agentCapabilities.Http {
+		return acp.McpServer{Http: &acp.McpServerHttpInline{
+			Type:    "http",
+			Name:    toolCatalogServerName,
+			Url:     endpointURL,
+			Headers: []acp.HttpHeader{{Name: "Authorization", Value: "Bearer " + bearerToken}},
+		}}, nil
+	}
+	bridgeCommandPath := strings.TrimSpace(harness.toolCatalogBridgeCommandPath)
+	if bridgeCommandPath == "" {
+		return acp.McpServer{}, errors.New("this agent takes tool catalogs over stdio, which every agent must, and no catalog bridge command is configured; running it without a catalog would answer from no tools at all")
+	}
+	return acp.McpServer{Stdio: &acp.McpServerStdio{
+		Name:    toolCatalogServerName,
+		Command: bridgeCommandPath,
+		Args:    []string{mcpserver.StdioBridgeCommand},
+		Env: []acp.EnvVariable{
+			{Name: mcpserver.CatalogEndpointEnvironmentName, Value: endpointURL},
+			{Name: mcpserver.CatalogTokenEnvironmentName, Value: bearerToken},
+		},
+	}}, nil
 }
 
 func (harness *Harness) turnResult(ctx context.Context, request agentcontract.AgentTurnRequest, turnObserver *sessionObserver, succeededToolRecorder *turnoutcome.SucceededToolRecorder, stopReason acp.StopReason) agentcontract.AgentTurnResult {

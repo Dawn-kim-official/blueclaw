@@ -29,6 +29,8 @@ type ToolCatalogEndpoint struct {
 	Resolver     *mcpserver.SessionTokenRequesterResolver
 	Handler      http.Handler
 	ApprovalGate mcpserver.ApprovalGate
+
+	BridgeCommandPath string
 }
 
 type RequesterProcessRunner interface {
@@ -78,6 +80,7 @@ func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, to
 	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver, approvalGate: toolCatalogEndpoint.ApprovalGate}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 		harness := acpharness.New(agentCommand, publisher, dependencies.TaskRunStore)
+		harness.UseToolCatalogBridge(toolCatalogEndpoint.BridgeCommandPath)
 		harness.UseRequesterProcessRunner(processBoundary.Runner, processBoundary.WorkspaceRootPath)
 		harness.UseOutcomeClassifier(turnoutcome.NewClassifier(dependencies.IntakeLanguageModelProvider))
 		return harness, nil

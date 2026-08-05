@@ -206,10 +206,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogApprovalGate := approvalgate.New(taskRunService)
 	toolCatalogApprovalGate.UseLanguageModel(languageModelProvider)
 	selectedHarnessFactory, harnessSelectionError := harnessselection.Select(runtimeConfiguration.Agent.Harness, agentHarnessFactory, harnessselection.ToolCatalogEndpoint{
-		URL:          toolCatalogURL(runtimeConfiguration),
-		Resolver:     toolCatalogResolver,
-		Handler:      toolCatalogHandler,
-		ApprovalGate: toolCatalogApprovalGate,
+		URL:               toolCatalogURL(runtimeConfiguration),
+		Resolver:          toolCatalogResolver,
+		Handler:           toolCatalogHandler,
+		ApprovalGate:      toolCatalogApprovalGate,
+		BridgeCommandPath: currentExecutablePath(),
 	}, harnessselection.SandboxProcessBoundary{
 		Runner:            terminalService.WorkspaceActorFactory(),
 		WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
@@ -1672,4 +1673,12 @@ func toolCatalogURL(runtimeConfiguration config.RuntimeConfiguration) string {
 		return configuredURL
 	}
 	return "http://" + deriveListenAddress(runtimeConfiguration.BaseURL) + "/harness/tool-catalog"
+}
+
+func currentExecutablePath() string {
+	executablePath, errorValue := os.Executable()
+	if errorValue != nil {
+		return ""
+	}
+	return executablePath
 }
