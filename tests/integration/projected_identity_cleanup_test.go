@@ -3,9 +3,11 @@
 package integration
 
 import (
+	"os"
 	"os/exec"
 	"os/user"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/security"
@@ -21,7 +23,15 @@ func requireBlueclawServiceAccount(t *testing.T) {
 
 func blueclawServiceAccountCreationHint() string {
 	if runtime.GOOS == "darwin" {
-		return "Create it with: sudo dscl . -create /Groups/blueclaw PrimaryGroupID 400 && sudo dscl . -create /Users/blueclaw UniqueID 400 PrimaryGroupID 400 UserShell /usr/bin/false NFSHomeDirectory /var/empty IsHidden 1"
+		return "Create it with one dscl -create per attribute, since -create takes a single key:\n" +
+			strings.Join([]string{
+				"sudo dscl . -create /Groups/blueclaw PrimaryGroupID 400",
+				"sudo dscl . -create /Users/blueclaw",
+				"sudo dscl . -create /Users/blueclaw UniqueID 400",
+				"sudo dscl . -create /Users/blueclaw PrimaryGroupID 400",
+				"sudo dscl . -create /Users/blueclaw UserShell /usr/bin/false",
+				"sudo dscl . -create /Users/blueclaw NFSHomeDirectory /var/empty",
+			}, "\n")
 	}
 	return "Create it with: sudo groupadd --system blueclaw && sudo useradd --system --gid blueclaw --no-create-home --shell /usr/sbin/nologin blueclaw"
 }
@@ -29,17 +39,42 @@ func blueclawServiceAccountCreationHint() string {
 func removeProjectedIdentitiesAfter(t *testing.T, personIDs []string, circleIDs []string) {
 	t.Helper()
 	removeProjectedIdentities(personIDs, circleIDs)
-	t.Cleanup(func() { removeProjectedIdentities(personIDs, circleIDs) })
+	t.Cleanup(func() { reportIdentitiesLeftBehind(t, removeProjectedIdentities(personIDs, circleIDs)) })
 }
 
-func removeProjectedIdentities(personIDs []string, circleIDs []string) {
+func reportIdentitiesLeftBehind(t *testing.T, remaining []string) {
+	t.Helper()
+	if len(remaining) == 0 {
+		return
+	}
+	t.Errorf("these identities outlived the test and are still on this machine: %v. Removing them needs root, and this process runs as uid %d. Delete them by hand.", remaining, os.Geteuid())
+}
+
+func removeProjectedIdentities(personIDs []string, circleIDs []string) []string {
+	remaining := []string{}
 	for _, personID := range personIDs {
-		removeUser(security.LinuxPersonUserName(personID))
-		removeGroup(security.LinuxPersonUserName(personID))
+		userName := security.LinuxPersonUserName(personID)
+		removeUser(userName)
+		removeGroup(userName)
+		remaining = append(remaining, stillPresentIdentities(userName)...)
 	}
 	for _, circleID := range circleIDs {
-		removeGroup(security.LinuxCircleGroupName(circleID))
+		groupName := security.LinuxCircleGroupName(circleID)
+		removeGroup(groupName)
+		remaining = append(remaining, stillPresentIdentities(groupName)...)
 	}
+	return remaining
+}
+
+func stillPresentIdentities(name string) []string {
+	present := []string{}
+	if _, errorValue := user.Lookup(name); errorValue == nil {
+		present = append(present, "user "+name)
+	}
+	if _, errorValue := user.LookupGroup(name); errorValue == nil {
+		present = append(present, "group "+name)
+	}
+	return present
 }
 
 func removeUser(userName string) {
