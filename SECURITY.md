@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Email **lee@example.com**. Please do not open a public issue for a security
+Email **lee@dawn.kim**. Please do not open a public issue for a security
 problem.
 
 Include what you need to make the problem reproducible: the version or commit,
