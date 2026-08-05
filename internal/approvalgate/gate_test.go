@@ -150,6 +150,34 @@ func TestAnApprovalIsSpentOnTheCallItAnsweredAndNotTheNextOne(t *testing.T) {
 	}
 }
 
+func approvalRequestForEvent(taskRunID string, toolInput string) mcpserver.ApprovalRequest {
+	approvalRequest := approvalRequestFixture(taskRunID)
+	approvalRequest.ToolInput = json.RawMessage(toolInput)
+	return approvalRequest
+}
+
+func TestAnApprovalDoesNotCarryOverToACallTheRequesterNeverSaw(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"eventID":"event-1"}`))
+	recordDecision(taskRunService, taskRun.TaskRunID, "confirm")
+
+	substitutedOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"eventID":"event-2"}`))
+	if substitutedOutcome.Decision == mcpserver.ApprovalDecisionApproved {
+		t.Fatalf("expected approving one call to authorise that call alone, so a substituted target is asked about again, got %+v", substitutedOutcome)
+	}
+}
+
+func TestAnApprovedCallIsStillRecognisedWhenTheAgentReordersItsInput(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"eventID":"event-1","calendarID":"team"}`))
+	recordDecision(taskRunService, taskRun.TaskRunID, "confirm")
+
+	reorderedOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestForEvent(taskRun.TaskRunID, `{"calendarID":"team","eventID":"event-1"}`))
+	if reorderedOutcome.Decision != mcpserver.ApprovalDecisionApproved {
+		t.Fatalf("expected the same call to be recognised through a reordered input rather than asked about twice, got %+v", reorderedOutcome)
+	}
+}
+
 func TestADeclinedCallComesBackRejectedRatherThanHeldForever(t *testing.T) {
 	gate, taskRunService, taskRun := gateFixture(t)
 	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
