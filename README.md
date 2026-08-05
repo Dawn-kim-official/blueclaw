@@ -378,13 +378,18 @@ takes from the task store.
 The harness is injected at the top. `main` passes a factory:
 
 ```go
-application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
+application := app.NewApplication(runtimeConfiguration, *policyPath, bundledHarnessFactory())
 ```
 
 [bluecollar](https://github.com/yeomyeonggeori/bluecollar) is the bundled
 implementation. It lives in its own repository, pinned here as a submodule at
 `.dependency/bluecollar`, and carries `agentcontract` with it because both sides
 compile against it.
+
+Building with `-tags nobundledharness` leaves the loop out of the binary, so
+`agent.harness.name` has to name one of the others. `agentcontract` and `intake`
+still compile in as contract and host routing; a test in `cmd/blueclaw` fails if
+the loop creeps back.
 
 `agent.harness.name` in the runtime configuration selects which harness runs:
 
