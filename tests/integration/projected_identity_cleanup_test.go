@@ -4,11 +4,27 @@ package integration
 
 import (
 	"os/exec"
+	"os/user"
 	"runtime"
 	"testing"
 
 	"github.com/Dawn-kim-official/blueclaw/internal/security"
 )
+
+func requireBlueclawServiceAccount(t *testing.T) {
+	t.Helper()
+	if _, errorValue := user.Lookup("blueclaw"); errorValue == nil {
+		return
+	}
+	t.Skipf("the workspace skeleton is owned by the blueclaw service account, which this machine does not have. %s", blueclawServiceAccountCreationHint())
+}
+
+func blueclawServiceAccountCreationHint() string {
+	if runtime.GOOS == "darwin" {
+		return "Create it with: sudo dscl . -create /Groups/blueclaw PrimaryGroupID 400 && sudo dscl . -create /Users/blueclaw UniqueID 400 PrimaryGroupID 400 UserShell /usr/bin/false NFSHomeDirectory /var/empty IsHidden 1"
+	}
+	return "Create it with: sudo groupadd --system blueclaw && sudo useradd --system --gid blueclaw --no-create-home --shell /usr/sbin/nologin blueclaw"
+}
 
 func removeProjectedIdentitiesAfter(t *testing.T, personIDs []string, circleIDs []string) {
 	t.Helper()
