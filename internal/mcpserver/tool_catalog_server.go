@@ -21,6 +21,7 @@ type RequesterToolSet struct {
 	ApprovalGate      ApprovalGate
 	HarnessSession    HarnessSession
 	ToolAudience      ToolAudience
+	ResponseLanguage  string
 
 	ObserveToolInvocation func(toolName string, isSucceeded bool)
 }

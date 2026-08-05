@@ -39,9 +39,12 @@ func (gate *Gate) UseInlineWait(decisionSource DecisionSource, inlineWait time.D
 
 func (gate *Gate) AwaitApproval(ctx context.Context, approvalRequest mcpserver.ApprovalRequest) (mcpserver.ApprovalOutcome, error) {
 	taskRunID := strings.TrimSpace(approvalRequest.TaskRunID)
+	if gate.taskHasApprovedScope(taskRunID, approvalRequest.ApprovalScope) {
+		return gate.approvedOutcome(taskRunID, approvalRequest.ToolName), nil
+	}
 	if decision, isDecided := gate.recordedDecision(taskRunID, approvalRequest); isDecided {
 		if decision == mcpserver.ApprovalDecisionApproved {
-			gate.taskRunService.AppendTaskEvent(taskRunID, "approval.executed", marshalEventBody(map[string]string{"toolName": approvalRequest.ToolName}))
+			return gate.approvedOutcome(taskRunID, approvalRequest.ToolName), nil
 		}
 		return mcpserver.ApprovalOutcome{Decision: decision}, nil
 	}
@@ -60,6 +63,30 @@ func (gate *Gate) AwaitApproval(ctx context.Context, approvalRequest mcpserver.A
 		return mcpserver.ApprovalOutcome{Decision: mcpserver.ApprovalDecisionHeld, Notice: errorValue.Error()}, nil
 	}
 	return mcpserver.ApprovalOutcome{Decision: mcpserver.ApprovalDecisionHeld, Notice: confirmation}, nil
+}
+
+func (gate *Gate) approvedOutcome(taskRunID string, toolName string) mcpserver.ApprovalOutcome {
+	gate.taskRunService.AppendTaskEvent(taskRunID, "approval.executed", marshalEventBody(map[string]string{"toolName": toolName}))
+	return mcpserver.ApprovalOutcome{Decision: mcpserver.ApprovalDecisionApproved}
+}
+
+func (gate *Gate) taskHasApprovedScope(taskRunID string, approvalScope string) bool {
+	requestedScope := strings.TrimSpace(approvalScope)
+	if taskRunID == "" || requestedScope == "" {
+		return false
+	}
+	for _, taskEvent := range gate.taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name != "approval.scope_granted" {
+			continue
+		}
+		grant := struct {
+			Scope string `json:"scope"`
+		}{}
+		if json.Unmarshal([]byte(taskEvent.Body), &grant) == nil && strings.TrimSpace(grant.Scope) == requestedScope {
+			return true
+		}
+	}
+	return false
 }
 
 func (gate *Gate) recordedDecision(taskRunID string, approvalRequest mcpserver.ApprovalRequest) (mcpserver.ApprovalDecision, bool) {
@@ -159,10 +186,37 @@ func (gate *Gate) recordHeldCall(taskRunID string, approvalRequest mcpserver.App
 		HarnessSession: approvalRequest.HarnessSession,
 	}))
 	gate.taskRunService.AppendTaskEvent(taskRunID, "confirmation.requested", marshalEventBody(map[string]string{
-		"toolName":     approvalRequest.ToolName,
-		"confirmation": confirmation,
-		"source":       "tool_catalog",
+		"userFacingMessage": confirmation,
+		"message":           confirmation,
+		"reasonCode":        approvalReasonCode(approvalRequest),
+		"reasonDetail":      "approval gate for " + approvalRequest.ToolName,
+		"responseLanguage":  approvalRequest.ResponseLanguage,
+		"source":            "tool_catalog",
 	}))
+	gate.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalEventBody(askRecord(approvalRequest, confirmation)))
+}
+
+func approvalReasonCode(approvalRequest mcpserver.ApprovalRequest) string {
+	if sideEffectClass := strings.TrimSpace(approvalRequest.SideEffectClass); sideEffectClass != "" {
+		return sideEffectClass
+	}
+	return "approval_required"
+}
+
+func askRecord(approvalRequest mcpserver.ApprovalRequest, confirmation string) map[string]any {
+	record := map[string]any{
+		"kind":             "ask_confirm",
+		"message":          confirmation,
+		"reasonCode":       approvalReasonCode(approvalRequest),
+		"reasonDetail":     "approval gate for " + approvalRequest.ToolName,
+		"responseLanguage": approvalRequest.ResponseLanguage,
+	}
+	if approvalScope := strings.TrimSpace(approvalRequest.ApprovalScope); approvalScope != "" {
+		record["approvalScope"] = approvalScope
+		record["sessionApprovable"] = true
+		record["actions"] = []string{"confirm", "confirm_task", "cancel"}
+	}
+	return record
 }
 
 func confirmationWording(approvalRequest mcpserver.ApprovalRequest) string {
