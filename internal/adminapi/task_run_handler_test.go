@@ -13,7 +13,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
 )
@@ -254,7 +254,7 @@ func (languageModel *schemaRecordingAdminLanguageModel) schemaDocumentContains(f
 func newPresetTaskRunHandler(isPresetAllowed bool) (TaskRunHandler, *task.TaskRunService, *task.TaskEventService, *schemaRecordingAdminLanguageModel) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &schemaRecordingAdminLanguageModel{}
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)

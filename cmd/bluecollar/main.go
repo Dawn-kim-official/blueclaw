@@ -19,7 +19,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 	"github.com/yeomyeonggeori/blueclaw/internal/security"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
@@ -128,7 +128,7 @@ func runTask(options runOptions) (TaskResult, error) {
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
 
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel := loop.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseTaskTierLanguageModels(agentcontract.TaskTierLanguageModels{

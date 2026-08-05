@@ -9,7 +9,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
 )
@@ -68,7 +68,7 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")}
 	useScheduledRuntimeLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -129,7 +129,7 @@ func TestTaskScheduleRunnerAddsCronContextToLaunch(t *testing.T) {
 func TestTaskScheduleRunnerPreservesScheduledArtifactRouting(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	languageModel := &capturingScheduleRuntimeLanguageModel{
 		content:       `{"action":"fail","reason":"artifact fixture stops after intake","goalStatus":"blocked","goalSatisfied":false}`,
 		routerContent: `{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"high","estimatedMinutes":45,"requestedOutputFormats":["pptx"],"requestedOutputEvidence":"발표자료","expectedResults":[{"id":"presentation","type":"file","description":"PPTX 발표자료","required":true}],"requiredEvidence":["file_deliver"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scheduled presentation","userFacingReply":"","initialToolNames":["file_deliver"],"priorTaskReference":"none"}`,
@@ -195,7 +195,7 @@ func firstScheduleRuntimeRouterResponse(routerContent string) string {
 	return scheduledRuntimeTurnRouterResponse()
 }
 
-func useScheduledRuntimeLanguageModel(agentKernel *bluecollar.AgentKernel, languageModel llm.LanguageModelProvider) {
+func useScheduledRuntimeLanguageModel(agentKernel *loop.AgentKernel, languageModel llm.LanguageModelProvider) {
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agentcontract.IntakeOptions{IsEnabled: true})

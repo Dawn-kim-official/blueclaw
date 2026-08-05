@@ -16,7 +16,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/scheduler"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/intake"
 )
@@ -81,7 +81,7 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 		},
 	})
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
 	turnRouter := intake.NewTurnRouter(languageModel, agentcontract.IntakeOptions{IsEnabled: true})
@@ -100,7 +100,7 @@ func newScheduledDeliveryConnectorRuntime(languageModel staticScheduleLanguageMo
 
 func newScheduledDeliveryPoller(languageModel staticScheduleLanguageModel, repository *scheduledDeliveryRepository) scheduler.TaskSchedulePoller {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	useScheduleTestLanguageModel(agentKernel, languageModel)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{

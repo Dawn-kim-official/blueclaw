@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const bundledHarnessPackage = "github.com/yeomyeonggeori/bluecollar"
+const bundledHarnessPackage = "github.com/yeomyeonggeori/bluecollar/loop"
 
 func TestTheNoBundledHarnessBuildLeavesTheAgentLoopOut(testInstance *testing.T) {
 	if linkedPackages(testInstance, "nobundledharness")[bundledHarnessPackage] {

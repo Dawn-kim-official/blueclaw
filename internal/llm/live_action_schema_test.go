@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
@@ -28,10 +28,10 @@ func terminalRunProbeRequest(t *testing.T, prompt string) llm.StructuredResponse
 	if registerError != nil {
 		t.Fatalf("expected the probe tool to register: %v", registerError)
 	}
-	return bluecollar.BuildActionRequestForTurn(bluecollar.AgentTurnRequest{Prompt: prompt, ToolSet: toolSet})
+	return loop.BuildActionRequestForTurn(loop.AgentTurnRequest{Prompt: prompt, ToolSet: toolSet})
 }
 
-func assertContinuedWithTerminalRun(t *testing.T, action bluecollar.ProbedAgentAction) {
+func assertContinuedWithTerminalRun(t *testing.T, action loop.ProbedAgentAction) {
 	t.Helper()
 	if action.Action != "continue" || action.ToolName != toolcontract.TerminalRunToolName {
 		t.Fatalf("expected terminal_run continue action, got %+v", action)
@@ -64,7 +64,7 @@ func TestLLMDLiveXLowCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected llmd xlow response for current action schema: %v", errorValue)
 	}
-	action, errorValue := bluecollar.ProbeAgentActionResponse(response)
+	action, errorValue := loop.ProbeAgentActionResponse(response)
 	if errorValue != nil {
 		t.Fatalf("expected parsable llmd agent action, got %q: %v", response.Content, errorValue)
 	}
@@ -90,7 +90,7 @@ func TestOpenRouterLiveLowTierCurrentAgentActionSchemaFromEnv(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected low-tier response for current action schema: %v", errorValue)
 	}
-	action, errorValue := bluecollar.ProbeAgentActionResponse(response)
+	action, errorValue := loop.ProbeAgentActionResponse(response)
 	if errorValue != nil {
 		t.Fatalf("expected parsable agent action, got %q: %v", response.Content, errorValue)
 	}

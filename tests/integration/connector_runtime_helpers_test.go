@@ -7,7 +7,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/identity"
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 )
 
 type integrationLanguageModel struct{}
@@ -23,7 +23,7 @@ func (languageModel integrationLanguageModel) GenerateStructuredResponse(context
 func newIntegrationConnectorRuntime(identityService *identity.IdentityService) *connectors.ConnectorRuntime {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
-	agentKernel := bluecollar.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel := loop.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(integrationLanguageModel{})
 
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, taskRunService, nil)
