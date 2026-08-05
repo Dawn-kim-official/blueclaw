@@ -68,17 +68,42 @@ func (gate *Gate) recordedDecision(taskRunID string, approvalRequest mcpserver.A
 	}
 	decision := mcpserver.ApprovalDecision("")
 	isDecided := false
+	heldCallKey := ""
+	decidedCallKey := ""
 	for _, taskEvent := range gate.taskRunService.ListTaskEvent(taskRunID) {
 		switch taskEvent.Name {
+		case "approval.pending_call":
+			heldCall := decodeHeldCallEventBody(taskEvent.Body)
+			heldCallKey = canonicalToolCallKey(heldCall.ToolName, heldCall.ToolInput)
 		case "approval.decided":
 			decision, isDecided = decisionFromEventBody(taskEvent.Body)
+			decidedCallKey = heldCallKey
 		case "approval.executed":
 			if executedToolName(taskEvent.Body) == strings.TrimSpace(approvalRequest.ToolName) {
 				decision, isDecided = "", false
 			}
 		}
 	}
-	return decision, isDecided
+	if !isDecided || decidedCallKey != canonicalToolCallKey(approvalRequest.ToolName, approvalRequest.ToolInput) {
+		return "", false
+	}
+	return decision, true
+}
+
+func canonicalToolCallKey(toolName string, toolInput json.RawMessage) string {
+	return strings.TrimSpace(toolName) + "\x00" + canonicalToolInput(toolInput)
+}
+
+func canonicalToolInput(toolInput json.RawMessage) string {
+	if len(toolInput) == 0 {
+		return "{}"
+	}
+	var document any
+	if json.Unmarshal(toolInput, &document) != nil {
+		return strings.TrimSpace(string(toolInput))
+	}
+	canonicalDocument, _ := json.Marshal(document)
+	return string(canonicalDocument)
 }
 
 func decisionFromEventBody(body string) (mcpserver.ApprovalDecision, bool) {
