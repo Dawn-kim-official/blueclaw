@@ -66,8 +66,7 @@ func requireDirectoryServiceValue(testInstance *testing.T, recordPath string, ke
 	if errorValue != nil {
 		testInstance.Fatalf("dscl . -read %s %s: %v", recordPath, key, errorValue)
 	}
-	value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(output)), key+":"))
-	if value != expected {
+	if value := parseDirectoryServiceValue(string(output)); value != expected {
 		testInstance.Fatalf("expected %s to be %q, got %q", key, expected, value)
 	}
 }
