@@ -542,34 +542,40 @@ func loadIdentityAllocationTable(workspacePath string) (*identityAllocationTable
 	return table, nil
 }
 
+type systemIdentity struct {
+	name       string
+	identityID uint32
+}
+
 func (table *identityAllocationTable) reserveSystemIdentities() error {
-	groupRecords, errorValue := readColonRecords("/etc/group")
+	groups, errorValue := readSystemGroups()
 	if errorValue != nil {
 		return errorValue
 	}
-	for _, fields := range groupRecords {
-		groupID, isValid := parseColonIdentityID(fields, 2)
-		if !isValid {
-			continue
-		}
-		table.reserved[groupID] = true
-		if groupID >= posixIdentityBaseID && strings.HasPrefix(fields[0], "bc_") {
-			if _, isAllocated := table.allocations[fields[0]]; !isAllocated {
-				table.allocations[fields[0]] = groupID
-				table.dirty = true
-			}
-		}
+	for _, group := range groups {
+		table.reserved[group.identityID] = true
+		table.recoverProjectedAllocation(group)
 	}
-	userRecords, errorValue := readColonRecords("/etc/passwd")
+	users, errorValue := readSystemUsers()
 	if errorValue != nil {
 		return errorValue
 	}
-	for _, fields := range userRecords {
-		if userID, isValid := parseColonIdentityID(fields, 2); isValid {
-			table.reserved[userID] = true
-		}
+	for _, systemUser := range users {
+		table.reserved[systemUser.identityID] = true
+		table.recoverProjectedAllocation(systemUser)
 	}
 	return nil
+}
+
+func (table *identityAllocationTable) recoverProjectedAllocation(identity systemIdentity) {
+	if identity.identityID < posixIdentityBaseID || !strings.HasPrefix(identity.name, "bc_") {
+		return
+	}
+	if _, isAllocated := table.allocations[identity.name]; isAllocated {
+		return
+	}
+	table.allocations[identity.name] = identity.identityID
+	table.dirty = true
 }
 
 func (table *identityAllocationTable) idFor(name string) uint32 {
@@ -594,32 +600,6 @@ func (table *identityAllocationTable) nextFreeID() uint32 {
 		candidate++
 	}
 	return candidate
-}
-
-func readColonRecords(path string) ([][]string, error) {
-	document, errorValue := os.ReadFile(path)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	records := [][]string{}
-	for _, line := range strings.Split(string(document), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		records = append(records, strings.Split(line, ":"))
-	}
-	return records, nil
-}
-
-func parseColonIdentityID(fields []string, index int) (uint32, bool) {
-	if len(fields) <= index {
-		return 0, false
-	}
-	identityID, errorValue := strconv.ParseUint(fields[index], 10, 32)
-	if errorValue != nil {
-		return 0, false
-	}
-	return uint32(identityID), true
 }
 
 func (table *identityAllocationTable) persist() error {
@@ -794,28 +774,19 @@ func ensureGroup(name string, groupID uint32) (bool, error) {
 	}
 	existingGroup, errorValue := user.LookupGroup(name)
 	if errorValue != nil {
-		return true, runCommand("groupadd", "--system", "--gid", formatID(groupID), name)
+		return true, createGroup(name, groupID)
 	}
 	if existingGroup.Gid == formatID(groupID) {
 		return false, nil
 	}
-	return true, runCommand("groupmod", "--gid", formatID(groupID), name)
+	return true, setGroupID(name, groupID)
 }
 
 func ensureUser(posixUser security.POSIXUser, userID uint32, groupID uint32) error {
 	if commandSucceeds("id", "-u", posixUser.Name) {
 		return reconcileUserIdentity(posixUser.Name, userID, groupID)
 	}
-	return runCommand(
-		"useradd",
-		"--system",
-		"--uid", formatID(userID),
-		"--gid", formatID(groupID),
-		"--no-create-home",
-		"--home-dir", posixUser.HomePath,
-		"--shell", "/usr/sbin/nologin",
-		posixUser.Name,
-	)
+	return createUser(posixUser.Name, posixUser.HomePath, userID, groupID)
 }
 
 func reconcileUserIdentity(name string, userID uint32, groupID uint32) error {
@@ -824,12 +795,12 @@ func reconcileUserIdentity(name string, userID uint32, groupID uint32) error {
 		return errorValue
 	}
 	if resolvedUser.Uid != formatID(userID) {
-		if errorValue := runCommand("usermod", "--uid", formatID(userID), name); errorValue != nil {
+		if errorValue := setUserID(name, userID); errorValue != nil {
 			return errorValue
 		}
 	}
 	if resolvedUser.Gid != formatID(groupID) {
-		if errorValue := runCommand("usermod", "--gid", formatID(groupID), name); errorValue != nil {
+		if errorValue := setUserPrimaryGroupID(name, groupID); errorValue != nil {
 			return errorValue
 		}
 	}
@@ -845,7 +816,7 @@ func ensureUserGroups(userName string, groupNames []string) error {
 		if strings.TrimSpace(groupName) == "" {
 			continue
 		}
-		if errorValue := runCommand("usermod", "-a", "-G", groupName, userName); errorValue != nil {
+		if errorValue := addUserToGroup(userName, groupName); errorValue != nil {
 			return errorValue
 		}
 	}
