@@ -201,16 +201,22 @@ type sessionObserver struct {
 	taskRunID       string
 }
 
-func (observer *sessionObserver) recordHarnessOwnedToolCall(eventName string, toolCall acp.ToolCallUpdate) {
+func (observer *sessionObserver) recordPermissionDecision(eventName string, toolCall acp.ToolCallUpdate, grantedPermission acp.PermissionOptionKind) {
 	if observer.taskRunStore == nil || strings.TrimSpace(observer.taskRunID) == "" {
 		return
 	}
-	record := map[string]string{"toolCallID": string(toolCall.ToolCallId)}
+	record := map[string]any{"toolCallID": string(toolCall.ToolCallId)}
 	if toolCall.Title != nil {
 		record["title"] = strings.TrimSpace(*toolCall.Title)
 	}
 	if toolCall.Kind != nil {
 		record["kind"] = string(*toolCall.Kind)
+	}
+	if toolCall.RawInput != nil {
+		record["rawInput"] = toolCall.RawInput
+	}
+	if grantedPermission != "" {
+		record["permission"] = string(grantedPermission)
 	}
 	encodedRecord, errorValue := json.Marshal(record)
 	if errorValue != nil {
@@ -279,13 +285,13 @@ func (observer *sessionObserver) RequestPermission(_ context.Context, request ac
 			if permissionOption.Kind != allowedKind {
 				continue
 			}
-			observer.recordHarnessOwnedToolCall(harnessToolPermittedEventName, request.ToolCall)
+			observer.recordPermissionDecision(harnessToolPermittedEventName, request.ToolCall, permissionOption.Kind)
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 				Selected: &acp.RequestPermissionOutcomeSelected{Outcome: "selected", OptionId: permissionOption.OptionId},
 			}}, nil
 		}
 	}
-	observer.recordHarnessOwnedToolCall(harnessToolRefusedEventName, request.ToolCall)
+	observer.recordPermissionDecision(harnessToolRefusedEventName, request.ToolCall, "")
 	return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{
 		Cancelled: &acp.RequestPermissionOutcomeCancelled{Outcome: "cancelled"},
 	}}, nil
