@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/app"
-	"github.com/yeomyeonggeori/blueclaw/internal/bluecollarharness"
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
 )
@@ -27,7 +26,7 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
-	application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
+	application := app.NewApplication(runtimeConfiguration, *policyPath, bundledHarnessFactory())
 	log.Fatal(application.Start())
 }
 
