@@ -25,6 +25,7 @@ type ApprovalRequest struct {
 	ApprovalScope     string
 	SideEffectClass   string
 	ResponseLanguage  string
+	Prompt            string
 	HarnessSession    HarnessSession
 }
 
@@ -54,6 +55,7 @@ func approvalRequestForTool(requesterToolSet RequesterToolSet, toolDescriptor to
 		TaskRunID:         requesterToolSet.TaskRunID,
 		HarnessSession:    requesterToolSet.HarnessSession,
 		ResponseLanguage:  requesterToolSet.ResponseLanguage,
+		Prompt:            requesterToolSet.Prompt,
 		ToolName:          toolDescriptor.Name,
 		ToolInput:         toolInput,
 		ApprovalScope:     strings.TrimSpace(toolDescriptor.ApprovalScope),
