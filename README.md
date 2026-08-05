@@ -1,6 +1,6 @@
 <img src="assets/blueclaw.logo.svg" alt="blueclaw" width="112">
 
-# blueclaw — a POSIX-isolated, multi-user agent daemon
+# blueclaw — a POSIX-isolated, multi-user agent host
 
 [![CI](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -19,16 +19,16 @@ directory, one set of files, one view of every secret, and no record of which
 person authorized which side effect. Sales can read engineering's drafts because
 nothing on the machine knows they are different people.
 
-blueclaw is the daemon that makes them different people, and POSIX is how. It is
-open source and self-hosted: it runs an AI agent harness on behalf of whichever
-person asked, executes each requester's tool calls as their own unprivileged
-Linux user, holds side-effecting calls at an approval gate, and writes every step
-to a durable event ledger. It owns identity, isolation, task state, the tool
-catalog, and delivery.
+blueclaw is the host that makes them different people, and POSIX is how. It is
+an open source, self-hosted Go daemon that runs an AI agent harness on behalf of
+whichever person asked, executes each requester's tool calls as their own
+unprivileged Linux user, holds side-effecting calls at an approval gate, and
+writes every step to a durable event ledger. It owns identity, isolation, task
+state, the tool catalog, and delivery.
 
 <img src="assets/screenshots/tui-tasks.png" alt="blueclaw showing five task runs, one waiting for approval" width="100%">
 
-`blueclaw-cli` is the terminal client above; the daemon is what it connects to.
+`blueclaw-cli` is the terminal client above; the host is what it connects to.
 
 The agent loop is a replaceable component behind a Go interface
 (`agentcontract.Harness`, one method). Five harnesses are selectable, one of them in this
@@ -39,20 +39,20 @@ execution never leaves blueclaw.
 
 | It is | It is not |
 |---|---|
-| a daemon that runs an agent harness on other people's behalf | an agent, an agent loop, or a model |
+| a host process that runs an agent harness on other people's behalf | an agent, an agent loop, or a model |
 | a POSIX identity boundary between the people sharing one machine | a container runtime or a sandbox technology |
 | a durable task store with an append-only event ledger | a chat client |
 | an MCP client that mounts external tool servers into the catalog, and an MCP server that publishes the requester's catalog to an external harness | a general-purpose MCP server for arbitrary clients |
 | a Go binary you build from source and self-host | a hosted service or a packaged binary release |
 
 Read the right-hand column literally. blueclaw separates requesters from each
-other, not the agent from the host; a container does the latter, and the two
+other, not the agent from the machine; a container does the latter, and the two
 compose.
 
-blueclaw is the agent daemon inside InternKim, an on-premise AI automation
+blueclaw is the agent host inside InternKim, an on-premise AI automation
 appliance.
 
-## Why a daemon, not another agent
+## Why an agent host, not another agent
 
 Agent harnesses are already abundant: Claude Code, Codex, opencode, Gemini CLI,
 and the loop bundled here. They all run as whoever started them. On a shared,
@@ -60,10 +60,18 @@ multi-user machine that means one Unix account for every requester, no
 per-person file separation, and no record of which human authorized which side
 effect.
 
+Self-hosted assistants have the same shape from the other direction.
+[openclaw](https://github.com/openclaw/openclaw) and the projects around it put
+a capable agent on your own machine, one per person, and that is the right
+answer for one person. A company is where it stops working: the second person
+who asks for something gets the first person's home directory, the first
+person's secrets, and no record of who authorized what. blueclaw is the
+multi-user half of that problem.
+
 blueclaw takes the opposite split. The harness decides *what* to call. blueclaw
 decides *who it runs as*, *whether it runs at all*, and *what is written down*.
 A harness that executes tools inside its own process is not an acceptable
-integration, because it takes back the only thing the daemon exists to provide.
+integration, because it takes back the only thing the host exists to provide.
 
 The mechanical claim is narrow and testable: tool execution runs as an
 unprivileged POSIX user derived from each requester's identity, and
@@ -147,7 +155,7 @@ Which calls are gated comes from descriptor metadata, not from the tool's name.
 per tool (`.dependency/bluecollar/toolcontract/registry.go`), from `none` and `read` through
 `workspace_write`, `external_send`, `site_publish`, and `destructive`.
 
-The gate belongs to the daemon, not to a harness. `internal/approvalgate` holds
+The gate belongs to the host, not to a harness. `internal/approvalgate` holds
 the call and `internal/mcpserver` consults it before invoking anything from the
 catalog, so every harness meets the same gate on the same calls.
 
@@ -358,11 +366,11 @@ The port was deliberately shrunk. It began at nine methods. Most of them
 asked a model a question instead of asking an agent to work: classify whether a
 chat message was addressed to the bot, write a reply sentence, refresh a skill
 index, route a turn, complete a launch failure. No external harness could answer
-those honestly, so nothing but blueclaw's own loop could implement the port. Those now live in the daemon
-(`.dependency/bluecollar/intake`, `internal/reply`, `internal/agentruntime`); see Project
-status.
+those honestly, so nothing but blueclaw's own loop could implement the port.
+Those now live in the host (`.dependency/bluecollar/intake`, `internal/reply`,
+`internal/agentruntime`); see Project status.
 
-Everything else the daemon needs — task events, cancellation, run lookup — it
+Everything else the host needs — task events, cancellation, run lookup — it
 takes from the task store.
 
 The harness is injected at the top. `main` passes a factory:
@@ -402,7 +410,7 @@ agent's final message and the catalog tools that actually ran
 
 ## blueclaw versus Claude Code, Codex, opencode, and Gemini CLI
 
-These are agent harnesses. blueclaw is the daemon they are intended to run inside.
+These are agent harnesses. blueclaw is the host they are intended to run inside.
 The question is which layer owns what.
 
 | Concern | Claude Code, Codex, opencode, Gemini CLI | blueclaw |
@@ -659,7 +667,7 @@ your PATH.
 
 ### How is this different from running an agent in a container?
 
-A container isolates the agent from the host. blueclaw isolates requesters from
+A container isolates the agent from the machine. blueclaw isolates requesters from
 each other *inside* the workspace. Two people talking to the same daemon get
 different Linux users, different `0700` home directories, and different group
 memberships, so one person's agent run cannot read the other's files even though
