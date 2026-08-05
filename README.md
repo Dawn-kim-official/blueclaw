@@ -369,8 +369,22 @@ asked a model a question instead of asking an agent to work: classify whether a
 chat message was addressed to the bot, write a reply sentence, refresh a skill
 index, route a turn, complete a launch failure. No external harness could answer
 those honestly, so nothing but blueclaw's own loop could implement the port.
-Those now live in the host (`.dependency/bluecollar/intake`, `internal/reply`,
-`internal/agentruntime`); see Project status.
+Those are host policy now. `internal/reply` and `internal/agentruntime` hold
+most of them; turn routing is still a package in the bluecollar repository
+(`.dependency/bluecollar/intake`) that the host runs before every turn, because
+`AgentTurnRequest.PrecomputedTurnDecision` is required and a harness that
+arrives without one is refused. See Project status.
+
+The host opens the task run. Every harness is handed an `ExistingTaskRunID` and
+settles the run it was given, so a first turn is recorded the same way whichever
+loop ran it.
+
+The ledger is not owned that cleanly yet. The host writes 46 event names from
+what it observes at its own boundaries, the bundled loop writes 23 from inside
+the turn, and twelve names have a writer on each side, so which one fires
+depends on the configured harness. An external harness produces none of the
+loop's, which is why a turn under one reads thinner than the same turn under
+bluecollar. Consolidating that is the current work.
 
 Everything else the host needs — task events, cancellation, run lookup — it
 takes from the task store.
