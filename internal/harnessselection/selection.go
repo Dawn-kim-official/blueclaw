@@ -81,6 +81,7 @@ func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, to
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 		harness := acpharness.New(agentCommand, publisher, dependencies.TaskRunStore)
 		harness.UseToolCatalogBridge(toolCatalogEndpoint.BridgeCommandPath)
+		harness.UseInstructionBundleLoader(dependencies.InstructionBundleLoader)
 		harness.UseRequesterProcessRunner(processBoundary.Runner, processBoundary.WorkspaceRootPath)
 		harness.UseOutcomeClassifier(turnoutcome.NewClassifier(dependencies.IntakeLanguageModelProvider))
 		return harness, nil
@@ -115,6 +116,7 @@ func commandHarnessFactory(harnessName string, agentCommand cliharness.AgentComm
 	publisher := sessionTokenPublisher{endpointURL: toolCatalogEndpoint.URL, resolver: toolCatalogEndpoint.Resolver, approvalGate: toolCatalogEndpoint.ApprovalGate}
 	return func(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 		harness := cliharness.New(agentCommand, publisher, dependencies.TaskRunStore)
+		harness.UseInstructionBundleLoader(dependencies.InstructionBundleLoader)
 		harness.UseOutcomeClassifier(turnoutcome.NewClassifier(dependencies.IntakeLanguageModelProvider))
 		if processBoundary.Runner != nil {
 			harness.UseRequesterProcessRunner(processBoundary.Runner, processBoundary.WorkspaceRootPath)
