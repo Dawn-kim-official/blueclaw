@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/bluecollar/model"
 	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
@@ -26,6 +27,11 @@ type Gate struct {
 	taskRunService taskstate.TaskRunStore
 	decisionSource DecisionSource
 	inlineWait     time.Duration
+	languageModel  model.LanguageModelProvider
+}
+
+func (gate *Gate) UseLanguageModel(languageModel model.LanguageModelProvider) {
+	gate.languageModel = languageModel
 }
 
 func New(taskRunService taskstate.TaskRunStore) *Gate {
@@ -54,7 +60,7 @@ func (gate *Gate) AwaitApproval(ctx context.Context, approvalRequest mcpserver.A
 			Notice:   "This call needs the requester's approval, but it is not attached to a task run they can answer on, so it will not run.",
 		}, nil
 	}
-	confirmation := confirmationWording(approvalRequest)
+	confirmation := gate.confirmationWording(ctx, approvalRequest)
 	gate.recordHeldCall(taskRunID, approvalRequest, confirmation)
 	if decision, isDecided := gate.awaitInlineDecision(ctx, taskRunID); isDecided {
 		return mcpserver.ApprovalOutcome{Decision: decision, Notice: confirmation}, nil
@@ -217,14 +223,6 @@ func askRecord(approvalRequest mcpserver.ApprovalRequest, confirmation string) m
 		record["actions"] = []string{"confirm", "confirm_task", "cancel"}
 	}
 	return record
-}
-
-func confirmationWording(approvalRequest mcpserver.ApprovalRequest) string {
-	toolName := strings.TrimSpace(approvalRequest.ToolName)
-	if scope := strings.TrimSpace(approvalRequest.ApprovalScope); scope != "" {
-		return toolName + " needs your approval (" + scope + ")."
-	}
-	return toolName + " needs your approval."
 }
 
 func marshalEventBody(value any) string {

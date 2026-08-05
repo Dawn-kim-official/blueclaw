@@ -3,12 +3,14 @@ package approvalgate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/bluecollar/model"
 )
 
 type immediateDecision struct {
@@ -260,4 +262,62 @@ func TestApprovingOneScopeDoesNotApproveAnother(t *testing.T) {
 	if heldOutcome.Decision != mcpserver.ApprovalDecisionHeld {
 		t.Fatalf("a grant covers the scope it was given for and no other, got %+v", heldOutcome)
 	}
+}
+
+type wordingLanguageModel struct {
+	question    string
+	failure     error
+	lastRequest model.StructuredResponseRequest
+}
+
+func (languageModel *wordingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("the approval gate only asks for structured output")
+}
+
+func (languageModel *wordingLanguageModel) GenerateStructuredResponse(_ context.Context, request model.StructuredResponseRequest) (model.StructuredResponse, error) {
+	languageModel.lastRequest = request
+	if languageModel.failure != nil {
+		return model.StructuredResponse{}, languageModel.failure
+	}
+	return model.StructuredResponse{Content: `{"question":"` + languageModel.question + `"}`}, nil
+}
+
+func TestTheRequesterIsAskedInWordsTheModelChose(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	languageModel := &wordingLanguageModel{question: "내일 팀 회의를 캘린더에서 지울까요?"}
+	gate.UseLanguageModel(languageModel)
+
+	gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+
+	if !strings.Contains(heldCallEventBodyNamed(t, taskRunService, taskRun.TaskRunID, "confirmation.requested"), "내일 팀 회의를 캘린더에서 지울까요?") {
+		t.Fatal("the requester has to be asked in words a model wrote, not in a sentence assembled from a tool name")
+	}
+	if !strings.Contains(marshalRequestMessages(languageModel.lastRequest), "calendar_delete") {
+		t.Fatalf("the model needs the pending call to word the question, got %s", marshalRequestMessages(languageModel.lastRequest))
+	}
+}
+
+func TestAnUnwordableCallStillReachesTheRequesterAsTheCallItself(t *testing.T) {
+	gate, taskRunService, taskRun := gateFixture(t)
+	gate.UseLanguageModel(&wordingLanguageModel{failure: errors.New("llmd is unreachable")})
+
+	heldOutcome, _ := gate.AwaitApproval(context.Background(), approvalRequestFixture(taskRun.TaskRunID))
+
+	if heldOutcome.Decision != mcpserver.ApprovalDecisionHeld {
+		t.Fatalf("a call nobody could word still has to be held rather than run, got %+v", heldOutcome)
+	}
+	confirmationBody := heldCallEventBodyNamed(t, taskRunService, taskRun.TaskRunID, "confirmation.requested")
+	for _, expectedFragment := range []string{"calendar_delete", "event-1"} {
+		if !strings.Contains(confirmationBody, expectedFragment) {
+			t.Fatalf("with no wording the requester gets the raw call, expected %q in %s", expectedFragment, confirmationBody)
+		}
+	}
+}
+
+func marshalRequestMessages(request model.StructuredResponseRequest) string {
+	messages := []string{}
+	for _, message := range request.Messages {
+		messages = append(messages, message.Content)
+	}
+	return strings.Join(messages, "\n")
 }

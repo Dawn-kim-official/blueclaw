@@ -22,6 +22,7 @@ type RequesterToolSet struct {
 	HarnessSession    HarnessSession
 	ToolAudience      ToolAudience
 	ResponseLanguage  string
+	Prompt            string
 
 	ObserveToolInvocation func(toolName string, isSucceeded bool)
 }
