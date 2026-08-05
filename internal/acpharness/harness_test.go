@@ -19,9 +19,10 @@ import (
 )
 
 type publishedToolCatalog struct {
-	handlerServer *httptest.Server
-	resolver      *mcpserver.SessionTokenRequesterResolver
-	revokeCount   int
+	handlerServer    *httptest.Server
+	resolver         *mcpserver.SessionTokenRequesterResolver
+	revokeCount      int
+	publishedToolSet mcpserver.RequesterToolSet
 }
 
 func newPublishedToolCatalog(t *testing.T) *publishedToolCatalog {
@@ -37,6 +38,7 @@ func newPublishedToolCatalog(t *testing.T) *publishedToolCatalog {
 }
 
 func (catalog *publishedToolCatalog) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
+	catalog.publishedToolSet = requesterToolSet
 	sessionToken, errorValue := catalog.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue
@@ -214,6 +216,23 @@ func TestHarnessRunsAnOutOfProcessAgentWhoseToolCallsExecuteInsideTheDaemon(t *t
 	}
 	if toolCatalog.revokeCount != 1 {
 		t.Fatalf("expected the tool catalog session to be revoked after the turn, got %d", toolCatalog.revokeCount)
+	}
+}
+
+func TestAnAgentThatBringsItsOwnShellIsNotHandedOurs(t *testing.T) {
+	executed := []daemonExecutedTool{}
+	toolCatalog := newPublishedToolCatalog(t)
+	harness := New(&inProcessAgentProcess{agent: &externalAgent{}}, toolCatalog, nil)
+
+	harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+	})
+
+	if toolCatalog.publishedToolSet.ToolAudience != mcpserver.ToolAudienceSelfEquipped {
+		t.Fatalf("an ACP agent runs inside the requester's identity because it brings tools of its own, so the catalog must not offer the same job twice, got audience %q", toolCatalog.publishedToolSet.ToolAudience)
 	}
 }
 
