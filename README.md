@@ -483,9 +483,8 @@ Neither runs before the kernel decides.
 - The projection is applied only when `terminal.posixHelperPath` is configured.
   With it empty, `applyPOSIXRunner` returns the plan unchanged and everything
   runs as the daemon user. The shipped `config/runtime.standalone.example.json`
-  does not set it, and the projection needs Linux today — on macOS the daemon
-  runs everything as itself. macOS support is planned
-  ([#18](https://github.com/yeomyeonggeori/blueclaw/issues/18)).
+  does not set it, so a default standalone deployment runs everything as the
+  daemon user on either platform.
 - `cmd/bluecollar` deliberately uses `DirectWorkspaceActorFactory`
   (`internal/security/direct_workspace_actor.go`), which has no projection at
   all. It is a single-directory batch runner, not a multi-person daemon.
@@ -498,9 +497,10 @@ Neither runs before the kernel decides.
   attribution and never for authorization, so `CanAccess` is the only thing
   deciding which capability operations a requester may invoke. It sits in front of
   the socket and belongs behind it, which is work to move.
-- The POSIX separation tests are Linux-only through the `_linux` filename
-  constraint (`tests/integration/posix_separation_linux_test.go`). A green suite
-  on macOS says nothing about the isolation boundary.
+- The POSIX separation tests need root and a setuid helper, so an ordinary
+  `go test ./...` skips all three and says nothing about the isolation
+  boundary. They run on Linux and macOS
+  (`tests/integration/posix_separation_test.go`).
 
 ## Configuration
 
@@ -687,21 +687,21 @@ requires a human before the call executes.
 
 ### Does it need Linux?
 
-For the isolation boundary, yes, today. The POSIX projection, the setuid helper
-and the separation tests are all Linux-only, so blueclaw builds and runs on
-macOS for development but there runs everything as the daemon user.
-
-macOS support is in progress ([#18](https://github.com/yeomyeonggeori/blueclaw/issues/18)).
-Provisioning works and is verified on a real machine: the helper creates
+No. Linux is where it is deployed and where the fleet tests run, and
+macOS works too, and the same three tests prove it there
+([#18](https://github.com/yeomyeonggeori/blueclaw/issues/18)). The helper creates
 identities through `dscl` and `dseditgroup` on macOS and through `useradd`,
-`groupadd` and `usermod` on Linux, and reads the account database from Directory
-Service, which on macOS is the only place every account appears; `/etc/passwd`
-there lists system accounts alone. Run it yourself with
-`sudo BLUECLAW_TEST_MACOS_PROVISIONING=1 go test ./cmd/blueclaw-posix-helper/`.
+`groupadd` and `usermod` on Linux, and it reads the account database from
+Directory Service, which on macOS is the only place every account appears;
+`/etc/passwd` there lists system accounts alone.
 
-What is left is the boundary itself. The tests that prove one person's agent
-cannot read another's files are gated by the `_linux` filename constraint, so on
-macOS the projection is provisioned but unproven.
+Two differences are forced by the platform. macOS ships no `/usr/sbin/nologin`,
+so projected people get `/usr/bin/false`, which is what its own service accounts
+use. And macOS hides accounts below uid 500 from the login window while the
+projection allocates from 100000, so each record carries `IsHidden`.
+
+What macOS does not have is bubblewrap, so `terminal.mode` stays `native` there.
+That is optional narrowing, and the boundary is the POSIX identity either way.
 
 ### Do I need Postgres and a chat platform?
 
