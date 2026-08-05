@@ -62,11 +62,12 @@ effect.
 
 Self-hosted assistants have the same shape from the other direction.
 [openclaw](https://github.com/openclaw/openclaw) and the projects around it put
-a capable agent on your own machine, one per person, and that is the right
-answer for one person. A company is where it stops working: the second person
-who asks for something gets the first person's home directory, the first
-person's secrets, and no record of who authorized what. blueclaw is the
-multi-user half of that problem.
+a capable agent on your own machine, and that is the right answer for one
+person. Nothing stops a team pointing several people at one of them. They were
+simply not designed for it, so the second person who asks for something gets the
+first person's home directory, the first person's secrets, and a ledger that
+cannot say who authorized what. blueclaw starts from the assumption those
+projects do not make.
 
 blueclaw takes the opposite split. The harness decides *what* to call. blueclaw
 decides *who it runs as*, *whether it runs at all*, and *what is written down*.
@@ -77,9 +78,10 @@ The mechanical claim is narrow and testable: tool execution runs as an
 unprivileged POSIX user derived from each requester's identity, and
 [POSIX](https://pubs.opengroup.org/onlinepubs/9799919799/) ownership and mode
 bits are the only access boundary. There is no executable allowlist, no denied
-command list, and no denied path prefix anywhere in the execution path. A
-command the requester may not run is not refused by blueclaw; it fails at the
-kernel.
+command list, no denied path prefix, and no instruction anywhere in a prompt
+telling the model what it may not touch. A command the requester may not run is
+not refused by blueclaw; it fails at the kernel, the same way it would fail for
+that person at a shell.
 
 That is an opinion, and it cuts both ways. Inside the requester's permissions
 the agent is left alone — it may install a package, walk the filesystem, run a
@@ -481,8 +483,9 @@ Neither runs before the kernel decides.
 - The projection is applied only when `terminal.posixHelperPath` is configured.
   With it empty, `applyPOSIXRunner` returns the plan unchanged and everything
   runs as the daemon user. The shipped `config/runtime.standalone.example.json`
-  does not set it, and the projection needs Linux — on macOS the daemon runs
-  everything as itself.
+  does not set it, and the projection needs Linux today — on macOS the daemon
+  runs everything as itself. macOS support is planned
+  ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
 - `cmd/bluecollar` deliberately uses `DirectWorkspaceActorFactory`
   (`internal/security/direct_workspace_actor.go`), which has no projection at
   all. It is a single-directory batch runner, not a multi-person daemon.
@@ -684,9 +687,16 @@ requires a human before the call executes.
 
 ### Does it need Linux?
 
-For the isolation boundary, yes. The POSIX projection, the setuid helper, and
-the separation tests are all Linux-only. blueclaw builds and runs on macOS for
-development, but there it runs everything as the daemon user.
+For the isolation boundary, yes, today. The POSIX projection, the setuid helper
+and the separation tests are all Linux-only, so blueclaw builds and runs on
+macOS for development but there runs everything as the daemon user.
+
+macOS support is planned ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
+Nothing in the design needs Linux — macOS has users, groups and mode bits, the
+helper already builds for `darwin`, and dropping identity at exec through
+`syscall.Credential` works there. What is missing is user and group
+provisioning: the helper shells out to `useradd`, `groupadd` and `usermod`,
+which macOS replaces with `dscl` and `dseditgroup`.
 
 ### Do I need Postgres and a chat platform?
 
