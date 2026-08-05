@@ -69,6 +69,16 @@ first person's home directory, the first person's secrets, and a ledger that
 cannot say who authorized what. blueclaw starts from the assumption those
 projects do not make.
 
+Some projects do start there. [qm](https://github.com/yc-software/qm) calls
+itself "a multiplayer agent harness for work" and gives each person and each
+room "its own scoped memory, files, keychain view, permissions, crons, web apps,
+and durable sandbox": a durable computer per scope, where installed tools stay
+installed. blueclaw draws the same line one layer down, at one machine with one
+unprivileged Unix user per person and one Unix group per circle. Sharing is
+where the two shapes diverge. There, people share by working inside the same
+room's computer; here, they share one filesystem and group membership decides
+who reads what.
+
 blueclaw takes the opposite split. The harness decides *what* to call. blueclaw
 decides *who it runs as*, *whether it runs at all*, and *what is written down*.
 A harness that executes tools inside its own process is not an acceptable
