@@ -3,12 +3,12 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/memory"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 type memorySearchToolInput struct {

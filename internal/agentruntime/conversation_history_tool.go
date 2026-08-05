@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 var conversationHistoryInputSchema = json.RawMessage(`{

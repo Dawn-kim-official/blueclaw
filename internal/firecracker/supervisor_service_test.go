@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 )
 
 type readyGuestHealthClient struct{}

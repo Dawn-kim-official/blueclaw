@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/tests/support"
+	"github.com/yeomyeonggeori/blueclaw/tests/support"
 )
 
 func TestMain(m *testing.M) {

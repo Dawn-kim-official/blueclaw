@@ -5,8 +5,8 @@ import (
 	"net/http/pprof"
 	"os"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
-	"github.com/Dawn-kim-official/blueclaw/internal/userapi"
+	"github.com/yeomyeonggeori/blueclaw/internal/adminapi"
+	"github.com/yeomyeonggeori/blueclaw/internal/userapi"
 )
 
 type RouterDependencies struct {

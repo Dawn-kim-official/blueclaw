@@ -12,10 +12,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/acpharness"
-	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/acpharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 func buildExternalAgentBinary(t *testing.T) string {
@@ -24,7 +24,7 @@ func buildExternalAgentBinary(t *testing.T) string {
 		t.Skip("go toolchain is unavailable, so the external agent binary cannot be built")
 	}
 	binaryPath := filepath.Join(t.TempDir(), "acptestagent")
-	buildCommand := exec.Command("go", "build", "-o", binaryPath, "github.com/Dawn-kim-official/blueclaw/tests/acptestagent")
+	buildCommand := exec.Command("go", "build", "-o", binaryPath, "github.com/yeomyeonggeori/blueclaw/tests/acptestagent")
 	buildCommand.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if output, errorValue := buildCommand.CombinedOutput(); errorValue != nil {
 		t.Fatalf("expected the external agent binary to build: %v\n%s", errorValue, output)

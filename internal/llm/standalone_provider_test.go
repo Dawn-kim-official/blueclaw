@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 )
 
 func standaloneLLMDConfiguration(t *testing.T) config.RuntimeConfiguration {

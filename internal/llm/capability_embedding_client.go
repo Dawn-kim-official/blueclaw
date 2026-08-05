@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 )
 
 const DefaultEmbeddingModelName = "baai/bge-m3"

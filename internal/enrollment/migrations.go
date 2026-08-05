@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Dawn-kim-official/blueclaw/migrations"
+	"github.com/yeomyeonggeori/blueclaw/migrations"
 )
 
 func writeMigrations(directoryPath string) error {

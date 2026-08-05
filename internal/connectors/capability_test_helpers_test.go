@@ -2,11 +2,11 @@ package connectors
 
 import (
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 )
 
 var connectorTestCapabilityClosedSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/app"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/app"
+	"github.com/yeomyeonggeori/blueclaw/internal/bluecollarharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 )
 
 // Proves the claim the standalone quickstart makes: with a database and no

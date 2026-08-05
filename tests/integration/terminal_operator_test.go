@@ -5,11 +5,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/adminapi"
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/httpserver"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
-	"github.com/Dawn-kim-official/blueclaw/internal/tui"
+	"github.com/yeomyeonggeori/blueclaw/internal/adminapi"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/httpserver"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/tui"
 )
 
 func terminalOperatorDaemon(t *testing.T) (*httptest.Server, *task.TaskRunService) {

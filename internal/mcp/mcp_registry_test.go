@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )

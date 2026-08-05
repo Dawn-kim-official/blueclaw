@@ -10,7 +10,7 @@ import (
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/store/postgres"
+	"github.com/yeomyeonggeori/blueclaw/internal/store/postgres"
 )
 
 const (

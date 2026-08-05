@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/agentruntime"
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 func approvalTestTaskRunService(t *testing.T) (*task.TaskRunService, *task.TaskEventService) {

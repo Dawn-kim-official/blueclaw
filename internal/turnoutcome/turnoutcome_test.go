@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/model"
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/bluecollar/model"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 type stubLanguageModel struct {

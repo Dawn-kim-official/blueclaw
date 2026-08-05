@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/capability"
+	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 )
 
 func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testing.T) {

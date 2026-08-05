@@ -1,6 +1,6 @@
 package security
 
-import "github.com/Dawn-kim-official/blueclaw/internal/policy"
+import "github.com/yeomyeonggeori/blueclaw/internal/policy"
 
 type SecurityLabeler struct{}
 

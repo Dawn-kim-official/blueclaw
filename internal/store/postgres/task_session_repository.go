@@ -1,6 +1,6 @@
 package postgres
 
-import "github.com/Dawn-kim-official/blueclaw/internal/task"
+import "github.com/yeomyeonggeori/blueclaw/internal/task"
 
 type TaskSessionRepository struct {
 	database Database
