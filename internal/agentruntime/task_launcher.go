@@ -213,6 +213,18 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	return launchResult, errorValue
 }
 
+func (taskLauncher *TaskLauncher) taskRunIDForLaunch(request TaskLaunchRequest) string {
+	if existingTaskRunID := strings.TrimSpace(request.ExistingTaskRunID); existingTaskRunID != "" {
+		return existingTaskRunID
+	}
+	taskRun := taskLauncher.taskRunService.CreateTaskRunWithOrigin(request.RequesterPersonID, taskstate.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
+	return taskRun.TaskRunID
+}
+
 func (taskLauncher *TaskLauncher) appendTurnRouterCallRecords(taskRunID string, callRecords []agentcontract.LLMCallRecord) {
 	if strings.TrimSpace(taskRunID) == "" {
 		return
@@ -251,6 +263,7 @@ func (taskLauncher *TaskLauncher) launchRoutedTask(ctx context.Context, request 
 		}, routerCallRecords, nil
 	}
 	request.PrecomputedTurnDecision = turnDecision
+	request.ExistingTaskRunID = taskLauncher.taskRunIDForLaunch(request)
 	request.VisibleContext = taskLauncher.visibleContextWithArtifactManifest(request.VisibleContext, request.ArtifactManifest)
 	execution := &taskLaunchExecution{
 		Launcher:              taskLauncher,
