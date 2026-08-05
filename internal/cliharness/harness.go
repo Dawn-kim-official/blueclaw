@@ -19,6 +19,7 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/turnbriefing"
 	"github.com/yeomyeonggeori/blueclaw/internal/turnoutcome"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/taskstate"
@@ -66,6 +67,7 @@ type Harness struct {
 	agentTimeoutSecond             int
 	conversationStateMutex         sync.Mutex
 	conversationStateByIdentityKey map[string]*conversationState
+	instructionBundleLoader        func() agentcontract.InstructionBundle
 }
 
 func New(agentCommand AgentCommand, toolCatalogPublisher ToolCatalogPublisher, taskRunStore taskstate.TaskRunStore) *Harness {
@@ -471,12 +473,26 @@ func formatDigestAsUUID(digest [32]byte) string {
 }
 
 func (harness *Harness) promptForTurn(request agentcontract.AgentTurnRequest) string {
-	if harness.taskRunStore == nil || strings.TrimSpace(request.ExistingTaskRunID) == "" {
-		return request.Prompt
+	sections := []string{}
+	if preamble := turnbriefing.Preamble(request, harness.instructionPrompt()); preamble != "" {
+		sections = append(sections, preamble)
 	}
-	continuationNote := approvalgate.ApprovalContinuationNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID))
-	if continuationNote == "" {
-		return request.Prompt
+	sections = append(sections, request.Prompt)
+	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
+		if continuationNote := approvalgate.ApprovalContinuationNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID)); continuationNote != "" {
+			sections = append(sections, continuationNote)
+		}
 	}
-	return request.Prompt + "\n\n" + continuationNote
+	return strings.Join(sections, "\n\n")
+}
+
+func (harness *Harness) instructionPrompt() string {
+	if harness.instructionBundleLoader == nil {
+		return ""
+	}
+	return harness.instructionBundleLoader().Prompt
+}
+
+func (harness *Harness) UseInstructionBundleLoader(instructionBundleLoader func() agentcontract.InstructionBundle) {
+	harness.instructionBundleLoader = instructionBundleLoader
 }
