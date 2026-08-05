@@ -30,6 +30,7 @@ func TestTwoPeopleGetSeparatePOSIXWorkspaces(t *testing.T) {
 		t.Skip("set BLUECLAW_TEST_POSIX_HELPER to the installed blueclaw-posix-helper")
 	}
 
+	requireBlueclawServiceAccount(t)
 	removeProjectedIdentitiesAfter(t, []string{"person-one", "person-two"}, []string{"staff"})
 	workspaceRootPath := traversableTempDir(t)
 	policyPath := writeTwoPersonPolicy(t)
@@ -73,17 +74,23 @@ func TestTwoPeopleGetSeparatePOSIXWorkspaces(t *testing.T) {
 	}
 }
 
-// t.TempDir hands back a 0700 root-owned tree, which no other user can even
-// traverse; the workspace root a real deployment uses is reachable.
 func traversableTempDir(t *testing.T) string {
 	t.Helper()
 	directoryPath := t.TempDir()
-	for path := directoryPath; strings.HasPrefix(path, os.TempDir()); path = filepath.Dir(path) {
+	for _, path := range ancestorsBelowTemporaryRoot(directoryPath, os.TempDir()) {
 		if errorValue := os.Chmod(path, 0o755); errorValue != nil {
 			t.Fatal(errorValue)
 		}
 	}
 	return directoryPath
+}
+
+func ancestorsBelowTemporaryRoot(directoryPath string, temporaryRootPath string) []string {
+	paths := []string{}
+	for path := directoryPath; path != temporaryRootPath && strings.HasPrefix(path, temporaryRootPath); path = filepath.Dir(path) {
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func writeTwoPersonPolicy(t *testing.T) string {
