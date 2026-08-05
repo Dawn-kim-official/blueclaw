@@ -40,6 +40,7 @@ func TestTheHarnessProcessItselfRunsAsTheRequester(t *testing.T) {
 	posixHelperPath := requireUnprivilegedDaemonProcess(t)
 
 	const requesterPersonID = "person-harness-identity"
+	removeProjectedIdentitiesAfter(t, []string{requesterPersonID}, nil)
 	workspaceRootPath, errorValue := os.MkdirTemp("", "blueclaw-harness-identity")
 	if errorValue != nil {
 		t.Fatalf("expected a workspace root: %v", errorValue)

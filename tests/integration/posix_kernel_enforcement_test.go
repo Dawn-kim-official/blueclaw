@@ -59,6 +59,7 @@ func TestTheKernelRunsACatalogToolAsTheRequesterUnprivilegedUser(t *testing.T) {
 	posixHelperPath := requireUnprivilegedDaemonProcess(t)
 
 	const requesterPersonID = "person-kernel-proof"
+	removeProjectedIdentitiesAfter(t, []string{requesterPersonID}, nil)
 	workspaceRootPath, errorValue := os.MkdirTemp("", "blueclaw-kernel-proof")
 	if errorValue != nil {
 		t.Fatalf("expected a workspace root: %v", errorValue)

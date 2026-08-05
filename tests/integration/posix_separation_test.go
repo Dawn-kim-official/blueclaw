@@ -30,6 +30,7 @@ func TestTwoPeopleGetSeparatePOSIXWorkspaces(t *testing.T) {
 		t.Skip("set BLUECLAW_TEST_POSIX_HELPER to the installed blueclaw-posix-helper")
 	}
 
+	removeProjectedIdentitiesAfter(t, []string{"person-one", "person-two"}, []string{"staff"})
 	workspaceRootPath := traversableTempDir(t)
 	policyPath := writeTwoPersonPolicy(t)
 	terminalConfiguration := config.TerminalConfiguration{
