@@ -146,11 +146,21 @@ types.
 
 ### Approval gates
 
-An approval gate pauses a task run before a side-effecting tool call executes,
-records `approval.pending_call` with the exact call, and re-executes that call
-verbatim when the approval arrives (`.dependency/bluecollar/approval_gate.go`,
-`taskstate.TaskRunService.PauseTaskRun`). Because the held call is persisted,
-approval survives a daemon restart and does not block a live request.
+An approval gate pauses a task run before a side-effecting tool call executes
+and records `approval.pending_call` with the exact call
+(`internal/approvalgate`, `taskstate.TaskRunService.PauseTaskRun`). Because the
+held call is persisted, approval survives a daemon restart and does not block a
+live request.
+
+How the approved call then runs depends on which harness held it. The bundled
+loop replays the recorded call verbatim
+(`.dependency/bluecollar/approval_gate.go`). Every other harness is told in its
+next prompt that the approval arrived and asked to issue that exact call again,
+so the replay depends on the agent reproducing its own arguments. Levelling
+every harness up to a verbatim replay needs the result of a host-executed call
+to reach the agent, and the only channel for that today is the loop's own
+in-process observation format, so it waits for the ledger to cross the harness
+boundary.
 
 Which calls are gated comes from descriptor metadata, not from the tool's name.
 `toolcontract` carries an `ApprovalScope` and one of 14 `SideEffectClass` values
@@ -341,8 +351,8 @@ result, and the approval that is holding the run open.
 
 **Approvals** lists every run waiting on a person and shows the question the
 daemon asked. `y` confirms the held call, `a` confirms every held call in that
-task, `n` cancels. The answer is written to the ledger and the held call is
-re-executed verbatim, so approving survives a daemon restart.
+task, `n` cancels. The answer is written to the ledger, so approving survives a
+daemon restart; see Approvals for how the held call then runs.
 
 <img src="assets/screenshots/tui-approvals.png" alt="the approvals screen showing a pending question with confirm and cancel keys" width="100%">
 
@@ -443,7 +453,7 @@ The question is which layer owns what.
 | Model choice | yes | delegated to `llmd`, swappable mid-run |
 | Runs as | the operating system user who started it | an unprivileged user derived from the requester |
 | Multi-person separation | none; one process, one account | per-person Linux user, group, and `0700` home |
-| Approval | in-process prompt, lost on exit | persisted `approval.pending_call`, re-executed verbatim later |
+| Approval | in-process prompt, lost on exit | persisted `approval.pending_call`, carried out later |
 | Audit record | terminal scrollback and local session files | append-only event ledger in Postgres, per task run |
 | Inbound surface | a terminal | chat connectors and HTTP ingress |
 | Work lifetime | one interactive session | durable task runs across restarts |
