@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/Dawn-kim-official/blueclaw/blob/main/SECURITY.md
+    about: Report privately. Do not open a public issue.
+  - name: Pull requests
+    url: https://github.com/Dawn-kim-official/blueclaw#contributing
+    about: Closed until alpha. The design moves too fast for outside patches to be a kindness.

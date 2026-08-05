@@ -1,0 +1,41 @@
+name: Design question or disagreement
+description: Argue with a decision, or ask why something is the way it is
+labels: ["design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the issue the project most wants. It is published pre-alpha so
+        the design can be argued with.
+
+  - type: textarea
+    id: decision
+    attributes:
+      label: The decision
+      description: >
+        Which choice you are asking about, and where it is written down — a
+        README section, a file, a test name.
+      placeholder: |
+        "There is no executable allowlist" — README, Why an agent host.
+    validations:
+      required: true
+
+  - type: textarea
+    id: case
+    attributes:
+      label: Your case
+      description: >
+        What breaks, what it costs, or what you would do instead. A concrete
+        scenario beats a preference.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: What you are working within
+      description: >
+        Optional. The environment that makes this matter — a compliance rule, a
+        platform without the feature, a scale the design does not assume.
+    validations:
+      required: false

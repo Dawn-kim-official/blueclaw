@@ -1,0 +1,85 @@
+name: Bug report
+description: Something behaved differently from what the documentation says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a security problem, follow
+        [SECURITY.md](https://github.com/Dawn-kim-official/blueclaw/blob/main/SECURITY.md)
+        instead of opening an issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        Asked the agent to write a file to the requester's home directory.
+        Expected it to be owned by bc_person_a1b2c3. It was owned by blueclaw.
+    validations:
+      required: true
+
+  - type: textarea
+    id: ledger
+    attributes:
+      label: Event ledger
+      description: |
+        The task run's events, from `GET /admin/api/task/detail?taskRunID=<id>`
+        or the Detail screen of `blueclaw-cli`. This is the one artifact that
+        makes a report diagnosable, because it records what the daemon actually
+        did rather than what it reported afterwards. Redact freely — the event
+        names and their order carry most of the signal.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: revision
+    attributes:
+      label: Commit
+      description: >
+        Output of `git rev-parse HEAD`. There are no releases yet, so the SHA is
+        the only version there is.
+      placeholder: 83b45ab1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      description: The value of `agent.harness.name`.
+      options:
+        - bluecollar (in-process, the default)
+        - acp
+        - claude-code
+        - codex
+        - antigravity
+        - not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: isolation
+    attributes:
+      label: POSIX projection
+      description: >
+        Whether `terminal.posixHelperPath` is set. With it empty every requester
+        runs as the daemon account, which changes what a file-ownership or
+        permission bug means.
+      options:
+        - Linux, projection enabled
+        - Linux, projection disabled
+        - macOS (projection unavailable, see #18)
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: Configuration, logs, a failing test, how often it reproduces.
+    validations:
+      required: false
