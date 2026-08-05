@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 type addressingRequestRecorder struct {

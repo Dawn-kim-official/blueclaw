@@ -3,10 +3,10 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 func TestAskInputUsesTypedQuestionAndResultData(t *testing.T) {

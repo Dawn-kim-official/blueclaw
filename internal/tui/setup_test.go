@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
+	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
 )
 
 func setupModelFixture(t *testing.T) SetupModel {

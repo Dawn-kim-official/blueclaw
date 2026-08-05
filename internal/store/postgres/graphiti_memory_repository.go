@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/memory"
+	"github.com/yeomyeonggeori/blueclaw/internal/memory"
 )
 
 type GraphitiMemoryRepository struct {

@@ -2,7 +2,7 @@
 
 # blueclaw — a POSIX-isolated, multi-user agent host
 
-[![CI](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/Dawn-kim-official/blueclaw/actions/workflows/ci.yml)
+[![CI](https://github.com/yeomyeonggeori/blueclaw/actions/workflows/ci.yml/badge.svg)](https://github.com/yeomyeonggeori/blueclaw/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -381,7 +381,7 @@ The harness is injected at the top. `main` passes a factory:
 application := app.NewApplication(runtimeConfiguration, *policyPath, bluecollarharness.New)
 ```
 
-[bluecollar](https://github.com/Dawn-kim-official/bluecollar) is the bundled
+[bluecollar](https://github.com/yeomyeonggeori/bluecollar) is the bundled
 implementation. It lives in its own repository, pinned here as a submodule at
 `.dependency/bluecollar`, and carries `agentcontract` with it because both sides
 compile against it.
@@ -485,7 +485,7 @@ Neither runs before the kernel decides.
   runs as the daemon user. The shipped `config/runtime.standalone.example.json`
   does not set it, and the projection needs Linux today — on macOS the daemon
   runs everything as itself. macOS support is planned
-  ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
+  ([#18](https://github.com/yeomyeonggeori/blueclaw/issues/18)).
 - `cmd/bluecollar` deliberately uses `DirectWorkspaceActorFactory`
   (`internal/security/direct_workspace_actor.go`), which has no projection at
   all. It is a single-directory batch runner, not a multi-person daemon.
@@ -691,7 +691,7 @@ For the isolation boundary, yes, today. The POSIX projection, the setuid helper
 and the separation tests are all Linux-only, so blueclaw builds and runs on
 macOS for development but there runs everything as the daemon user.
 
-macOS support is in progress ([#18](https://github.com/Dawn-kim-official/blueclaw/issues/18)).
+macOS support is in progress ([#18](https://github.com/yeomyeonggeori/blueclaw/issues/18)).
 Provisioning works and is verified on a real machine: the helper creates
 identities through `dscl` and `dseditgroup` on macOS and through `useradd`,
 `groupadd` and `usermod` on Linux, and reads the account database from Directory

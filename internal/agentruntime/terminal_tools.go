@@ -3,14 +3,14 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 var terminalRunHeartbeatInterval = 60 * time.Second

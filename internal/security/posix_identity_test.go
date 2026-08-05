@@ -3,7 +3,7 @@ package security
 import (
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/policy"
+	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 )
 
 func TestLinuxIdentityNamesAreStableAndValid(t *testing.T) {

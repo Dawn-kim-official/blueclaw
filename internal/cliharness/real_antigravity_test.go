@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func TestRealAntigravityCallsADaemonTool(t *testing.T) {

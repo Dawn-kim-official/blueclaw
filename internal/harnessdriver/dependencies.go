@@ -1,10 +1,10 @@
 package harnessdriver
 
 import (
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/model"
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/model"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 type Dependencies struct {

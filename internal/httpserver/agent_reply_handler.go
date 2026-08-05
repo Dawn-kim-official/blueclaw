@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/connectors/api"
+	"github.com/yeomyeonggeori/blueclaw/internal/connectors/api"
 )
 
 type AgentReplyHandler struct {

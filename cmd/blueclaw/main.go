@@ -6,10 +6,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/app"
-	"github.com/Dawn-kim-official/blueclaw/internal/bluecollarharness"
-	"github.com/Dawn-kim-official/blueclaw/internal/config"
-	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
+	"github.com/yeomyeonggeori/blueclaw/internal/app"
+	"github.com/yeomyeonggeori/blueclaw/internal/bluecollarharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/config"
+	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
 )
 
 func main() {

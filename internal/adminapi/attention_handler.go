@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 )
 
 type AttentionHandler struct {

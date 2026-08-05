@@ -1,4 +1,4 @@
 [submodule ".dependency/bluecollar"]
 	path = .dependency/bluecollar
-	url = https://github.com/Dawn-kim-official/bluecollar.git
+	url = https://github.com/yeomyeonggeori/bluecollar.git
 	branch = main

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/llm"
+	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 )
 
 type LLMMarkdownMemoryCompressor struct {

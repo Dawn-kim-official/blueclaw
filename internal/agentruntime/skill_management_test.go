@@ -3,13 +3,13 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {

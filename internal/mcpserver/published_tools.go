@@ -1,7 +1,7 @@
 package mcpserver
 
 import (
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 // harnessOwnedToolNames are the tools every agent harness already brings: a

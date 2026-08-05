@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/enrollment"
+	"github.com/yeomyeonggeori/blueclaw/internal/enrollment"
 )
 
 type setupFieldID int

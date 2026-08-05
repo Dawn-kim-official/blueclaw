@@ -3,7 +3,7 @@ package agentruntime
 import (
 	"encoding/json"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 type taskLaunchEvent struct {

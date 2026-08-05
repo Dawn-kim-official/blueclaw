@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/security"
+	"github.com/yeomyeonggeori/blueclaw/internal/security"
 )
 
 func requireBlueclawServiceAccount(t *testing.T) {

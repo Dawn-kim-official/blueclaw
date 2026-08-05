@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func writeFakeCodexScript(t *testing.T) string {

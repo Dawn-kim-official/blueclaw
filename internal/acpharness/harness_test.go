@@ -13,9 +13,9 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/mcpserver"
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/toolcontract"
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 type publishedToolCatalog struct {

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dawn-kim-official/bluecollar/agentcontract"
-	"github.com/Dawn-kim-official/bluecollar/taskstate"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
 const artifactManifestEntryLimit = 10

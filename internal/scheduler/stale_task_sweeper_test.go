@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 func TestShouldNotifyUserOnlyWhenNothingWasDelivered(t *testing.T) {

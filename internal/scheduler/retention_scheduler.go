@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Dawn-kim-official/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/blueclaw/internal/task"
 )
 
 const defaultRetentionDays = 14
