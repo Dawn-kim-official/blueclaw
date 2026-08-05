@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/security"
@@ -250,7 +251,12 @@ func TestLoadIdentityAllocationTableToleratesEmptyDocument(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("empty identity map must regenerate, got: %v", errorValue)
 	}
-	if table == nil || len(table.allocations) != 0 {
+	if table == nil {
 		t.Fatal("expected a fresh allocation table")
+	}
+	for name, identityID := range table.allocations {
+		if !strings.HasPrefix(name, "bc_") || identityID < posixIdentityBaseID {
+			t.Fatalf("an empty identity map produced the allocation %s=%d, which no projected account on this machine can explain", name, identityID)
+		}
 	}
 }
