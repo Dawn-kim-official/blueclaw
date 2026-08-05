@@ -19,21 +19,9 @@ type Dependencies struct {
 	SkillIndexPath              string
 	TaskTierLanguageModels      agentcontract.TaskTierLanguageModels
 	IntakeLanguageModelProvider model.LanguageModelProvider
+
+	IntakeOptions       *agentcontract.IntakeOptions
+	TurnOptionOverrides agentcontract.TurnOptions
 }
 
 type Factory func(Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever)
-
-type VirtualSessionDependencies struct {
-	TaskRunStore                taskstate.TaskRunStore
-	TaskStepStore               taskstate.TaskStepStore
-	TaskArtifactStore           taskstate.TaskArtifactStore
-	TaskTierLanguageModels      agentcontract.TaskTierLanguageModels
-	IntakeLanguageModelProvider model.LanguageModelProvider
-	IntakeOptions               agentcontract.IntakeOptions
-	ScenarioTurnOptions         agentcontract.TurnOptions
-	InstructionBundleLoader     func() agentcontract.InstructionBundle
-	EmbeddingProvider           model.EmbeddingProvider
-	EmbeddingModelName          string
-}
-
-type VirtualSessionFactory func(VirtualSessionDependencies) (agentcontract.Harness, agentcontract.SkillRetriever)

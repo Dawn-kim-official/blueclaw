@@ -748,9 +748,9 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 	}
 }
 
-var virtualSessionAgentHarnessFactory harnessdriver.VirtualSessionFactory
+var virtualSessionAgentHarnessFactory harnessdriver.Factory
 
-func UseAgentHarnessFactory(factory harnessdriver.VirtualSessionFactory) {
+func UseAgentHarnessFactory(factory harnessdriver.Factory) {
 	virtualSessionAgentHarnessFactory = factory
 }
 
@@ -814,7 +814,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		}
 	}
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
-	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(harnessdriver.VirtualSessionDependencies{
+	scenarioIntakeOptions := agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow}
+	agentHarness, skillRetriever := virtualSessionAgentHarnessFactory(harnessdriver.Dependencies{
 		TaskRunStore:      taskRunService,
 		TaskStepStore:     taskStepService,
 		TaskArtifactStore: taskArtifactService,
@@ -827,8 +828,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 			Max:    maxLanguageModel,
 		},
 		IntakeLanguageModelProvider: intakeLanguageModel,
-		IntakeOptions:               agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow},
-		ScenarioTurnOptions:         scenario.TurnOptions,
+		IntakeOptions:               &scenarioIntakeOptions,
+		TurnOptionOverrides:         scenario.TurnOptions,
 		InstructionBundleLoader:     instructionBundleLoader,
 		EmbeddingProvider:           scenario.EmbeddingProvider,
 		EmbeddingModelName:          scenario.EmbeddingModel,

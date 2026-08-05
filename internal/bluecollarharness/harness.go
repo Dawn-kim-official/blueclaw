@@ -11,8 +11,8 @@ import (
 func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentcontract.SkillRetriever) {
 	agentKernel := bluecollar.NewAgentKernel(dependencies.TaskRunStore, dependencies.TaskStepStore)
 	agentKernel.UseTaskArtifactService(dependencies.TaskArtifactStore)
-	agentKernel.UseTurnOptions(deriveTurnOptions(dependencies.RuntimeConfiguration))
-	agentKernel.UseIntakeOptions(deriveIntakeOptions(dependencies.RuntimeConfiguration))
+	agentKernel.UseTurnOptions(turnOptionsWithOverrides(deriveTurnOptions(dependencies.RuntimeConfiguration), dependencies.TurnOptionOverrides))
+	agentKernel.UseIntakeOptions(intakeOptionsOrDerived(dependencies))
 	agentKernel.UseInstructionBundleLoader(dependencies.InstructionBundleLoader)
 	taskTierLanguageModels := dependencies.TaskTierLanguageModels
 	if taskTierLanguageModels.Low != nil {
@@ -22,7 +22,9 @@ func New(dependencies harnessdriver.Dependencies) (agentcontract.Harness, agentc
 	skillRetriever := bluecollar.NewEmbeddingSkillRetriever(dependencies.EmbeddingProvider, dependencies.SkillIndexPath)
 	skillRetriever.EmbeddingModel = dependencies.EmbeddingModelName
 	agentKernel.UseSkillRetriever(skillRetriever)
-	agentKernel.UseCompanyProvider(dependencies.CompanyProvider)
+	if dependencies.CompanyProvider != nil {
+		agentKernel.UseCompanyProvider(dependencies.CompanyProvider)
+	}
 	if dependencies.IntakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(dependencies.IntakeLanguageModelProvider)
 	}
@@ -57,4 +59,37 @@ func deriveIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent
 		DefaultTaskLevel:    agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
 		SkillTaskLevelFloor: agentcontract.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
 	}
+}
+
+func intakeOptionsOrDerived(dependencies harnessdriver.Dependencies) agentcontract.IntakeOptions {
+	if dependencies.IntakeOptions != nil {
+		return *dependencies.IntakeOptions
+	}
+	return deriveIntakeOptions(dependencies.RuntimeConfiguration)
+}
+
+func turnOptionsWithOverrides(turnOptions agentcontract.TurnOptions, overrides agentcontract.TurnOptions) agentcontract.TurnOptions {
+	if overrides.TaskLevel != "" {
+		taskLevelProfile := bluecollar.TaskLevelProfileForLevel(overrides.TaskLevel)
+		turnOptions.TaskLevel = taskLevelProfile.TaskLevel
+		turnOptions.MaxIterationCount = taskLevelProfile.MaxIterationCount
+		turnOptions.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
+		turnOptions.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
+	}
+	if overrides.MaxIterationCount > 0 {
+		turnOptions.MaxIterationCount = overrides.MaxIterationCount
+	}
+	if overrides.MaxToolCallCount > 0 {
+		turnOptions.MaxToolCallCount = overrides.MaxToolCallCount
+	}
+	if overrides.MaxElapsedSecond > 0 {
+		turnOptions.MaxElapsedSecond = overrides.MaxElapsedSecond
+	}
+	if overrides.RecoveryAttemptLimit != 0 {
+		turnOptions.RecoveryAttemptLimit = overrides.RecoveryAttemptLimit
+	}
+	if overrides.RecoveryBudget != (agentcontract.RecoveryBudget{}) {
+		turnOptions.RecoveryBudget = overrides.RecoveryBudget
+	}
+	return turnOptions
 }

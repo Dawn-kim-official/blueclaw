@@ -424,6 +424,12 @@ Building with `-tags nobundledharness` leaves the loop out of the binary, so
 still compile in as contract and host routing; a test in `cmd/blueclaw` fails if
 the loop creeps back.
 
+The scenario rig binds the same factory production does. It used to have a
+harness port of its own, because a scenario pins a turn budget and a runtime
+configuration has no way to say "two iterations". That budget is a host
+capability now, so `harnessdriver` has one `Dependencies` and one `Factory`, and
+the rig reaches its harness through the door production uses.
+
 `agent.harness.name` in the runtime configuration selects which harness runs:
 
 | Name | What it runs |
@@ -439,7 +445,7 @@ that advertise `mcpCapabilities.http` are handed the endpoint and a session
 token directly. Everyone else is handed a stdio server: the daemon binary in
 `mcp-tool-catalog` mode, spawned by the agent under its own identity, proxying
 to that same endpoint. The Agent Client Protocol requires every agent to support
-stdio and leaves http optional, so stdio is the floor rather than the fallback.
+stdio and leaves http optional, so stdio is the floor.
 
 `internal/acpharness`, built on `coder/acp-go-sdk`, is blueclaw acting as an ACP
 *client*: it starts the external agent inside the requester's POSIX identity,
