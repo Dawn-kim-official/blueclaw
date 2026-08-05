@@ -43,7 +43,7 @@ func (printingCommandRunner PrintingCommandRunner) Output(ctx context.Context, e
 }
 
 func init() {
-	e2e.UseAgentHarnessFactory(bluecollarharness.NewVirtualSession)
+	e2e.UseAgentHarnessFactory(bluecollarharness.New)
 }
 
 func main() {
