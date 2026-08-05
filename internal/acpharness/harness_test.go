@@ -103,6 +103,7 @@ type externalAgent struct {
 	observedCatalog          []string
 	toolCallError            error
 	observedToolCatalog      acp.McpServer
+	observedPrompt           string
 }
 
 func (agent *externalAgent) serve(ctx context.Context, output io.Writer, input io.Reader) {
@@ -156,7 +157,12 @@ func (agent *externalAgent) NewSession(ctx context.Context, request acp.NewSessi
 	return acp.NewSessionResponse{SessionId: "session-1"}, nil
 }
 
-func (agent *externalAgent) Prompt(context.Context, acp.PromptRequest) (acp.PromptResponse, error) {
+func (agent *externalAgent) Prompt(_ context.Context, request acp.PromptRequest) (acp.PromptResponse, error) {
+	for _, contentBlock := range request.Prompt {
+		if contentBlock.Text != nil {
+			agent.observedPrompt += contentBlock.Text.Text
+		}
+	}
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 }
 
@@ -296,5 +302,29 @@ func TestAnAgentThatCannotReachTheToolCatalogIsRefusedRatherThanRunWithoutIt(t *
 	})
 	if errorValue == nil {
 		t.Fatal("expected an agent that cannot accept the tool catalog to be refused, because a turn answered from no tools looks like a successful turn")
+	}
+}
+
+func TestAnAgentIsToldWhoItIsBeforeItIsGivenTheRequest(t *testing.T) {
+	executed := []daemonExecutedTool{}
+	agent := &externalAgent{}
+	harness := New(&inProcessAgentProcess{agent: agent}, newPublishedToolCatalog(t), nil)
+	harness.UseInstructionBundleLoader(func() agentcontract.InstructionBundle {
+		return agentcontract.InstructionBundle{Prompt: "Answer from evidence you have gathered."}
+	})
+
+	harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "Ada",
+		AgentIdentity:     agentcontract.AgentIdentity{Name: "인턴킴", Handle: "@internkim"},
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+	})
+
+	for _, expectedFragment := range []string{"Answer from evidence you have gathered.", "인턴킴", "Ada", "회의록 정리해줘"} {
+		if !strings.Contains(agent.observedPrompt, expectedFragment) {
+			t.Fatalf("an external agent that is told none of this answers as nobody, expected %q in:\n%s", expectedFragment, agent.observedPrompt)
+		}
 	}
 }

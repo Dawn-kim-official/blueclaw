@@ -389,6 +389,12 @@ The host opens the task run. Every harness is handed an `ExistingTaskRunID` and
 settles the run it was given, so a first turn is recorded the same way whichever
 loop ran it.
 
+A harness that only ever sees a prompt is briefed in it. The standing
+instructions the host assembles, the agent's own name and handle, the company,
+who is asking, the language to answer in, and the facts already recalled arrive
+as a preamble ahead of the request (`internal/turnbriefing`). The bundled loop
+takes the same material through its instruction bundle and turn request.
+
 The ledger is not owned that cleanly yet. Of 126 event names, the host writes 42
 from what it observes at its own boundaries, the bundled loop writes 73 from
 inside the turn, and 11 have a writer on each side, so which one fires depends
