@@ -267,7 +267,7 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 			}
 			return languageModel.structuredResponse(response), nil
 		}
-		if schemaName == "bluecollar_approval_question" {
+		if schemaName == "blueclaw_approval_question" {
 			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
 		}
 		return model.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)

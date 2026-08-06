@@ -1346,11 +1346,11 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(firstTurnResult.Events, "message_send") != 0 {
-		t.Fatalf("expected confirmation before any send attempt; events: %s", summarizeEvents(firstTurnResult.Events))
+	if eventsContain(firstTurnResult.Events, "tool.message_send.result", "virtual-platform-message-001") {
+		t.Fatalf("expected nothing delivered before the requester confirmed; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countRequestedToolCalls(secondTurnResult.Events, "message_send") != 1 {
-		t.Fatalf("expected exactly one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEventsWithFragment(secondTurnResult.Events, "tool.message_send.result", `"messageIDs":["virtual-platform-message-001"]`) != 1 {
+		t.Fatalf("expected exactly one message to reach the platform; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(secondTurnResult.Events, "tool.message_send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
@@ -1371,12 +1371,12 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if len(result.TurnResults) != 2 {
 		t.Fatalf("expected confirmation and execution turns, got %+v", result)
 	}
-	if countRequestedToolCalls(result.TurnResults[0].Events, "message_send") != 0 {
-		t.Fatalf("expected confirmation before channel send; events: %s", summarizeEvents(result.TurnResults[0].Events))
+	if eventsContain(result.TurnResults[0].Events, "tool.message_send.result", "virtual-platform-message-001") {
+		t.Fatalf("expected nothing posted before the requester confirmed; events: %s", summarizeEvents(result.TurnResults[0].Events))
 	}
 	turnResult := result.TurnResults[1]
-	if countRequestedToolCalls(turnResult.Events, "message_send") != 1 {
-		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
+	if countEventsWithFragment(turnResult.Events, "tool.message_send.result", `"messageIDs":["virtual-platform-message-001"]`) != 1 {
+		t.Fatalf("expected exactly one message to reach the platform, got events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !eventsContain(turnResult.Events, "tool.message_send.requested", `"targetType":"channel"`) {
 		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
@@ -1398,8 +1398,8 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 		t.Fatalf("expected message update approval; events: %s", summarizeEvents(result.TurnResults[0].Events))
 	}
 	turnResult := result.TurnResults[1]
-	if countRequestedToolCalls(turnResult.Events, "message_update") != 1 {
-		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
+	if countEventsWithFragment(turnResult.Events, "tool.message_update.result", `"deliveryStatus":"updated"`) != 1 {
+		t.Fatalf("expected exactly one edit to reach the platform; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !eventsContain(turnResult.Events, "tool.message_update.requested", `"messageID":"virtual-platform-message-001"`) {
 		t.Fatalf("expected message ID in update input; events: %s", summarizeEvents(turnResult.Events))

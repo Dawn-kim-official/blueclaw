@@ -65,6 +65,7 @@ type toolHandlerContext struct {
 
 type ToolCatalogRequest struct {
 	ProfileName                string
+	ToolCallGate               toolcontract.ToolCallGate
 	Prompt                     string
 	VisibleContext             agentcontract.VisibleContext
 	RequesterPersonID          string
@@ -259,6 +260,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 	toolCatalogBuilder.registerKernelTools(toolSet, handlerContext)
 	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
 	toolCatalogBuilder.registerMCPTools(toolSet, request)
+	toolSet.UseToolCallGate(request.ToolCallGate)
 	return toolSet
 }
 

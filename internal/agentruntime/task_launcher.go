@@ -368,12 +368,6 @@ func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecut
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
 	)
-	toolSet.UseToolCallGate(execution.Launcher.approvalGate.TurnGate(approvalgate.TurnContext{
-		RequesterPersonID: execution.Request.RequesterPersonID,
-		TaskRunID:         execution.Request.ExistingTaskRunID,
-		ResponseLanguage:  execution.Request.ResponseLanguage,
-		Prompt:            execution.Request.Prompt,
-	}))
 	if execution.Request.AmbientDuty.IsMatch {
 		return toolSet.WithAllowedToolNames(ambientCaptureAllowedToolNames()), nil
 	}
@@ -593,8 +587,14 @@ func (taskLauncher *TaskLauncher) appendLaunchStepRecords(taskRunID string, reco
 
 func (taskLauncher *TaskLauncher) toolCatalogRequestForLaunch(request TaskLaunchRequest, profileName string) ToolCatalogRequest {
 	return ToolCatalogRequest{
-		ProfileName:                profileName,
-		Prompt:                     request.Prompt,
+		ProfileName: profileName,
+		Prompt:      request.Prompt,
+		ToolCallGate: taskLauncher.approvalGate.TurnGate(approvalgate.TurnContext{
+			RequesterPersonID: request.RequesterPersonID,
+			TaskRunID:         request.ExistingTaskRunID,
+			ResponseLanguage:  request.ResponseLanguage,
+			Prompt:            request.Prompt,
+		}),
 		VisibleContext:             request.VisibleContext,
 		RequesterPersonID:          request.RequesterPersonID,
 		RequesterName:              request.RequesterName,
