@@ -62,7 +62,7 @@ func NewModel(client *Client, runtimeConfigPath string) Model {
 }
 
 func (model Model) Init() tea.Cmd {
-	return tea.Batch(fetchTaskRunsCmd(model.client), tickCmd(model.pollInterval))
+	return tea.Batch(fetchTaskRunsCmd(model.client), model.refreshHarnessCmd(), tickCmd(model.pollInterval))
 }
 
 type taskRunsLoadedMsg struct {
