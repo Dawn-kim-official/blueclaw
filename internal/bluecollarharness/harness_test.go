@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
-	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 )
 
 func TestDeriveTurnOptionsWiresContextWindowTokens(t *testing.T) {
