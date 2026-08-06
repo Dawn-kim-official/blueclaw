@@ -1262,8 +1262,8 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.site_list.requested", BodyFragment: "site_list", Count: 1},
-					{Name: "tool.site_unserve.requested", BodyFragment: "site_unserve", Count: 0},
-					{Name: "tool.site_unserve.result", BodyFragment: "approval_required", Count: 0},
+					{Name: "tool.site_unserve.requested", BodyFragment: "site_unserve", Count: 1},
+					{Name: "tool.site_unserve.result", BodyFragment: "interaction_required", Count: 1},
 					{Name: "approval.pending_call", BodyFragment: `"site_unserve"`, Count: 1},
 					{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 				},
@@ -1275,11 +1275,11 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				Prompt:         "확인",
 				RouterApproval: "approve",
 				ActionResponses: []string{
-					actionFinishMessage("Local Fleet Studio 테스트 웹사이트를 삭제했습니다.", "obs-002:site_unserve:0"),
+					actionFinishMessage("Local Fleet Studio 테스트 웹사이트를 삭제했습니다.", "obs-004:site_unserve:0"),
 				},
 				CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.site_unserve.requested", BodyFragment: "site_unserve", Count: 1},
+					{Name: "tool.site_unserve.requested", BodyFragment: "site_unserve", Count: 2},
 					{Name: "tool.site_unserve.result", BodyFragment: "unserved", Count: 1},
 					{Name: "approval.executed", BodyFragment: `"site_unserve"`, Count: 1},
 				},
@@ -1344,7 +1344,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 				actionCallTool("message_send", `{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}`),
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
+				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
 				{Name: "approval.pending_call", BodyFragment: `"message_send"`, Count: 1},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
@@ -1360,7 +1360,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
 			ExpectedToolCalls:        []string{"message_send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
+				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 2},
 				{Name: "tool.message_send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
 				{Name: "approval.executed", BodyFragment: `"message_send"`, Count: 1},
 			},
@@ -1395,7 +1395,7 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 				actionCallTool("message_send", `{"targetType":"channel","channelName":"announcements","message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"channel"`, Count: 0},
+				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"channel"`, Count: 1},
 				{Name: "approval.pending_call", BodyFragment: `"message_send"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -1410,8 +1410,8 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 			CompletionJudgeResponses: []string{completionJudgeSatisfiedResponse()},
 			ExpectedToolCalls:        []string{"message_send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"channel"`, Count: 1},
-				{Name: "tool.message_send.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
+				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"channel"`, Count: 2},
+				{Name: "tool.message_send.requested", BodyFragment: `"channelName":"announcements"`, Count: 2},
 				{Name: "tool.message_send.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
 				{Name: "approval.executed", BodyFragment: `"message_send"`, Count: 1},
 			},
@@ -1434,7 +1434,7 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 				actionCallToolWithMessage("message_update", "공지 메시지 문구를 수정합니다.", `{"messageID":"virtual-platform-message-001","message":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 0},
+				{Name: "tool.message_update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
 				{Name: "approval.pending_call", BodyFragment: `"message_update"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -1452,8 +1452,8 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 				"message_update": 1,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.message_update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
-				{Name: "tool.message_update.requested", BodyFragment: `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
+				{Name: "tool.message_update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 2},
+				{Name: "tool.message_update.requested", BodyFragment: `"message":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 2},
 				{Name: "tool.message_update.result", BodyFragment: `"messageUpdated":true`, Count: 1},
 				{Name: "approval.executed", BodyFragment: `"message_update"`, Count: 1},
 			},

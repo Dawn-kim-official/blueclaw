@@ -359,6 +359,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseTurnRouter(turnRouter)
 	connectorRuntime.UseIntakeClassifier(intake.NewClassifier(classificationLanguageModelProvider(taskTierLanguageModels, intakeLanguageModelProvider)))
 	connectorRuntime.UseTaskLauncher(taskLauncher)
+	connectorRuntime.UseApprovalGate(toolCatalogApprovalGate)
 	connectorRuntime.UseAgentIdentityProvider(agentIdentityProvider)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)

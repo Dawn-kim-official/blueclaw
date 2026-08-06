@@ -117,7 +117,27 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if content == "" && len(response.Result) > 0 {
 		content = string(response.Result)
 	}
-	return capabilityToolResult(content, response.Result, response.Effects, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+	result := capabilityToolResult(content, response.Result, response.Effects, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry)
+	return reviewCapabilityApprovalRefusal(toolContext, request, toolDescriptor, toolInput, result), nil
+}
+
+func reviewCapabilityApprovalRefusal(ctx context.Context, request ToolCatalogRequest, toolDescriptor CapabilityToolDescriptor, toolInput json.RawMessage, result toolcontract.ToolResult) toolcontract.ToolResult {
+	if result.Failure == nil || !result.Failure.RequiresApproval || request.ToolCallGate == nil {
+		return result
+	}
+	review, errorValue := request.ToolCallGate.ReviewToolCall(ctx, toolcontract.ToolInvocation{
+		ToolName: toolDescriptor.Name,
+		Input:    toolInput,
+	}, toolcontract.ToolDefinition{
+		Name:             toolDescriptor.Name,
+		RequiresApproval: true,
+		ApprovalScope:    toolDescriptor.ApprovalScope,
+		SideEffectClass:  toolDescriptor.SideEffectClass,
+	})
+	if errorValue != nil || review.MayProceed {
+		return result
+	}
+	return review.Result
 }
 
 func validateCapabilityResultIdentity(operation string, provider string, selectedBackend string, toolName string, outcome string, isError bool) error {

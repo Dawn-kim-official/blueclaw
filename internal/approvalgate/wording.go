@@ -15,6 +15,7 @@ import (
 type approvalQuestionContext struct {
 	ResponseLanguage string            `json:"responseLanguage,omitempty"`
 	OriginalRequest  string            `json:"originalRequest,omitempty"`
+	ModelDraft       string            `json:"modelDraft,omitempty"`
 	Operation        string            `json:"operation,omitempty"`
 	ActionDetails    map[string]string `json:"actionDetails,omitempty"`
 }
@@ -55,6 +56,7 @@ func (gate *Gate) generateConfirmationWording(ctx context.Context, approvalReque
 	questionContext, errorValue := json.Marshal(approvalQuestionContext{
 		ResponseLanguage: strings.TrimSpace(approvalRequest.ResponseLanguage),
 		OriginalRequest:  strings.TrimSpace(approvalRequest.Prompt),
+		ModelDraft:       strings.TrimSpace(approvalRequest.ModelDraft),
 		Operation:        strings.TrimSpace(approvalRequest.ToolName),
 		ActionDetails:    approvalQuestionActionDetails(approvalRequest.ToolInput),
 	})

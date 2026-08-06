@@ -359,6 +359,7 @@ type ConnectorRuntime struct {
 	launchFailureCompleter LaunchFailureCompleter
 	taskRunService         *taskstate.TaskRunService
 	taskLauncher           *agentruntime.TaskLauncher
+	approvalGate           *approvalgate.Gate
 	toolCatalogBuilder     *agentruntime.ToolCatalogBuilder
 	memoryService          *memory.MemoryService
 	agentIdentityProvider  func() agentcontract.AgentIdentity
@@ -472,6 +473,10 @@ func (connectorRuntime *ConnectorRuntime) UseTaskScheduleRepository(taskSchedule
 func (connectorRuntime *ConnectorRuntime) UseTaskWaitTokenRepository(taskWaitTokenRepository task.TaskWaitTokenRepository) {
 	connectorRuntime.taskWaitTokenRepository = taskWaitTokenRepository
 	connectorRuntime.toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
+}
+
+func (connectorRuntime *ConnectorRuntime) UseApprovalGate(approvalGate *approvalgate.Gate) {
+	connectorRuntime.approvalGate = approvalGate
 }
 
 func (connectorRuntime *ConnectorRuntime) UseTaskRunService(taskRunService *task.TaskRunService) {
@@ -3334,7 +3339,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 		return connectorRuntime.taskLauncher
 	}
 	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
-	taskLauncher.UseApprovalGate(approvalgate.New(connectorRuntime.taskRunService))
+	taskLauncher.UseApprovalGate(connectorRuntime.approvalGate)
 	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
 	taskLauncher.UseTurnRouter(connectorRuntime.turnRouter)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)

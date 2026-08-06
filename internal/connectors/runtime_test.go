@@ -15,6 +15,7 @@ import (
 
 	"github.com/yeomyeonggeori/blueclaw/agenttest"
 	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/approvalgate"
 	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/identity"
@@ -2430,13 +2431,13 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
 		ActionResponses: []string{
 			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2515,7 +2516,7 @@ func TestConnectorRuntimeClassifiesNaturalLanguageConfirmationRejection(t *testi
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 삭제할까요?"}`,
 			},
 		},
@@ -2579,13 +2580,13 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
 		ActionResponses: []string{
 			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2649,7 +2650,7 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2716,7 +2717,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 				`{"originalInstruction":"가사랍시고 보낸 메시지를 삭제해줘","summary":"정정된 삭제 대상을 처리합니다.","targets":["platform message"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"정정된 삭제 대상을 처리합니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2832,7 +2833,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
@@ -2883,7 +2884,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 		t.Fatalf("expected ask message to resolve, got %+v", adapter.resolutions)
 	}
 	requests := languageModel.Requests()
-	if connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", connectorSchemaIndexAfter(requests, "bluecollar_approval_question", 0)) >= 0 {
+	if connectorSchemaIndexAfter(requests, "bluecollar_agent_turn_action", connectorSchemaIndexAfter(requests, "blueclaw_approval_question", 0)) >= 0 {
 		t.Fatalf("interactive cancel must not launch agent with rejected prompt, got schemas=%+v", connectorRequestSchemaNames(requests))
 	}
 }
@@ -2898,13 +2899,13 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 		},
 		ActionResponses: []string{
 			`{"action":"continue","toolName":"calendar_delete","toolInput":{"eventHint":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar_delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar_delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -3006,7 +3007,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"핵심 사업 내용을 알려주시면 더 정확히 작성하겠습니다."}`,
 			},
 		},
@@ -3078,7 +3079,7 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 			"bluecollar_execution_plan": {
 				`{"originalInstruction":"샘플에게 DM 보내줘","summary":"샘플에게 DM을 보냅니다.","targets":["샘플"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"샘플에게 DM을 보냅니다."}`,
 			},
-			"bluecollar_approval_question": {
+			"blueclaw_approval_question": {
 				`{"question":"보낼 메시지를 알려주세요."}`,
 			},
 		},
@@ -4181,6 +4182,9 @@ func connectorRuntimeForHarness(t *testing.T, harness agentcontract.Harness, int
 	connectorRuntime.UseTaskRunService(taskRunService)
 	connectorRuntime.UseTurnRouter(turnRouter)
 	connectorRuntime.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, languageModel))
+	testApprovalGate := approvalgate.New(taskRunService)
+	testApprovalGate.UseLanguageModel(languageModel)
+	connectorRuntime.UseApprovalGate(testApprovalGate)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter

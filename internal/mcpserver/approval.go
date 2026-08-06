@@ -19,6 +19,7 @@ type ApprovalRequest struct {
 	SideEffectClass   string
 	ResponseLanguage  string
 	Prompt            string
+	ModelDraft        string
 	HarnessSession    HarnessSession
 }
 

@@ -27,7 +27,7 @@ func (gate *Gate) TurnGate(turnContext TurnContext) toolcontract.ToolCallGate {
 }
 
 func (turnGate turnToolCallGate) ReviewToolCall(ctx context.Context, toolInvocation toolcontract.ToolInvocation, toolDefinition toolcontract.ToolDefinition) (toolcontract.ToolCallReview, error) {
-	if !toolDefinition.RequiresApproval {
+	if !callNeedsApproval(toolDefinition, toolInvocation.Input) {
 		return toolcontract.ToolCallReview{MayProceed: true}, nil
 	}
 	if repliesIntoTheConversationItWasAskedIn(toolDefinition, toolInvocation.Input) {
@@ -41,6 +41,7 @@ func (turnGate turnToolCallGate) ReviewToolCall(ctx context.Context, toolInvocat
 		TaskRunID:         turnGate.turnContext.TaskRunID,
 		ResponseLanguage:  turnGate.turnContext.ResponseLanguage,
 		Prompt:            turnGate.turnContext.Prompt,
+		ModelDraft:        toolcontract.UserFacingMessageFromContext(ctx),
 		HarnessSession:    turnGate.turnContext.HarnessSession,
 		ToolName:          toolDefinition.Name,
 		ToolInput:         toolInvocation.Input,
@@ -57,6 +58,19 @@ func (turnGate turnToolCallGate) ReviewToolCall(ctx context.Context, toolInvocat
 		return toolcontract.ToolCallReview{Result: rejectedCallResult(outcome.Notice)}, nil
 	}
 	return toolcontract.ToolCallReview{Result: HeldCallResult(outcome.Notice)}, nil
+}
+
+func callNeedsApproval(toolDefinition toolcontract.ToolDefinition, toolInput json.RawMessage) bool {
+	if toolDefinition.RequiresApproval {
+		return true
+	}
+	if strings.TrimSpace(toolDefinition.Name) != toolcontract.TerminalRunToolName {
+		return false
+	}
+	var document struct {
+		ApprovalRequired bool `json:"approvalRequired"`
+	}
+	return json.Unmarshal(toolInput, &document) == nil && document.ApprovalRequired
 }
 
 func repliesIntoTheConversationItWasAskedIn(toolDefinition toolcontract.ToolDefinition, toolInput json.RawMessage) bool {
