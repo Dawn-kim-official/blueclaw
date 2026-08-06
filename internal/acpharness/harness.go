@@ -144,6 +144,7 @@ func (harness *Harness) RunTurn(ctx context.Context, request agentcontract.Agent
 	promptResponse, errorValue := connection.Prompt(ctx, acp.PromptRequest{
 		SessionId: newSession.SessionId,
 		Prompt:    []acp.ContentBlock{acp.TextBlock(harness.promptForTurn(request))},
+		Meta:      promptMetaForTurn(request),
 	})
 	if errorValue != nil {
 		return agentcontract.AgentTurnResult{}, errorValue
@@ -327,6 +328,13 @@ func (observer *sessionObserver) RequestPermission(_ context.Context, request ac
 	}}, nil
 }
 
+func promptMetaForTurn(request agentcontract.AgentTurnRequest) map[string]any {
+	if len(request.CarriedOutCalls) == 0 {
+		return nil
+	}
+	return map[string]any{agentcontract.CarriedOutCallMetaKey: request.CarriedOutCalls}
+}
+
 func (harness *Harness) promptForTurn(request agentcontract.AgentTurnRequest) string {
 	sections := []string{}
 	if preamble := turnbriefing.Preamble(request, harness.instructionPrompt()); preamble != "" {
@@ -334,8 +342,8 @@ func (harness *Harness) promptForTurn(request agentcontract.AgentTurnRequest) st
 	}
 	sections = append(sections, request.Prompt)
 	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
-		if continuationNote := approvalgate.ApprovalContinuationNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID)); continuationNote != "" {
-			sections = append(sections, continuationNote)
+		if declinedCallNote := approvalgate.DeclinedCallNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID)); declinedCallNote != "" {
+			sections = append(sections, declinedCallNote)
 		}
 	}
 	return strings.Join(sections, "\n\n")

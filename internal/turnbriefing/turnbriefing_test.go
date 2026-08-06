@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 func briefedRequest() agentcontract.AgentTurnRequest {
@@ -32,6 +33,36 @@ func TestAnAgentIsToldWhoItIsAndWhoIsAsking(t *testing.T) {
 		if !strings.Contains(preamble, expectedFragment) {
 			t.Fatalf("an agent that is told none of this answers as nobody, expected %q in:\n%s", expectedFragment, preamble)
 		}
+	}
+}
+
+func TestAnAgentIsToldWhichCallTheHostAlreadyCarriedOut(t *testing.T) {
+	request := briefedRequest()
+	request.CarriedOutCalls = []agentcontract.CarriedOutCall{{
+		ToolName: "calendar_delete",
+		Result:   toolcontract.ToolResult{Output: toolcontract.ToolOutput{Content: "내일 10시 회의를 삭제했습니다"}},
+	}}
+
+	preamble := Preamble(request, "")
+
+	for _, expectedFragment := range []string{"calendar_delete", "내일 10시 회의를 삭제했습니다", "Do not issue these calls again"} {
+		if !strings.Contains(preamble, expectedFragment) {
+			t.Fatalf("an agent that is not told this issues the approved call a second time, expected %q in:\n%s", expectedFragment, preamble)
+		}
+	}
+}
+
+func TestACarriedOutCallThatFailedIsReportedAsFailed(t *testing.T) {
+	request := briefedRequest()
+	request.CarriedOutCalls = []agentcontract.CarriedOutCall{{
+		ToolName: "message_send",
+		Result:   toolcontract.ToolFailureResult(toolcontract.FailureExternalService, "operation_failed", "connector", "메신저가 응답하지 않았습니다"),
+	}}
+
+	preamble := Preamble(request, "")
+
+	if !strings.Contains(preamble, "failed") || !strings.Contains(preamble, "메신저가 응답하지 않았습니다") {
+		t.Fatalf("expected the agent to learn the approved call did not go through, got:\n%s", preamble)
 	}
 }
 

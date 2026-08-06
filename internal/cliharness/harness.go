@@ -479,8 +479,8 @@ func (harness *Harness) promptForTurn(request agentcontract.AgentTurnRequest) st
 	}
 	sections = append(sections, request.Prompt)
 	if harness.taskRunStore != nil && strings.TrimSpace(request.ExistingTaskRunID) != "" {
-		if continuationNote := approvalgate.ApprovalContinuationNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID)); continuationNote != "" {
-			sections = append(sections, continuationNote)
+		if declinedCallNote := approvalgate.DeclinedCallNote(harness.taskRunStore.ListTaskEvent(request.ExistingTaskRunID)); declinedCallNote != "" {
+			sections = append(sections, declinedCallNote)
 		}
 	}
 	return strings.Join(sections, "\n\n")

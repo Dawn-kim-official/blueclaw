@@ -104,6 +104,7 @@ type externalAgent struct {
 	toolCallError            error
 	observedToolCatalog      acp.McpServer
 	observedPrompt           string
+	observedPromptMeta       map[string]any
 }
 
 func (agent *externalAgent) serve(ctx context.Context, output io.Writer, input io.Reader) {
@@ -158,6 +159,7 @@ func (agent *externalAgent) NewSession(ctx context.Context, request acp.NewSessi
 }
 
 func (agent *externalAgent) Prompt(_ context.Context, request acp.PromptRequest) (acp.PromptResponse, error) {
+	agent.observedPromptMeta = request.Meta
 	for _, contentBlock := range request.Prompt {
 		if contentBlock.Text != nil {
 			agent.observedPrompt += contentBlock.Text.Text
@@ -326,5 +328,52 @@ func TestAnAgentIsToldWhoItIsBeforeItIsGivenTheRequest(t *testing.T) {
 		if !strings.Contains(agent.observedPrompt, expectedFragment) {
 			t.Fatalf("an external agent that is told none of this answers as nobody, expected %q in:\n%s", expectedFragment, agent.observedPrompt)
 		}
+	}
+}
+
+func TestAnExternalAgentIsHandedTheCallTheHostCarriedOutForIt(t *testing.T) {
+	executed := []daemonExecutedTool{}
+	agent := &externalAgent{}
+	harness := New(&inProcessAgentProcess{agent: agent}, newPublishedToolCatalog(t), nil)
+
+	harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+		CarriedOutCalls: []agentcontract.CarriedOutCall{{
+			ToolName:  "note_write",
+			ToolInput: json.RawMessage(`{"text":"회의록"}`),
+			Result:    toolcontract.ToolSuccessData("note written", json.RawMessage(`{}`)),
+		}},
+	})
+
+	handback, isPresent := agent.observedPromptMeta[agentcontract.CarriedOutCallMetaKey]
+	if !isPresent {
+		t.Fatalf("an agent that is not handed this reissues the approved call, got meta %+v", agent.observedPromptMeta)
+	}
+	encoded, errorValue := json.Marshal(handback)
+	if errorValue != nil || !strings.Contains(string(encoded), "note_write") {
+		t.Fatalf("expected the carried out call on the wire, got %s (%v)", encoded, errorValue)
+	}
+	if !strings.Contains(agent.observedPrompt, "note_write") {
+		t.Fatalf("expected the prompt to name the call the host already made, got:\n%s", agent.observedPrompt)
+	}
+}
+
+func TestATurnWithNothingCarriedOutSendsNoHandback(t *testing.T) {
+	executed := []daemonExecutedTool{}
+	agent := &externalAgent{}
+	harness := New(&inProcessAgentProcess{agent: agent}, newPublishedToolCatalog(t), nil)
+
+	harness.RunTurn(context.Background(), agentcontract.AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		Prompt:            "회의록 정리해줘",
+		WorkspaceRootPath: t.TempDir(),
+		ToolSet:           requesterToolSet(t, "person-1", &executed),
+	})
+
+	if _, isPresent := agent.observedPromptMeta[agentcontract.CarriedOutCallMetaKey]; isPresent {
+		t.Fatalf("expected an ordinary turn to carry no handback, got %+v", agent.observedPromptMeta)
 	}
 }

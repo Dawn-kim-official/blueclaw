@@ -293,10 +293,13 @@ func (taskLauncher *TaskLauncher) launchRoutedTask(ctx context.Context, request 
 	})
 	memoryResult, record := runLaunchStep(ctx, execution, loadMemoryLaunchStep{})
 	launchRecords = append(launchRecords, record)
+	carriedOutCalls, record := runLaunchStep(ctx, execution, carryOutApprovedCallLaunchStep{ToolSet: toolSet})
+	launchRecords = append(launchRecords, record)
 	turnResult, record := runLaunchStep(ctx, execution, runTurnLaunchStep{
 		MemoryFacts:       memoryResult.Facts,
 		ToolSet:           toolSet,
 		ConversationScope: conversationScope,
+		CarriedOutCalls:   carriedOutCalls,
 	})
 	launchRecords = append(launchRecords, record)
 	if record.Error != "" {
@@ -436,6 +439,7 @@ type runTurnLaunchStep struct {
 	MemoryFacts       []memory.MemoryFact
 	ToolSet           *toolcontract.ToolSet
 	ConversationScope ConversationResourceScope
+	CarriedOutCalls   []agentcontract.CarriedOutCall
 }
 
 func (runTurnLaunchStep) Name() string {
@@ -443,13 +447,15 @@ func (runTurnLaunchStep) Name() string {
 }
 
 func (step runTurnLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (agentcontract.AgentTurnResult, error) {
-	return execution.Launcher.harness.RunTurn(ctx, execution.Launcher.agentTurnRequestForLaunch(
+	turnRequest := execution.Launcher.agentTurnRequestForLaunch(
 		execution.Request,
 		execution.NormalizedProfileName,
 		step.MemoryFacts,
 		step.ToolSet,
 		step.ConversationScope,
-	))
+	)
+	turnRequest.CarriedOutCalls = step.CarriedOutCalls
+	return execution.Launcher.harness.RunTurn(ctx, turnRequest)
 }
 
 func runLaunchStep[T any](ctx context.Context, execution *taskLaunchExecution, step taskLaunchStep[T]) (T, launchStepRecord) {

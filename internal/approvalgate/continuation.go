@@ -1,34 +1,55 @@
 package approvalgate
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
 
-func ApprovalContinuationNote(taskEvents []taskstate.TaskEvent) string {
-	heldToolName := ""
+type ApprovedCall struct {
+	ToolName  string
+	ToolInput json.RawMessage
+}
+
+func ApprovedPendingCall(taskEvents []taskstate.TaskEvent) (ApprovedCall, bool) {
+	heldCall, decision := undecidedHeldCall(taskEvents)
+	if heldCall.ToolName == "" || !isApprovingDecision(decision) {
+		return ApprovedCall{}, false
+	}
+	return ApprovedCall{ToolName: heldCall.ToolName, ToolInput: heldCall.ToolInput}, true
+}
+
+func DeclinedCallNote(taskEvents []taskstate.TaskEvent) string {
+	heldCall, decision := undecidedHeldCall(taskEvents)
+	if heldCall.ToolName == "" || decision != "cancel" {
+		return ""
+	}
+	return "The requester declined the " + heldCall.ToolName + " call you asked about. Do not attempt it again; continue without it or stop and say why you cannot."
+}
+
+func undecidedHeldCall(taskEvents []taskstate.TaskEvent) (heldCallRecord, string) {
+	heldCall := heldCallRecord{}
 	decision := ""
 	for _, taskEvent := range taskEvents {
 		switch taskEvent.Name {
 		case "approval.pending_call":
-			heldToolName = decodeHeldCallEventBody(taskEvent.Body).ToolName
+			heldCall = decodeHeldCallEventBody(taskEvent.Body)
+			decision = ""
 		case "approval.decided":
 			decision = decodedDecision(taskEvent.Body)
 		case "approval.executed":
-			if executedToolName(taskEvent.Body) == heldToolName {
-				heldToolName = ""
+			if executedToolName(taskEvent.Body) == heldCall.ToolName {
+				heldCall = heldCallRecord{}
 				decision = ""
 			}
 		}
 	}
-	if heldToolName == "" || decision == "" {
-		return ""
-	}
-	if decision == "cancel" {
-		return "The requester declined the " + heldToolName + " call you asked about. Do not attempt it again; continue without it or stop and say why you cannot."
-	}
-	return "The requester approved the " + heldToolName + " call you asked about, and it has not run yet. Issue that exact call again now to carry it out."
+	return heldCall, decision
+}
+
+func isApprovingDecision(decision string) bool {
+	return decision == "confirm" || decision == "confirm_task"
 }
 
 func decodedDecision(body string) string {
