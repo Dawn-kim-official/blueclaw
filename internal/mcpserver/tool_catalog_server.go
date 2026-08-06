@@ -18,7 +18,6 @@ type RequesterToolSet struct {
 	RequesterPersonID string
 	TaskRunID         string
 	ToolSet           *toolcontract.ToolSet
-	ApprovalGate      ApprovalGate
 	HarnessSession    HarnessSession
 	ToolAudience      ToolAudience
 	ResponseLanguage  string
@@ -95,12 +94,6 @@ func leavesEnvironmentUnchanged(sideEffectClass string) bool {
 
 func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, hasOutputSchema bool) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		if toolDescriptor.RequiresApproval {
-			gateResult, isSettled := awaitApprovalBeforeInvoking(ctx, requesterToolSet, toolDescriptor, request.Params.Arguments)
-			if !isSettled {
-				return callToolResult(gateResult, hasOutputSchema, toolDescriptor.Name), nil
-			}
-		}
 		toolResult, errorValue := requesterToolSet.ToolSet.Invoke(ctx, toolcontract.ToolInvocation{
 			ToolName: toolDescriptor.Name,
 			Input:    request.Params.Arguments,
@@ -112,24 +105,6 @@ func invokeThroughToolSet(requesterToolSet RequesterToolSet, toolDescriptor tool
 			return nil, errorValue
 		}
 		return callToolResult(toolResult, hasOutputSchema, toolDescriptor.Name), nil
-	}
-}
-
-func awaitApprovalBeforeInvoking(ctx context.Context, requesterToolSet RequesterToolSet, toolDescriptor toolcontract.ToolDescriptor, toolInput json.RawMessage) (toolcontract.ToolResult, bool) {
-	if requesterToolSet.ApprovalGate == nil {
-		return heldCallResult(errApprovalGateMissing.Error()), false
-	}
-	outcome, errorValue := requesterToolSet.ApprovalGate.AwaitApproval(ctx, approvalRequestForTool(requesterToolSet, toolDescriptor, toolInput))
-	if errorValue != nil {
-		return heldCallResult(errorValue.Error()), false
-	}
-	switch outcome.Decision {
-	case ApprovalDecisionApproved:
-		return toolcontract.ToolResult{}, true
-	case ApprovalDecisionRejected:
-		return rejectedCallResult(outcome.Notice), false
-	default:
-		return heldCallResult(outcome.Notice), false
 	}
 }
 

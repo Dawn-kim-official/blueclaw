@@ -3334,6 +3334,7 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 		return connectorRuntime.taskLauncher
 	}
 	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.harness, connectorRuntime.taskRunService, connectorRuntime.toolCatalogBuilder)
+	taskLauncher.UseApprovalGate(approvalgate.New(connectorRuntime.taskRunService))
 	taskLauncher.UseLaunchFailureCompleter(connectorRuntime.launchFailureCompleter)
 	taskLauncher.UseTurnRouter(connectorRuntime.turnRouter)
 	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)

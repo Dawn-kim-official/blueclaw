@@ -40,7 +40,9 @@ func (step carryOutApprovedCallLaunchStep) Run(ctx context.Context, execution *t
 }
 
 func invokeApprovedCall(ctx context.Context, toolSet *toolcontract.ToolSet, approvedCall approvalgate.ApprovedCall) toolcontract.ToolResult {
-	result, errorValue := toolSet.WithAdditionalAllowedToolNames([]string{approvedCall.ToolName}).Invoke(ctx, toolcontract.ToolInvocation{
+	carryOutToolSet := toolSet.WithAdditionalAllowedToolNames([]string{approvedCall.ToolName})
+	carryOutToolSet.UseToolCallGate(nil)
+	result, errorValue := carryOutToolSet.Invoke(ctx, toolcontract.ToolInvocation{
 		ToolName: approvedCall.ToolName,
 		Input:    approvedCall.ToolInput,
 	})

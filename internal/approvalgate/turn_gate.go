@@ -1,0 +1,95 @@
+package approvalgate
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+
+	"github.com/yeomyeonggeori/blueclaw/internal/mcpserver"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
+)
+
+type TurnContext struct {
+	RequesterPersonID string
+	TaskRunID         string
+	ResponseLanguage  string
+	Prompt            string
+	HarnessSession    mcpserver.HarnessSession
+}
+
+type turnToolCallGate struct {
+	gate        *Gate
+	turnContext TurnContext
+}
+
+func (gate *Gate) TurnGate(turnContext TurnContext) toolcontract.ToolCallGate {
+	return turnToolCallGate{gate: gate, turnContext: turnContext}
+}
+
+func (turnGate turnToolCallGate) ReviewToolCall(ctx context.Context, toolInvocation toolcontract.ToolInvocation, toolDefinition toolcontract.ToolDefinition) (toolcontract.ToolCallReview, error) {
+	if !toolDefinition.RequiresApproval {
+		return toolcontract.ToolCallReview{MayProceed: true}, nil
+	}
+	if repliesIntoTheConversationItWasAskedIn(toolDefinition, toolInvocation.Input) {
+		return toolcontract.ToolCallReview{MayProceed: true}, nil
+	}
+	if turnGate.gate == nil {
+		return toolcontract.ToolCallReview{Result: HeldCallResult("this tool needs approval and this turn has no approval gate configured, so it will not run")}, nil
+	}
+	outcome, errorValue := turnGate.gate.AwaitApproval(ctx, mcpserver.ApprovalRequest{
+		RequesterPersonID: turnGate.turnContext.RequesterPersonID,
+		TaskRunID:         turnGate.turnContext.TaskRunID,
+		ResponseLanguage:  turnGate.turnContext.ResponseLanguage,
+		Prompt:            turnGate.turnContext.Prompt,
+		HarnessSession:    turnGate.turnContext.HarnessSession,
+		ToolName:          toolDefinition.Name,
+		ToolInput:         toolInvocation.Input,
+		ApprovalScope:     strings.TrimSpace(toolDefinition.ApprovalScope),
+		SideEffectClass:   strings.TrimSpace(toolDefinition.SideEffectClass),
+	})
+	if errorValue != nil {
+		return toolcontract.ToolCallReview{Result: HeldCallResult(errorValue.Error())}, nil
+	}
+	switch outcome.Decision {
+	case mcpserver.ApprovalDecisionApproved:
+		return toolcontract.ToolCallReview{MayProceed: true}, nil
+	case mcpserver.ApprovalDecisionRejected:
+		return toolcontract.ToolCallReview{Result: rejectedCallResult(outcome.Notice)}, nil
+	}
+	return toolcontract.ToolCallReview{Result: HeldCallResult(outcome.Notice)}, nil
+}
+
+func repliesIntoTheConversationItWasAskedIn(toolDefinition toolcontract.ToolDefinition, toolInput json.RawMessage) bool {
+	if toolcontract.ToolDefinitionSideEffectClass(toolDefinition) != toolcontract.ToolSideEffectExternalSend {
+		return false
+	}
+	var document struct {
+		TargetType string `json:"targetType"`
+	}
+	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
+		return false
+	}
+	switch strings.TrimSpace(document.TargetType) {
+	case "currentThread", "currentChannel":
+		return true
+	}
+	return false
+}
+
+func HeldCallResult(notice string) toolcontract.ToolResult {
+	heldNotice := strings.TrimSpace(notice)
+	if heldNotice == "" {
+		heldNotice = "This call is waiting for the requester's approval and has been recorded. Do not retry it now; call it again unchanged once you are told the approval arrived, and it will run."
+	}
+	result := toolcontract.ToolFailureResult(toolcontract.FailureUnknown, toolcontract.FailureCodes.InteractionRequired, "approval", heldNotice)
+	result.Failure.RequiresApproval = true
+	return result
+}
+
+func rejectedCallResult(notice string) toolcontract.ToolResult {
+	rejectedNotice := strings.TrimSpace(notice)
+	if rejectedNotice == "" {
+		rejectedNotice = "The requester declined this call. Do not retry it; choose another way or stop."
+	}
+	return toolcontract.ToolFailureResult(toolcontract.FailureUnknown, toolcontract.FailureCodes.PolicyBlocked, "approval", rejectedNotice)
+}
