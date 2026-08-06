@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
+	"github.com/yeomyeonggeori/bluecollar/toolcontract"
 )
 
 func Preamble(request agentcontract.AgentTurnRequest, instructionPrompt string) string {
@@ -17,7 +18,35 @@ func Preamble(request agentcontract.AgentTurnRequest, instructionPrompt string) 
 	if facts := rememberedFacts(request.MemoryFacts); facts != "" {
 		sections = append(sections, facts)
 	}
+	if carriedOut := callsAlreadyCarriedOut(request.CarriedOutCalls); carriedOut != "" {
+		sections = append(sections, carriedOut)
+	}
 	return strings.Join(sections, "\n\n")
+}
+
+func callsAlreadyCarriedOut(carriedOutCalls []agentcontract.CarriedOutCall) string {
+	lines := []string{}
+	for _, carriedOutCall := range carriedOutCalls {
+		toolName := strings.TrimSpace(carriedOutCall.ToolName)
+		if toolName == "" {
+			continue
+		}
+		lines = append(lines, "- "+toolName+" — "+carriedOutCallOutcome(carriedOutCall.Result))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Already carried out for you, with the requester's approval. Do not issue these calls again:\n" + strings.Join(lines, "\n")
+}
+
+func carriedOutCallOutcome(result toolcontract.ToolResult) string {
+	if result.Failed() {
+		return "failed: " + result.UserSafeFailureSummary()
+	}
+	if content := strings.TrimSpace(result.ContentText()); content != "" {
+		return content
+	}
+	return "done"
 }
 
 func agentIntroduction(request agentcontract.AgentTurnRequest) string {
