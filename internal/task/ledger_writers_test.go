@@ -12,7 +12,6 @@ import (
 
 var eventNamesWrittenOnBothSides = map[string]string{
 	"approval.pending_call":       "the host gate, once the loop stops holding calls of its own",
-	"approval.executed":           "the host gate, once the loop stops holding calls of its own",
 	"confirmation.requested":      "the host gate, once the loop stops holding calls of its own",
 	"ask.requested":               "the host gate, once the loop stops holding calls of its own",
 	"agent.failure_reply":         "the host, which sees every turn result",

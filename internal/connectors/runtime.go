@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/approvalgate"
 	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 	"github.com/yeomyeonggeori/blueclaw/internal/identity"
 	"github.com/yeomyeonggeori/blueclaw/internal/mcp"
@@ -1291,22 +1292,43 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	if !isFound {
 		return pendingApproval{}, agentcontract.TurnDecision{}, false, nil
 	}
-	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
-		switch strings.TrimSpace(action) {
-		case "confirm_task":
-			approvalSignal := agentcontract.ApprovalSignalApproveTask
-			decision := agentcontract.TurnDecision{Route: agentcontract.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationBoundedTask, TaskShape: agentcontract.TaskShapeMaintenanceTask, TaskLevel: agentcontract.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm_task"}
-			connectorRuntime.grantApprovalScopeForTask(approval.TaskRun.TaskRunID)
-			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
-		case "confirm":
-			approvalSignal := agentcontract.ApprovalSignalApprove
-			decision := agentcontract.TurnDecision{Route: agentcontract.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationBoundedTask, TaskShape: agentcontract.TaskShapeMaintenanceTask, TaskLevel: agentcontract.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
-			return approval, connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true, nil
-		case "cancel":
-			approvalSignal := agentcontract.ApprovalSignalReject
-			return approval, agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationQuickReply, TaskShape: agentcontract.TaskShapeImmediateReply, TaskLevel: agentcontract.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true, nil
+	decision, isInteractive := connectorRuntime.interactiveConfirmationDecision(event, approval)
+	if !isInteractive {
+		classifiedDecision, errorValue := connectorRuntime.classifiedConfirmationDecision(ctx, platform, personID, event, approval)
+		if errorValue != nil {
+			return pendingApproval{}, agentcontract.TurnDecision{}, false, errorValue
 		}
+		decision = classifiedDecision
 	}
+	approvalgate.RecordRequesterDecision(connectorRuntime.taskRunService, approval.TaskRun.TaskRunID, decision.Approval, "chat_reply")
+	if decision.Approval != nil && *decision.Approval == agentcontract.ApprovalSignalApproveTask {
+		connectorRuntime.grantApprovalScopeForTask(approval.TaskRun.TaskRunID)
+	}
+	return approval, decision, true, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) interactiveConfirmationDecision(event PlatformInboundEvent, approval pendingApproval) (agentcontract.TurnDecision, bool) {
+	action, isFound := event.LegacyFields["askAction"].(string)
+	if !isFound {
+		return agentcontract.TurnDecision{}, false
+	}
+	switch strings.TrimSpace(action) {
+	case "confirm_task":
+		approvalSignal := agentcontract.ApprovalSignalApproveTask
+		decision := agentcontract.TurnDecision{Route: agentcontract.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationBoundedTask, TaskShape: agentcontract.TaskShapeMaintenanceTask, TaskLevel: agentcontract.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm_task"}
+		return connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true
+	case "confirm":
+		approvalSignal := agentcontract.ApprovalSignalApprove
+		decision := agentcontract.TurnDecision{Route: agentcontract.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationBoundedTask, TaskShape: agentcontract.TaskShapeMaintenanceTask, TaskLevel: agentcontract.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+		return connectorRuntime.withPersistedIntakeState(approval.TaskRun.TaskRunID, decision), true
+	case "cancel":
+		approvalSignal := agentcontract.ApprovalSignalReject
+		return agentcontract.TurnDecision{Route: agentcontract.TurnRouteConsume, Approval: &approvalSignal, Classification: agentcontract.IntakeClassificationQuickReply, TaskShape: agentcontract.TaskShapeImmediateReply, TaskLevel: agentcontract.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
+	}
+	return agentcontract.TurnDecision{}, false
+}
+
+func (connectorRuntime *ConnectorRuntime) classifiedConfirmationDecision(ctx context.Context, platform string, personID string, event PlatformInboundEvent, approval pendingApproval) (agentcontract.TurnDecision, error) {
 	decision, errorValue := connectorRuntime.planTurn(ctx, approval.TaskRun.TaskRunID, agentcontract.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
@@ -1321,7 +1343,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		TurnStartedAt: time.Now(),
 	})
 	if errorValue != nil {
-		return pendingApproval{}, agentcontract.TurnDecision{}, false, errorValue
+		return agentcontract.TurnDecision{}, errorValue
 	}
 	connectorRuntime.taskRunService.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
@@ -1333,10 +1355,7 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	if decision.Approval != nil && agentcontract.IsApprovingSignal(*decision.Approval) {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
-	if decision.Approval != nil && *decision.Approval == agentcontract.ApprovalSignalApproveTask {
-		connectorRuntime.grantApprovalScopeForTask(approval.TaskRun.TaskRunID)
-	}
-	return approval, decision, true, nil
+	return decision, nil
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agentcontract.TurnDecision, bool, error) {
