@@ -41,7 +41,12 @@ func (model Model) renderTabBar() string {
 		}
 		renderedTabs = append(renderedTabs, renderTab(tabLabel.digit, label, tabLabel.screen == model.screen))
 	}
-	return styleHeaderBar.Width(maximumInt(model.width, 0)).Render(model.headerTitle()) + "\n" + strings.Join(renderedTabs, " ")
+	headerAndTabs := styleHeaderBar.Width(maximumInt(model.width, 0)).Render(model.headerTitle()) + "\n" + strings.Join(renderedTabs, " ")
+	masthead := renderMasthead(model.width, model.height, model.overviewLines())
+	if masthead == "" {
+		return headerAndTabs
+	}
+	return masthead + "\n" + headerAndTabs
 }
 
 func renderTab(digit string, label string, isActive bool) string {
@@ -136,7 +141,14 @@ const (
 )
 
 func (model Model) bodyHeight() int {
-	return model.height - headerAndTabLineCount - statusBarLineCount
+	return model.height - model.headerHeight() - statusBarLineCount
+}
+
+func (model Model) headerHeight() int {
+	if !canRenderLogo(model.width, model.height) {
+		return headerAndTabLineCount
+	}
+	return headerAndTabLineCount + logoHeight()
 }
 
 type tableWindow struct {

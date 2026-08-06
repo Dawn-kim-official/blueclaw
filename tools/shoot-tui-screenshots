@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+import os
+import shutil
+import sys
+
+BOOTSTRAP_GUARD = "BLUECLAW_TUI_SCREENSHOTS_BOOTSTRAPPED"
+
+
+def bootstrap_with_uv():
+    if os.environ.get(BOOTSTRAP_GUARD):
+        raise SystemExit("pyte is required: install it with `pip install pyte`, or install uv")
+    uv_path = shutil.which("uv")
+    if not uv_path:
+        raise SystemExit("pyte is required: install it with `pip install pyte`, or install uv")
+    os.environ[BOOTSTRAP_GUARD] = "1"
+    os.execv(uv_path, [uv_path, "run", "--with", "pyte", os.path.abspath(__file__), *sys.argv[1:]])
+
+
+try:
+    import pyte  # noqa: F401
+except ModuleNotFoundError:
+    bootstrap_with_uv()
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from tui_screenshots.main import main
+
+if __name__ == "__main__":
+    main()

@@ -40,6 +40,8 @@ type SetupModel struct {
 	isComplete       bool
 	checkResults     []enrollment.CheckResult
 	isChecking       bool
+	width            int
+	height           int
 }
 
 func NewSetupModel(home enrollment.Home) SetupModel {

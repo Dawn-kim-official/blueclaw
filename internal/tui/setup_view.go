@@ -11,6 +11,12 @@ func (setupModel SetupModel) Init() tea.Cmd {
 }
 
 func (setupModel SetupModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch typedMessage := message.(type) {
+	case tea.WindowSizeMsg:
+		setupModel.width = typedMessage.Width
+		setupModel.height = typedMessage.Height
+		return setupModel, nil
+	}
 	keyPressMessage, isKeyPress := message.(tea.KeyPressMsg)
 	if !isKeyPress {
 		return setupModel, nil
@@ -40,7 +46,7 @@ func (setupModel SetupModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (setupModel SetupModel) View() tea.View {
 	lines := []string{
-		styleHeaderBar.Render(" blueclaw setup "),
+		setupModel.renderHeader(),
 		"",
 		styleMuted.Render("Nothing is configured yet. Answer these and blueclaw writes its own configuration to " + setupModel.home.DirectoryPath + "."),
 		"",
@@ -66,6 +72,15 @@ func (setupModel SetupModel) View() tea.View {
 	view := tea.NewView(strings.Join(lines, "\n"))
 	view.AltScreen = true
 	return view
+}
+
+func (setupModel SetupModel) renderHeader() string {
+	header := styleHeaderBar.Render(" blueclaw setup ")
+	masthead := renderMasthead(setupModel.width, setupModel.height, setupModel.overviewLines())
+	if masthead == "" {
+		return header
+	}
+	return masthead + "\n" + header
 }
 
 func (setupModel SetupModel) renderCheckResults() []string {

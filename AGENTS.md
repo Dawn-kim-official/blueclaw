@@ -101,6 +101,23 @@ print(f"{words} words · {negations} negations (1 per {words // max(negations, 1
 EOF
 ```
 
+### Screenshots
+
+The terminal user interface images the README embeds are generated, never
+hand-shot. Re-shoot them from the working tree after any change to
+`internal/tui`:
+
+```bash
+./tools/shoot-tui-screenshots            # every frame, into assets/screenshots/
+./tools/shoot-tui-screenshots --only tui-tasks
+```
+
+It builds `cmd/blueclaw-cli`, serves a seeded admin API on 127.0.0.1:8099,
+drives the client through a pseudo terminal, and renders each screen with
+headless Chrome. The demo task runs, ledger, and harness answers live in
+`tools/tui_screenshots/fixture_api.py`; change them there so every frame stays
+consistent.
+
 ### Pull requests
 
 One reviewable change per pull request. The description says what the reader
