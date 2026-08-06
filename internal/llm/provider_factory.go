@@ -140,7 +140,7 @@ const (
 	defaultXHighModelName  = "google/gemini-3.5-flash-lite"
 	defaultHighModelName   = "google/gemini-3.5-flash-lite"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
-	defaultLowModelName    = "xiaomi/mimo-v2.5"
+	defaultLowModelName    = "openai/gpt-5.6-luna"
 	defaultXLowModelName   = "deepseek/deepseek-v4-flash"
 )
 
