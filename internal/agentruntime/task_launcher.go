@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yeomyeonggeori/blueclaw/internal/approvalgate"
 	"github.com/yeomyeonggeori/blueclaw/internal/launchfailure"
 	"github.com/yeomyeonggeori/blueclaw/internal/memory"
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
@@ -34,6 +35,11 @@ type TaskLauncher struct {
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
 	requesterEmailResolver        RequesterEmailResolver
 	agentIdentityProvider         func() agentcontract.AgentIdentity
+	approvalGate                  *approvalgate.Gate
+}
+
+func (taskLauncher *TaskLauncher) UseApprovalGate(approvalGate *approvalgate.Gate) {
+	taskLauncher.approvalGate = approvalGate
 }
 
 type RequesterWorkspaceProvisioner interface {
@@ -362,6 +368,12 @@ func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecut
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
 	)
+	toolSet.UseToolCallGate(execution.Launcher.approvalGate.TurnGate(approvalgate.TurnContext{
+		RequesterPersonID: execution.Request.RequesterPersonID,
+		TaskRunID:         execution.Request.ExistingTaskRunID,
+		ResponseLanguage:  execution.Request.ResponseLanguage,
+		Prompt:            execution.Request.Prompt,
+	}))
 	if execution.Request.AmbientDuty.IsMatch {
 		return toolSet.WithAllowedToolNames(ambientCaptureAllowedToolNames()), nil
 	}

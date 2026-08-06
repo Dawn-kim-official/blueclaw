@@ -29,6 +29,7 @@ import (
 
 	"github.com/yeomyeonggeori/blueclaw/agenttest"
 	"github.com/yeomyeonggeori/blueclaw/internal/agentruntime"
+	"github.com/yeomyeonggeori/blueclaw/internal/approvalgate"
 	"github.com/yeomyeonggeori/blueclaw/internal/capability"
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/connectors"
@@ -884,6 +885,9 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		agentHarness,
 	)
 	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentHarness, taskRunService, toolCatalogBuilder)
+	virtualApprovalGate := approvalgate.New(taskRunService)
+	virtualApprovalGate.UseLanguageModel(highLanguageModel)
+	virtualTaskLauncher.UseApprovalGate(virtualApprovalGate)
 	virtualTaskLauncher.UseTurnRouter(intake.NewTurnRouter(firstAvailableLanguageModel(intakeLanguageModel, highLanguageModel), agentcontract.IntakeOptions{IsEnabled: true, DefaultTaskLevel: agentcontract.TaskLevelLow}))
 	virtualTaskLauncher.UseLaunchFailureCompleter(launchfailure.NewCompleter(taskRunService, highLanguageModel))
 	virtualTaskLauncher.UseRequesterEmailResolver(identityService)

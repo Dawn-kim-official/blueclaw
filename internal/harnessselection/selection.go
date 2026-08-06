@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/acpharness"
+	"github.com/yeomyeonggeori/blueclaw/internal/approvalgate"
 	"github.com/yeomyeonggeori/blueclaw/internal/cliharness"
 	"github.com/yeomyeonggeori/blueclaw/internal/config"
 	"github.com/yeomyeonggeori/blueclaw/internal/harnessdriver"
@@ -28,7 +29,7 @@ type ToolCatalogEndpoint struct {
 	URL          string
 	Resolver     *mcpserver.SessionTokenRequesterResolver
 	Handler      http.Handler
-	ApprovalGate mcpserver.ApprovalGate
+	ApprovalGate *approvalgate.Gate
 
 	BridgeCommandPath string
 }
@@ -91,11 +92,17 @@ func externalHarnessFactory(harnessConfiguration config.HarnessConfiguration, to
 type sessionTokenPublisher struct {
 	endpointURL  string
 	resolver     *mcpserver.SessionTokenRequesterResolver
-	approvalGate mcpserver.ApprovalGate
+	approvalGate *approvalgate.Gate
 }
 
 func (publisher sessionTokenPublisher) PublishToolCatalog(requesterToolSet mcpserver.RequesterToolSet) (string, string, func(), error) {
-	requesterToolSet.ApprovalGate = publisher.approvalGate
+	requesterToolSet.ToolSet.UseToolCallGate(publisher.approvalGate.TurnGate(approvalgate.TurnContext{
+		RequesterPersonID: requesterToolSet.RequesterPersonID,
+		TaskRunID:         requesterToolSet.TaskRunID,
+		ResponseLanguage:  requesterToolSet.ResponseLanguage,
+		Prompt:            requesterToolSet.Prompt,
+		HarnessSession:    requesterToolSet.HarnessSession,
+	}))
 	sessionToken, errorValue := publisher.resolver.GrantSessionToken(requesterToolSet)
 	if errorValue != nil {
 		return "", "", func() {}, errorValue

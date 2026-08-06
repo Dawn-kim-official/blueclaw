@@ -320,6 +320,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskLauncher.UseRequesterWorkspaceProvisioner(security.NewPOSIXRequesterWorkspaceProvisioner(posixSynchronizer))
 	taskLauncher.UseRequesterEmailResolver(identityService)
 	taskLauncher.UseAgentIdentityProvider(agentIdentityProvider)
+	taskLauncher.UseApprovalGate(toolCatalogApprovalGate)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
 	if taskScheduleRepository != nil && scheduledDeliveryRepository != nil {
 		poller := scheduler.TaskSchedulePoller{
