@@ -2950,6 +2950,9 @@ func TestConnectorRuntimeInteractiveConfirmRestoresPersistedIntakeState(t *testi
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar_delete/invoke" {
 		t.Fatalf("expected exactly one held calendar delete execution, got %+v", invokedTools)
 	}
+	if !connectorTaskEventsContain(connectorRuntime, secondResult.TaskRunID, "approval.decided", `"decision":"confirm"`) {
+		t.Fatalf("a decision the ledger does not carry is a decision the approval gate cannot act on, events: %+v", connectorRuntime.taskRunService.ListTaskEvent(secondResult.TaskRunID))
+	}
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "ask-post-1" {
 		t.Fatalf("expected confirm interaction to resolve, got %+v", adapter.resolutions)
 	}

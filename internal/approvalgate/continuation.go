@@ -4,8 +4,35 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/taskstate"
 )
+
+func RecordRequesterDecision(taskRunStore taskstate.TaskRunStore, taskRunID string, approvalSignal *agentcontract.ApprovalSignal, source string) {
+	if approvalSignal == nil || strings.TrimSpace(taskRunID) == "" {
+		return
+	}
+	decision := decisionForApprovalSignal(*approvalSignal)
+	if decision == "" {
+		return
+	}
+	taskRunStore.AppendTaskEvent(taskRunID, "approval.decided", marshalEventBody(map[string]string{
+		"decision": decision,
+		"source":   source,
+	}))
+}
+
+func decisionForApprovalSignal(approvalSignal agentcontract.ApprovalSignal) string {
+	switch approvalSignal {
+	case agentcontract.ApprovalSignalApprove:
+		return "confirm"
+	case agentcontract.ApprovalSignalApproveTask:
+		return "confirm_task"
+	case agentcontract.ApprovalSignalReject:
+		return "cancel"
+	}
+	return ""
+}
 
 type ApprovedCall struct {
 	ToolName  string

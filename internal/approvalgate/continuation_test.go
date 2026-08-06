@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
+	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
 func taskRunWithHeldCall(t *testing.T) (*task.TaskRunService, string) {
@@ -68,5 +69,43 @@ func TestATurnWithNothingPendingCarriesNoInstruction(t *testing.T) {
 
 	if declinedCallNote := DeclinedCallNote(taskRunService.ListTaskEvent(taskRun.TaskRunID)); declinedCallNote != "" {
 		t.Fatalf("expected an ordinary turn to be left alone, got %q", declinedCallNote)
+	}
+}
+
+func TestEverySurfaceRecordsTheRequesterDecisionUnderOneName(t *testing.T) {
+	testCases := []struct {
+		approvalSignal   agentcontract.ApprovalSignal
+		expectedDecision string
+	}{
+		{agentcontract.ApprovalSignalApprove, "confirm"},
+		{agentcontract.ApprovalSignalApproveTask, "confirm_task"},
+		{agentcontract.ApprovalSignalReject, "cancel"},
+	}
+	for _, testCase := range testCases {
+		t.Run(string(testCase.approvalSignal), func(t *testing.T) {
+			taskRunService, taskRunID := taskRunWithHeldCall(t)
+
+			RecordRequesterDecision(taskRunService, taskRunID, &testCase.approvalSignal, "chat_reply")
+
+			taskEvents := taskRunService.ListTaskEvent(taskRunID)
+			decidedEvent := taskEvents[len(taskEvents)-1]
+			if decidedEvent.Name != "approval.decided" || !strings.Contains(decidedEvent.Body, `"decision":"`+testCase.expectedDecision+`"`) {
+				t.Fatalf("expected %q recorded as %q, got %s %s", testCase.approvalSignal, testCase.expectedDecision, decidedEvent.Name, decidedEvent.Body)
+			}
+		})
+	}
+}
+
+func TestAnUnclearReplyDecidesNothing(t *testing.T) {
+	taskRunService, taskRunID := taskRunWithHeldCall(t)
+	unclearSignal := agentcontract.ApprovalSignalUnclear
+
+	RecordRequesterDecision(taskRunService, taskRunID, &unclearSignal, "chat_reply")
+	RecordRequesterDecision(taskRunService, taskRunID, nil, "chat_reply")
+
+	for _, taskEvent := range taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name == "approval.decided" {
+			t.Fatalf("a reply the classifier could not read is not an answer, got %s", taskEvent.Body)
+		}
 	}
 }
