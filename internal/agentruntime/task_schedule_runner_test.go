@@ -9,9 +9,9 @@ import (
 	"github.com/yeomyeonggeori/blueclaw/internal/llm"
 	"github.com/yeomyeonggeori/blueclaw/internal/policy"
 	"github.com/yeomyeonggeori/blueclaw/internal/task"
-	"github.com/yeomyeonggeori/bluecollar/loop"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 	"github.com/yeomyeonggeori/bluecollar/agentcontract/harnesstest"
+	"github.com/yeomyeonggeori/bluecollar/loop"
 )
 
 func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
