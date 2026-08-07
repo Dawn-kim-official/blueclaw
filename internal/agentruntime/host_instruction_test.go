@@ -7,14 +7,17 @@ import (
 	"github.com/yeomyeonggeori/bluecollar/agentcontract"
 )
 
-func TestTheHostSuppliesTheConventionsOfItsOwnMessenger(t *testing.T) {
-	instruction := hostInstructionForRequest(agentcontract.AgentTurnRequest{
-		AgentIdentity: agentcontract.AgentIdentity{Name: "Ada", Handle: "ada"},
-	})
+func TestTheHostDescribesItsOwnToolsAndNothingElse(t *testing.T) {
+	instruction := hostInstructionForRequest(agentcontract.AgentTurnRequest{})
 
-	for _, section := range []string{"Checkpoint messages:", "Bare mentions and banter:", "Approvals and user input:", "Recipients:", "Delivery and artifacts:", "Privacy boundary"} {
-		if !strings.Contains(instruction, section) {
-			t.Fatalf("%q describes tools and policy this host owns, so this host is where it has to come from", section)
+	for _, mine := range []string{"Approvals and user input:", "Recipients:", "Privacy boundary"} {
+		if !strings.Contains(instruction, mine) {
+			t.Fatalf("%q describes how this host's own tools behave, so this host is where it comes from", mine)
+		}
+	}
+	for _, notMine := range []string{"Checkpoint messages", "Bare mentions", "Delivery and artifacts", "Language:"} {
+		if strings.Contains(instruction, notMine) {
+			t.Fatalf("%q is how one product decided to behave, and a host that hardcodes it stops being usable by another", notMine)
 		}
 	}
 }
@@ -28,14 +31,5 @@ func TestAnApprovalContinuationIsNamedToTheAgent(t *testing.T) {
 	}
 	if strings.Contains(withoutContinuation, "just approved") {
 		t.Fatal("and told nothing of the sort when it did not")
-	}
-}
-
-func TestTheCheckpointAdviceFollowsTheTaskLevel(t *testing.T) {
-	short := hostInstructionForRequest(agentcontract.AgentTurnRequest{TaskLevel: agentcontract.TaskLevelXLow})
-	long := hostInstructionForRequest(agentcontract.AgentTurnRequest{TaskLevel: agentcontract.TaskLevelHigh})
-
-	if !strings.Contains(short, "short task") || !strings.Contains(long, "multi-step task") {
-		t.Fatalf("how often to speak up depends on how long the work runs, and the level is what says so:\nshort=%q\nlong=%q", short[:200], long[:200])
 	}
 }
