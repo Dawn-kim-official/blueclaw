@@ -7,6 +7,9 @@ import { createBridge } from './bridge.ts';
 import { createOutboundHandler } from './outbound.ts';
 import { createMirror, type MirrorWiring } from './mirror/wire.ts';
 import type { NormalizedPlatformAdapter } from './visible-context.ts';
+import { createMattermostPersonalGateway } from './personal/mattermost.ts';
+import { createBuzzPersonalGateway } from './personal/buzz.ts';
+import type { PersonalGateway } from './personal/gateway.ts';
 
 const configuration = loadConfiguration(process.env);
 
@@ -30,6 +33,7 @@ if (configuration.admindBaseURL && configuration.buzz) {
 
 const adapters: Record<string, Adapter> = {};
 const normalizedAdapters: Record<string, NormalizedPlatformAdapter> = {};
+const personalGateways: Record<string, PersonalGateway> = {};
 if (configuration.mattermost) {
   adapters.mattermost = createMattermostAdapter({
     baseUrl: configuration.mattermost.baseURL,
@@ -37,6 +41,7 @@ if (configuration.mattermost) {
     callbackUrl: configuration.mattermost.actionCallbackURL,
     mirror: mirror?.mattermost,
   });
+  personalGateways.mattermost = createMattermostPersonalGateway(configuration.mattermost.baseURL);
 }
 if (configuration.buzz) {
   const buzzAdapter = createBuzzAdapter({
@@ -49,6 +54,10 @@ if (configuration.buzz) {
   });
   adapters.buzz = buzzAdapter;
   normalizedAdapters.buzz = buzzAdapter;
+  personalGateways.buzz = createBuzzPersonalGateway(buzzAdapter, {
+    relayURL: configuration.buzz.relayURL,
+    authTagJSON: configuration.buzz.authTagJSON,
+  });
 }
 
 const chat = new Chat({
@@ -62,7 +71,7 @@ createBridge(chat, configuration, normalizedAdapters);
 
 await chat.initialize();
 
-const outboundHandler = createOutboundHandler(adapters as never, configuration);
+const outboundHandler = createOutboundHandler(adapters as never, configuration, personalGateways);
 
 Bun.serve({
   port: configuration.listenPort,
