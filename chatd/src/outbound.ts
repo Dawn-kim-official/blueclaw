@@ -29,6 +29,9 @@ import {
 	parseReactionRequest,
 	parseReplySendRequest,
 } from "./outbound-parse.ts";
+import { personCapabilities, type PersonCapability } from "./personal/capabilities.ts";
+import { MalformedRequest } from "./personal/parse.ts";
+import type { PersonalGateway } from "./personal/gateway.ts";
 import type {
 	AgentPartDocument,
 	AttachmentImportResponse,
@@ -77,6 +80,7 @@ const capabilityHandlers: Record<string, CapabilityHandler> = {
 export function createOutboundHandler(
 	adapters: Record<string, PlatformChatAdapter>,
 	configuration: ChatdConfiguration,
+	personalGateways: Record<string, PersonalGateway> = {},
 ): (request: Request) => Promise<Response> {
 	return async function handleOutboundRequest(request: Request): Promise<Response> {
 		if (request.method !== "POST") {
@@ -89,24 +93,57 @@ export function createOutboundHandler(
 		}
 
 		const [, platform, capabilityName] = routeMatch;
-		const adapter = platform ? adapters[platform] : undefined;
-		if (!adapter || !capabilityName) {
+		if (!platform || !capabilityName) {
+			return jsonResponse(404, { error: "not found" });
+		}
+		const adapter = adapters[platform];
+		if (!adapter) {
 			return jsonResponse(404, { error: `unknown platform ${platform}` });
 		}
 
+		const personCapability = personCapabilities[capabilityName];
 		const handler = capabilityHandlers[capabilityName];
-		if (!handler) {
+		if (!personCapability && !handler) {
 			return jsonResponse(404, { error: `unknown capability ${capabilityName}` });
 		}
 
+		let requestDocument: unknown;
 		try {
-			const requestDocument = await request.json();
-			const responseDocument = await handler(adapter, configuration, requestDocument);
-			return jsonResponse(200, responseDocument);
+			requestDocument = await request.json();
+		} catch {
+			return jsonResponse(400, { error: "expected a JSON body" });
+		}
+
+		if (personCapability) {
+			return answerAsPerson(personCapability, personalGateways[platform], platform, requestDocument);
+		}
+
+		try {
+			const responseDocument = await handler?.(adapter, configuration, requestDocument);
+			return jsonResponse(200, responseDocument ?? {});
 		} catch (error) {
 			return jsonResponse(502, { error: error instanceof Error ? error.message : String(error) });
 		}
 	};
+}
+
+async function answerAsPerson(
+	capability: PersonCapability,
+	gateway: PersonalGateway | undefined,
+	platform: string,
+	requestDocument: unknown,
+): Promise<Response> {
+	if (!gateway) {
+		return jsonResponse(404, { error: `${platform} cannot act as a person` });
+	}
+	try {
+		return jsonResponse(200, await capability(gateway, requestDocument));
+	} catch (error) {
+		if (error instanceof MalformedRequest) {
+			return jsonResponse(400, { error: error.message });
+		}
+		return jsonResponse(502, { error: error instanceof Error ? error.message : String(error) });
+	}
 }
 
 function jsonResponse(statusCode: number, body: object): Response {
